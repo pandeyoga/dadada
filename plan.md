@@ -552,3 +552,11 @@ Sesi sebelumnya terputus di tengah penutupan temuan uji iterasi 102. Yang dilaku
 | `components/finance/KprBankDashboard.js`; sub-tab Keuangan › Piutang › **Pencairan KPR** (`finance-tab-kpr`) | **SELESAI** |
 | `AllinCostsSummary`: tombol Terbitkan Invoice Biaya (`cust-payment-plan-allin-issue-btn`), baris invoice + PDF, kuitansi KWB | **SELESAI** |
 | Uji: testing agent iteration_33 (5 pytest + UI) lulus | **SELESAI** |
+
+## 3ae) Sesi 2026-09-11 #3 — Toggle approval manajer kupon/promo (SELESAI)
+
+| Bagian | Status |
+|---|---|
+| `PricingRuleTable`: kolom Approval manajer (Switch → `approval_mode` always/global), disabled tanpa `pricing:update` | **SELESAI** |
+| `PricingRuleDialog`: Switch "Wajib approval manajer" sinkron dengan Select mode | **SELESAI** |
+| Uji: testing agent iteration_34 lulus | **SELESAI** |

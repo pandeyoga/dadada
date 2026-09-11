@@ -229,7 +229,15 @@ export default function PricingRuleDialog({ kind, source, open, onOpenChange, on
               onChange={(e) => patch({ note: e.target.value })} />
           </div>
           <div className="space-y-1.5">
-            <Label>Persetujuan manajer</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label>Persetujuan manajer</Label>
+              <label className="flex items-center gap-2 text-xs">
+                <Switch data-testid={`${PRICING.formApproval}-toggle`} checked={(form.approval_mode || "global") === "always"}
+                  aria-label="Selalu perlu persetujuan manajer"
+                  onCheckedChange={(v) => patch({ approval_mode: v ? "always" : "global", requires_approval: v })} />
+                Wajib approval manajer
+              </label>
+            </div>
             <Select value={form.approval_mode || "global"} onValueChange={(v) => patch({ approval_mode: v, requires_approval: v === "always" })}>
               <SelectTrigger data-testid={PRICING.formApproval} aria-label="Mode persetujuan manajer">
                 <SelectValue />

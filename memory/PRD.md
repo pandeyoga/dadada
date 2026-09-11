@@ -1,5 +1,10 @@
 # PRD — SIPRO Property Development OS (lanjutan dari repo pandeyoga/dadada)
 
+## Sesi 2026-09-11 (lanjutan #18) — Toggle approval manajer pada kupon/promo/skema diskon (iteration 34) — SELESAI
+- Tabel Harga & Promo: kolom **Approval manajer** dengan Switch per baris (`pricing-rule-approval-toggle-{CODE}`) → PUT `/pricing/{slug}/{id}` approval_mode always/global, label mode tetap tampil.
+- Dialog aturan: Switch "Wajib approval manajer" (`pricing-rule-form-approval-toggle`) sinkron dengan Select mode (3 mode tetap tersedia).
+- Uji: testing agent iteration_34 (pytest `backend/tests/test_pricing_approval_toggle_iter34.py` + UI) lulus.
+
 ## Sesi 2026-09-11 (lanjutan #17) — Tagih Biaya All-in dari Rencana Bayar + Dashboard Pencairan KPR per bank (iteration 33) — SELESAI
 - `GET /kpr/disbursement-summary` (`allin_amend.bank_summary`): per bank plafon/cair/belum cair, tahap tertahan siap cair vs menunggu syarat, pengajuan tanpa skema.
 - UI Keuangan › Piutang › sub-tab **Pencairan KPR** (`KprBankDashboard`): kartu total, kartu per bank (klik = filter), tabel tahap tertahan (link ke kartu KPR pelanggan), daftar plafon tanpa skema.

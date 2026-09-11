@@ -1,13 +1,16 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { History, Pencil, Plus } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import DataTable from "@/components/patterns/DataTable";
 import StatusPill from "@/components/patterns/StatusPill";
 import PricingRuleDialog, { APPROVAL_MODE_LABEL, RULE_META } from "@/components/config/PricingRuleDialog";
 import CouponRedemptionsDialog from "@/components/config/CouponRedemptionsDialog";
 import api from "@/services/apiClient";
 import { useReference } from "@/context/ReferenceContext";
+import { useAuth } from "@/context/AuthContext";
 import { formatDateWIB, formatIDR } from "@/utils/formatters";
 import { PRICING } from "@/constants/testIds";
 
@@ -21,6 +24,9 @@ const periodText = (r) => (!r.valid_from && !r.valid_until ? "Tanpa batas"
 export default function PricingRuleTable({ kind }) {
   const meta = RULE_META[kind];
   const { labelOf } = useReference();
+  const { can } = useAuth();
+  const mayUpdate = can("pricing", "update");
+  const [toggling, setToggling] = useState("");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -46,6 +52,17 @@ export default function PricingRuleTable({ kind }) {
 
   useEffect(() => { load(); }, [load]);
 
+  const modeOf = (r) => r.approval_mode || (r.requires_approval ? "always" : "global");
+  const toggleApproval = async (r, on) => {
+    const mode = on ? "always" : "global";
+    setToggling(r.id);
+    try {
+      const res = await api.put(`/pricing/${meta.slug}/${r.id}`, { approval_mode: mode, requires_approval: on });
+      setRows((rs) => rs.map((x) => (x.id === r.id ? { ...x, ...res.data.data } : x)));
+      toast.success(`${r.code}: ${on ? "selalu perlu persetujuan manajer" : "ikut ambang organisasi"}.`);
+    } catch (e) { toast.error(e?.response?.data?.detail || "Gagal mengubah mode persetujuan."); } finally { setToggling(""); }
+  };
+
   const filtered = rows.filter((r) => {
     const q = (query.q || "").toLowerCase();
     return !q || `${r.code} ${r.name}`.toLowerCase().includes(q);
@@ -59,15 +76,6 @@ export default function PricingRuleTable({ kind }) {
         <div>
           <div className="font-medium">{r.name}</div>
           {r.note ? <div className="text-xs text-muted-foreground">{r.note}</div> : null}
-          {(() => {
-            const mode = r.approval_mode || (r.requires_approval ? "always" : "global");
-            return (
-              <div data-testid={`pricing-rule-approval-${r.code}`} data-mode={mode}
-                className={`text-xs ${mode === "always" ? "text-amber-700" : mode === "never" ? "text-emerald-700" : "text-muted-foreground"}`}>
-                Persetujuan: {APPROVAL_MODE_LABEL[mode]}
-              </div>
-            );
-          })()}
           {kind === "promo" && r.stackable === false ? (
             <div className="text-xs text-amber-700">Tidak bisa digabung kupon</div>
           ) : null}
@@ -114,6 +122,21 @@ export default function PricingRuleTable({ kind }) {
           </div>
         </div>
       ), exportValue: (r) => (r.applies_project_ids || []).map((id) => projectNames[id] || id).join("|") },
+    { key: "approval_mode", header: "Approval manajer",
+      render: (r) => {
+        const mode = modeOf(r);
+        return (
+          <div className="flex flex-col gap-0.5">
+            <Switch data-testid={`pricing-rule-approval-toggle-${r.code}`} checked={mode === "always"}
+              disabled={!mayUpdate || toggling === r.id} aria-label={`Approval manajer ${r.code}`}
+              onCheckedChange={(v) => toggleApproval(r, v)} />
+            <span data-testid={`pricing-rule-approval-${r.code}`} data-mode={mode}
+              className={`text-[11px] ${mode === "always" ? "text-amber-700" : mode === "never" ? "text-emerald-700" : "text-muted-foreground"}`}>
+              {APPROVAL_MODE_LABEL[mode]}
+            </span>
+          </div>
+        );
+      }, exportValue: (r) => modeOf(r) },
     { key: "active", header: "Status",
       render: (r) => <StatusPill status={r.active ? "active" : "inactive"} label={r.active ? "Aktif" : "Nonaktif"} />,
       exportValue: (r) => (r.active ? "aktif" : "nonaktif") },
