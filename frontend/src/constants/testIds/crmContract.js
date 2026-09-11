@@ -28,6 +28,10 @@ export const CRMC = {
   planAllin: "cust-payment-plan-allin",
   planAllinOpen: "cust-payment-plan-allin-open",
   planAllinRow: "cust-payment-plan-allin-row",
+  planAllinInvoice: "cust-payment-plan-allin-invoice",
+  planAllinIssue: "cust-payment-plan-allin-issue-btn",
+  planAllinInvoicePdf: "cust-payment-plan-allin-invoice-pdf",
+  planAllinReceipt: "cust-payment-plan-allin-receipt",
 
   // ---------- Fee Mitra (profil lead) ----------
   feeTab: "lead-partner-fee-tab",

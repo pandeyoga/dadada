@@ -1,5 +1,11 @@
 # PRD — SIPRO Property Development OS (lanjutan dari repo pandeyoga/dadada)
 
+## Sesi 2026-09-11 (lanjutan #17) — Tagih Biaya All-in dari Rencana Bayar + Dashboard Pencairan KPR per bank (iteration 33) — SELESAI
+- `GET /kpr/disbursement-summary` (`allin_amend.bank_summary`): per bank plafon/cair/belum cair, tahap tertahan siap cair vs menunggu syarat, pengajuan tanpa skema.
+- UI Keuangan › Piutang › sub-tab **Pencairan KPR** (`KprBankDashboard`): kartu total, kartu per bank (klik = filter), tabel tahap tertahan (link ke kartu KPR pelanggan), daftar plafon tanpa skema.
+- Kotak Biaya all-in (Rencana Bayar): tombol **Terbitkan Invoice Biaya** (finance:create) → baris invoice INB (status, total, sisa, PDF, link Terima pembayaran) + daftar kuitansi KWB.
+- Uji: testing agent iteration_33 — 5 pytest (`backend/tests/test_kpr_bank_summary_iter33.py`) + UI lulus. Catatan: sales scoped tidak melihat kontrak demo (view_own) — bukan bug.
+
 ## Sesi 2026-09-11 (lanjutan #16) — repo bavafatata/sipro dipulihkan; Pencairan KPR kartu pelanggan ≡ skema pencairan bank (iteration 32) — SELESAI
 - Lingkungan: clone repo, deps backend/frontend, `.env` backend (+JWT_SECRET, SEED_DEMO_USERS), seed demo, `memory/test_credentials.md` (sandi `Sipro#2026`).
 - Bug user: dialog **Cairkan** di kartu KPR pelanggan minta nominal bebas + milestone → kini `POST /financing/{fid}/disburse` mendelegasikan ke `kpr_disburse.disburse` (tahap dari skema, kuitansi `kpr`, jurnal, piutang berkurang); UI `DisburseDialog` per tahap (blocker akad/kontrak, pemilih skema, syarat tahap, nominal otomatis).

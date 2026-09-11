@@ -543,3 +543,12 @@ Sesi sebelumnya terputus di tengah penutupan temuan uji iterasi 102. Yang dilaku
 | Tab Rencana Bayar: kotak **Biaya all-in** (`cust-payment-plan-allin`) — penjelasan bahwa biaya all-in = titipan pembeli (INB/KWB), bukan piutang unit; 4 angka + baris komponen | **SELESAI** |
 | Panel konfigurasi skema: label total % hanya tahap ber-% + total retensi tetap; deskripsi aturan baru | **SELESAI** |
 | Uji: `scripts/probe_kpr_disburse.py` ALL PASS; gate `verify_p75-78.py` 23/23; testing agent iteration_32 — 8 pytest (`backend/tests/test_kpr_disburse_bugfix.py`) + UI Cairkan/tranches/Rencana Bayar lulus | **SELESAI** |
+
+## 3ad) Sesi 2026-09-11 #2 — Tagih Biaya All-in + Dashboard Pencairan KPR per bank (SELESAI)
+
+| Bagian | Status |
+|---|---|
+| `allin_amend.bank_summary` + `GET /kpr/disbursement-summary` (financing:view_own) | **SELESAI** |
+| `components/finance/KprBankDashboard.js`; sub-tab Keuangan › Piutang › **Pencairan KPR** (`finance-tab-kpr`) | **SELESAI** |
+| `AllinCostsSummary`: tombol Terbitkan Invoice Biaya (`cust-payment-plan-allin-issue-btn`), baris invoice + PDF, kuitansi KWB | **SELESAI** |
+| Uji: testing agent iteration_33 (5 pytest + UI) lulus | **SELESAI** |

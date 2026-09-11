@@ -9,6 +9,7 @@ import DepositPanel from "@/components/finance/DepositPanel";
 import CollectionsPanel from "@/components/finance/CollectionsPanel";
 import LateFeeAutoPanel from "@/components/finance/LateFeeAutoPanel";
 import TrancheReminderPanel from "@/components/finance/TrancheReminderPanel";
+import KprBankDashboard from "@/components/finance/KprBankDashboard";
 import ApPanel from "@/components/finance/ApPanel";
 import CommissionsPanel from "@/components/finance/CommissionsPanel";
 import ReportsPanel from "@/components/finance/ReportsPanel";
@@ -31,6 +32,7 @@ const RECEIVABLE_SUBS = [
   { key: "ar", label: "Daftar Piutang", testId: FINANCE.tabAr, content: <ArPanel /> },
   { key: "collections", label: "Penagihan", testId: FINANCE.tabCollections,
     content: <div className="space-y-6"><CollectionsPanel /><TrancheReminderPanel /><LateFeeAutoPanel /></div> },
+  { key: "kpr", label: "Pencairan KPR", testId: "finance-tab-kpr", content: <KprBankDashboard /> },
   { key: "deposits", label: "Titipan", testId: FINANCE.tabDeposits, content: <DepositPanel /> },
   { key: "waivers", label: "Keringanan Denda", testId: P59.waiverTabReport, content: <LateFeeWaiverReport /> },
   { key: "cancellations", label: "Pembatalan & Refund", testId: P56.financeTab, content: <CancellationsPanel /> },

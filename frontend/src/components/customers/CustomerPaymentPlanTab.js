@@ -1,12 +1,16 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, ExternalLink, Info, Receipt } from "lucide-react";
+import { AlertTriangle, ExternalLink, FileText, Info, Printer, Receipt } from "lucide-react";
+import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
 import EmptyState from "@/components/patterns/EmptyState";
 import MoneyText from "@/components/patterns/MoneyText";
 import StatusPill from "@/components/patterns/StatusPill";
 import { LoadingCards, ErrorState } from "@/components/patterns/StateViews";
+import { useAuth } from "@/context/AuthContext";
 import api from "@/services/apiClient";
+import { downloadFile } from "@/utils/fileDownload";
 import { formatDateWIB } from "@/utils/formatters";
 import LateFeePanel from "@/components/finance/LateFeePanel";
 import { CRMC, P58 } from "@/constants/testIds";
@@ -226,12 +230,26 @@ function DealPlan({ deal, plan, late, onChanged }) {
 
 /** Biaya all-in per kontrak: sengaja DI LUAR piutang unit (AR) — dana titipan pembeli untuk
  *  BPHTB/notaris/dll., ditagih lewat Invoice Biaya (INB) & diterima lewat kuitansi KWB. */
-function AllinCostsSummary({ contract, costs, customerId }) {
+function AllinCostsSummary({ contract, costs, customerId, onChanged }) {
+  const { can } = useAuth();
+  const [busy, setBusy] = useState(false);
   if (!contract || !costs) return null;
   const comps = costs.components || [];
   if (!comps.length) return null;
   const passThrough = Number(costs.pass_through_total || 0);
   const devBorne = Number(costs.developer_borne_total || 0);
+  const mayFinance = can("finance", "create");
+  const openInv = (costs.invoices || []).find((i) => i.status !== "void");
+  const issue = async () => {
+    setBusy(true);
+    try {
+      const r = await api.post(`/contracts/${contract.id}/cost-invoices`);
+      toast.success(`Invoice biaya ${r.data?.data?.number || ""} terbit.`);
+      onChanged && onChanged();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Gagal menerbitkan invoice biaya."); } finally { setBusy(false); }
+  };
+  const pdf = (url, name) => downloadFile(url, { fallbackName: name, open: true })
+    .catch((e) => toast.error(e?.response?.data?.detail || "Gagal membuka PDF."));
   return (
     <div data-testid={CRMC.planAllin} className="space-y-2 rounded-xl border bg-card p-4 shadow-[var(--shadow-card)]">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -277,6 +295,47 @@ function AllinCostsSummary({ contract, costs, customerId }) {
       {devBorne ? (
         <p className="text-[11px] text-muted-foreground">Ditanggung pengembang {" "}
           <MoneyText value={devBorne} /> — dibebankan sebagai biaya pengembang, bukan ditagih ke pembeli.</p>
+      ) : null}
+      {passThrough > 0 ? (
+        <div data-testid={CRMC.planAllinInvoice} data-status={openInv?.status || "none"}
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-[12px]">
+          {openInv ? (
+            <>
+              <span>Invoice biaya <b className="font-mono">{openInv.number}</b> · {openInv.status} · total <MoneyText value={openInv.total} /> · sisa <MoneyText value={openInv.outstanding} /></span>
+              <span className="flex items-center gap-1">
+                <Button data-testid={CRMC.planAllinInvoicePdf} size="sm" variant="ghost" className="h-7 px-2 text-xs"
+                  onClick={() => pdf(`/cost-invoices/${openInv.id}/pdf`, "invoice-biaya.pdf")}>
+                  <Printer className="mr-1 h-3.5 w-3.5" /> PDF
+                </Button>
+                {openInv.outstanding > 0 ? (
+                  <Link to={`/customers/${customerId}?tab=kontrak53`} className="text-[11px] font-medium text-primary hover:underline">Terima pembayaran →</Link>
+                ) : null}
+              </span>
+            </>
+          ) : (
+            <>
+              <span>Biaya titipan <MoneyText value={passThrough} /> belum ditagih — invoice biaya (INB) belum terbit.</span>
+              {mayFinance ? (
+                <Button data-testid={CRMC.planAllinIssue} size="sm" disabled={busy} onClick={issue}>
+                  <FileText className="mr-1 h-3.5 w-3.5" /> {busy ? "Menerbitkan…" : "Terbitkan Invoice Biaya"}
+                </Button>
+              ) : <span className="text-muted-foreground">Diterbitkan oleh Keuangan.</span>}
+            </>
+          )}
+        </div>
+      ) : null}
+      {(costs.receipts || []).length ? (
+        <ul className="space-y-1">
+          {costs.receipts.slice(0, 5).map((r) => (
+            <li key={r.id} data-testid={CRMC.planAllinReceipt} className="flex items-center justify-between rounded-lg border px-2.5 py-1 text-[12px]">
+              <span>Kuitansi biaya <b className="font-mono">{r.receipt_no}</b> · {formatDateWIB(r.created_at)}{r.method ? ` · ${r.method}` : ""}</span>
+              <span className="flex items-center gap-2 tabular-nums"><MoneyText value={r.amount} />
+                <button type="button" className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                  onClick={() => pdf(`/cost-receipts/${r.id}/pdf`, "kuitansi-biaya.pdf")}><Receipt className="h-3 w-3" /> PDF</button>
+              </span>
+            </li>
+          ))}
+        </ul>
       ) : null}
     </div>
   );
@@ -360,7 +419,7 @@ export default function CustomerPaymentPlanTab({ customer }) {
       {rows.map(({ deal, plan, late, contract, costs }) => (
         <React.Fragment key={deal.id}>
           <DealPlan deal={deal} plan={plan} late={late} onChanged={load} />
-          <AllinCostsSummary contract={contract} costs={costs} customerId={customer?.id} />
+          <AllinCostsSummary contract={contract} costs={costs} customerId={customer?.id} onChanged={load} />
         </React.Fragment>
       ))}
     </div>

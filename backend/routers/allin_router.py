@@ -456,6 +456,12 @@ async def tranche_reminders(user: dict = Depends(require_permission("financing",
     return {"data": serialize_doc(await am.ready_tranches(_org(user)))}
 
 
+@router.get("/kpr/disbursement-summary")
+async def kpr_disbursement_summary(user: dict = Depends(require_permission("financing", "view_own"))):
+    """Dashboard pencairan KPR per bank: tahap tertahan (siap cair / menunggu syarat) & nilainya."""
+    return {"data": serialize_doc(await am.bank_summary(_org(user)))}
+
+
 @router.post("/kpr/tranche-reminders/run")
 async def run_tranche_reminders(user: dict = Depends(require_permission("finance", "update"))):
     return {"data": serialize_doc(await am.run_tranche_reminders(_org(user)))}

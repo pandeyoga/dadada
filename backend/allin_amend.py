@@ -136,6 +136,61 @@ async def ready_tranches(org: str) -> list:
     return out
 
 
+async def bank_summary(org: str) -> dict:
+    """Dashboard pencairan KPR per bank: plafon, sudah cair, tahap tertahan (siap cair vs menunggu
+    syarat), pengajuan tanpa skema. Sumber: `financing_apps` (tranches) + kontrak (legal)."""
+    from datetime import date
+    banks, held, no_scheme = {}, [], []
+    cur = db.financing_apps.find({"org_id": org, "status": {"$nin": ["rejected", "cancelled"]},
+                                  "$or": [{"approved_plafon": {"$gt": 0}}, {"tranches.0": {"$exists": True}}]},
+                                 {"_id": 0})
+    async for app in cur:
+        c = await db.contracts.find_one({"deal_id": app["deal_id"], "org_id": org}, {"_id": 0})
+        if not c or c.get("state") == "cancelled":
+            continue
+        bank = app.get("bank_name") or "(tanpa bank)"
+        b = banks.setdefault(bank, {"bank": bank, "apps": 0, "plafon": 0, "disbursed": 0, "ready": 0, "ready_amount": 0,
+                                    "waiting": 0, "waiting_amount": 0, "no_scheme": 0, "done": 0})
+        plafon = int(app.get("approved_plafon") or app.get("plafon") or 0)
+        disbursed = sum(int(d["amount"]) for d in app.get("disbursements") or [] if d.get("status") != "dibatalkan")
+        b["apps"] += 1
+        b["plafon"] += plafon
+        b["disbursed"] += disbursed
+        tranches = app.get("tranches") or []
+        base = {"app_id": app["id"], "contract_id": c["id"], "contract_no": c.get("number"),
+                "customer_id": c.get("customer_id"), "customer_name": c.get("customer_name") or app.get("customer_name"),
+                "unit_code": c.get("unit_code"), "bank": bank, "plafon": plafon,
+                "akad_date": (app.get("akad") or {}).get("date"), "kpr_stage": app.get("kpr_stage")}
+        if not tranches:
+            b["no_scheme"] += 1
+            no_scheme.append(base)
+            continue
+        if all(t.get("status") == "dicairkan" for t in tranches):
+            b["done"] += 1
+        akad = base["akad_date"]
+        days = (date.today() - date.fromisoformat(akad[:10])).days if akad else None
+        for t in tranches:
+            if t.get("status") != "open":
+                continue
+            ready = kd._condition_met(c, app, t.get("condition"))
+            amt = int(t.get("amount") or 0)
+            b["ready" if ready else "waiting"] += 1
+            b["ready_amount" if ready else "waiting_amount"] += amt
+            held.append({**base, "tranche_code": t["code"], "tranche_name": t["name"], "amount": amt,
+                         "condition": t.get("condition"), "ready": ready,
+                         "scheme_name": app.get("disbursement_scheme_name"), "days_since_akad": days})
+    rows = sorted(banks.values(), key=lambda r: (-r["ready_amount"], -r["plafon"]))
+    for r in rows:
+        r["outstanding"] = r["plafon"] - r["disbursed"]
+    held.sort(key=lambda h: (not h["ready"], -(h["days_since_akad"] or 0), -h["amount"]))
+    return {"banks": rows, "held": held, "no_scheme": no_scheme,
+            "totals": {"plafon": sum(r["plafon"] for r in rows), "disbursed": sum(r["disbursed"] for r in rows),
+                       "ready_amount": sum(r["ready_amount"] for r in rows),
+                       "waiting_amount": sum(r["waiting_amount"] for r in rows),
+                       "ready": sum(r["ready"] for r in rows), "waiting": sum(r["waiting"] for r in rows),
+                       "no_scheme": len(no_scheme)}}
+
+
 async def run_tranche_reminders(org: str = ORG_ID) -> dict:
     """Satu notifikasi per (pengajuan, tahap) — tidak berulang selama tahap masih open."""
     items = await ready_tranches(org)
