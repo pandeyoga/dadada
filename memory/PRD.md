@@ -1,5 +1,15 @@
 # PRD — SIPRO Property Development OS (lanjutan dari repo pandeyoga/dadada)
 
+## Sesi 2026-09-11 (lanjutan #16) — repo bavafatata/sipro dipulihkan; Pencairan KPR kartu pelanggan ≡ skema pencairan bank (iteration 32) — SELESAI
+- Lingkungan: clone repo, deps backend/frontend, `.env` backend (+JWT_SECRET, SEED_DEMO_USERS), seed demo, `memory/test_credentials.md` (sandi `Sipro#2026`).
+- Bug user: dialog **Cairkan** di kartu KPR pelanggan minta nominal bebas + milestone → kini `POST /financing/{fid}/disburse` mendelegasikan ke `kpr_disburse.disburse` (tahap dari skema, kuitansi `kpr`, jurnal, piutang berkurang); UI `DisburseDialog` per tahap (blocker akad/kontrak, pemilih skema, syarat tahap, nominal otomatis).
+- Sinkron konfigurasi: fuzzy bank (`BTN` ↔ `BTN KC Bandung`), `GET /kpr-disbursement-schemes?bank=` + `default_id`, tahap bernominal = retensi tetap & tahap % membagi sisa plafon, hint skema di dialog Ajukan KPR, tahapan tampil di kartu KPR.
+- Pertanyaan "kenapa all-in tidak masuk Rencana Bayar": by design (titipan pembeli, INB/KWB, bukan piutang unit) → kotak **Biaya all-in** di tab Rencana Bayar menjelaskan + angka ringkas.
+- Perbaikan ikutan: validasi plafon SP3K memakai `nett_price`.
+- Uji: probe ALL PASS, gate p75-78 23/23, testing agent iteration_32 (8 pytest + UI) lulus.
+- Backlog: verifikasi hint skema pada dialog Ajukan KPR e2e (butuh deal belum booked); gate 48 D7 & finance_engine.py 823 baris (pre-existing).
+
+
 ## Sesi 2026-06 (lanjutan #15) — folder `deploy/` dibangun ulang (deploy VPS pulih) — MENUNGGU VERIFIKASI VPS
 - **Masalah**: `bash deploy/update.sh` di VPS gagal. Diagnosis: folder `deploy/` **tidak ada** di repo (`git ls-tree HEAD` hanya `docs/DEPLOY_VPS.md`) — terhapus pada sesi sebelumnya, sehingga `git pull` di VPS menghapus `deploy/*` (yang tersisa hanya `.env` + `backups/` karena untracked). Bukan soal `COMPOSE_PROJECT_NAME`.
 - **Dibangun ulang identik dengan container yang sedang berjalan** (dari `docker inspect` VPS): `deploy/docker-compose.yml` (services mongo/backend/frontend/caddy; volumes `mongo_data`, `backend_backups`, `caddy_data`, `caddy_config` → project `sipro` ⇒ `sipro_mongo_data` dst.), `deploy/Caddyfile` (byte-per-byte sama), `deploy/Dockerfile.backend` (python:3.11-slim, WORKDIR `/app/backend`, uvicorn `--proxy-headers --forwarded-allow-ips *`, `--extra-index-url` emergentintegrations), `deploy/Dockerfile.frontend` (node:20-alpine + craco build → nginx:1.27-alpine), `deploy/nginx.conf` (SPA fallback + `location ~* \.mjs$ { default_type text/javascript; }` — perbaikan worker pdf.js dipertahankan), `deploy/install_vps.sh`, `deploy/update.sh` (kunci `COMPOSE_PROJECT_NAME=sipro`, `git reset --hard origin/<branch>`, build, up -d, tunggu `healthy`), `deploy/backup.sh` (mongodump/mongorestore, simpan 14 hari), `deploy/.env.example`, `/app/.dockerignore`. `.gitignore` menambah `deploy/backups/`.
