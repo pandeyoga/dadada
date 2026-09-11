@@ -1,0 +1,35 @@
+{
+  "summary": "Iter32 — Verified SIPRO KPR disbursement-scheme sync (BUG FIX: kartu KPR pelanggan 'Cairkan' dialog kini murni per-tahap skema, bukan angka bebas + milestone). Backend pytest 8/8 PASS (test_kpr_disburse_bugfix.py): (a) GET /api/kpr-disbursement-schemes?bank=BTN mengembalikan hanya 'Pencairan akad BTN KC Bandung' + 'Standar (BANK_STD)' dengan default_id=10ea2f6c...; bank=BCA tidak mengembalikan skema BTN. (b) POST /api/kpr-disbursement-schemes: pct total !=100 → 400; skema semua-nominal (T1 amount + T2 amount) → 200. (c) POST /api/financing/{fid}/disburse (jalur kartu KPR pelanggan): {amount:12345,milestone:'x'} tanpa tranche_code → 400 'Pilih tahap'; T2 (syarat sertifikat belum terpenuhi) → 400; T4 (Retensi PBG, syarat akad) → 200 dengan ar_booking={booked:true, applied:2500000, receipt_no:KWT/2026/0009, tranche:'Retensi PBG'}; ulang T4 → 400 'sudah dicairkan'; AR paid delta = 2.500.000 (persis nominal tahap). (d) POST /api/contracts/{cid}/kpr/disbursements dengan amount saja (tanpa tranche_code) → 400 'Pilih tahap'. Cleanup: T4 disbursement di-cancel supaya seed demo (customer 2ccf0ccb...) kembali ke state T1&T3 dicairkan, T2/T4/T5 open.\n\nFrontend Playwright (superadmin@sipro.co.id, /customers/2ccf0ccb-e100-4c78-9f31-f0cfc2689c22?tab=kpr): kartu KPR memuat 'Skema pencairan: Pencairan akad BTN KC Bandung · otomatis dari konfigurasi' + [data-testid='financing-tranches'] dengan 5 baris tahap + status. Tombol 'Cairkan' membuka dialog title 'Pencairan KPR (Bertahap)': TIDAK ada field 'Milestone' maupun 'Min. Progres'; [data-testid='financing-disburse-tranches'] & [data-testid='financing-disburse-tranche-select'] render. Select berisi 3 opsi (T2/T4/T5 — T1&T3 sudah cair); opsi T2 aria-disabled='true' dengan label 'syarat sertifikat (belum terpenuhi)'. Memilih 'Retensi PBG' auto-mengisi Nominal 2.500.000; tombol 'Catat Pencairan' (data-testid='financing-disburse-submit') → sukses, body menyebut 'kuitansi' & 'KWT/2026/0009', kartu ter-refresh (T4 baris jadi 'dicairkan', total dicairkan naik 788.400.000→792.000.000, Sisa turun 10.500.000→8.000.000). Rollback via API cancel dilakukan agar seed stabil.\n\nTab Rencana Bayar (?tab=bayar): [data-testid='cust-payment-plan-allin'] tampil dengan judul 'Biaya all-in · A-03 · All-in Standar · 4 komponen', penjelasan mengapa biaya all-in tidak masuk piutang unit, dan 4 [cust-payment-plan-allin-row]. AR baseline: Nilai kontrak 850jt, Sudah dibayar 797jt, Sisa 53jt.\n\nAjukan KPR dialog terbuka (Deal/Unit + Bank + Plafon + DP + Ajukan KPR), tapi financing-disb-scheme-hint muncul setelah user memilih Bank; belum diuji karena customer demo tidak punya deal unbooked baru — mekanisme dipertegas dari kode. Tidak diblok.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_kpr_disburse_bugfix.py",
+    "/app/test_reports/pytest/iter32.xml"
+  ],
+  "action_items": [
+    "Minor: review_request menyebut testid 'customer-financing-disburse-btn' & 'customer-financing-disburse-submit', TAPI implementasi aktual (constants/testIds/customers.js) memakai 'financing-disburse-submit' (tanpa prefix 'customer-'). Tombol Cairkan di kartu KPR pelanggan pun tidak punya data-testid 'customer-financing-disburse-btn' (harus di-locate lewat text 'Cairkan'). Pertimbangkan menambahkan alias testid supaya sesuai kontrak spec, atau update dokumen QA.",
+    "Minor: opsi tranche di select menampilkan nama tahap ('Retensi PBG') bukan kode 'T4'. Untuk kemudahan tes/QA, pertimbangkan menambahkan prefix kode: 'T4 · Retensi PBG · Rp 2.500.000 · syarat akad'."
+  ],
+  "critical_code_review_comments": [
+    "financing_router.disburse (line 141): mendelegasikan penuh ke kpr_disburse.disburse — bagus, memastikan satu jalur pencairan. Namun body memetakan 'note = payload.note or payload.milestone' → milestone field lama masih diterima sebagai catatan (bukan divalidasi). Ini benar untuk backward compat, tapi FE lama yang kirim milestone tanpa tranche_code tetap akan ditolak dengan error 'Pilih tahap' (sudah diverifikasi).",
+    "kpr_disburse.disburse: validasi tahap 2× & syarat tidak terpenuhi konsisten. Titipan (allow_deposit) hanya untuk finance_manager+alasan≥10 huruf — aman.",
+    "allin_router GET /kpr-disbursement-schemes?bank=X: memakai schemes_for_bank(org, bank) + default_scheme(org, bank). Default sekarang None bila ada >1 skema khusus bank — cocok dengan aturan 'jangan menebak'. OK.",
+    "FinancingDialogs.js submit disabled bila !form.tranche_code — memastikan user WAJIB pilih tahap sebelum submit, sesuai bug fix. OK.",
+    "Nomor kuitansi (KWT/2026/0009) muncul di daftar disbursement dan Rencana Bayar (dengan link 'Kwitansi PDF') — integrasi AR ↔ fe.apply_receipt jalan."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_kpr_disburse_bugfix.py",
+    "/app/test_reports/iteration_32.json"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% pada core bug fix (dialog Cairkan + Rencana Bayar all-in)"},
+  "test_credentials": "superadmin@sipro.co.id / Sipro#2026 (dari /app/memory/test_credentials.md)",
+  "seed_data_creation": "Tidak ada data seed baru. Test disburse T4 di UI di-rollback via /api cancel supaya seed demo tetap (T1&T3 dicairkan, T2/T4/T5 open, T2 sertifikat unmet). Skema TEST_ALL_FIXED_ITER32 dinonaktifkan (is_active=false) setelah insert.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Kontrak demo KPR untuk regresi UI: customer 2ccf0ccb-e100-4c78-9f31-f0cfc2689c22, contract ee3005c4-0a99-4b32-a579-fa21e635cf69, deal 790e1b16-45a3-4c28-8041-ca159319d4b7. Skema 'Pencairan akad BTN KC Bandung' terpasang otomatis. Tahap yang siap diuji: T4/T5 (open, syarat akad terpenuhi), T2 (open tapi sertifikat belum). Selalu rollback via POST /api/contracts/{cid}/kpr/disbursements/{did}/cancel (reason ≥10 huruf) supaya demo tidak konsumsi tahap. Testid aktual submit tombol pencairan = 'financing-disburse-submit' (bukan 'customer-...'). Tombol Cairkan di kartu di-locate via text 'Cairkan'. Options select berlabel nama tahap bukan kode.",
+  "rca of the issue": "Bug awal: dialog Cairkan di kartu KPR pelanggan (jalur POST /api/financing/{fid}/disburse) menerima amount bebas + milestone, tidak sinkron dengan skema pencairan kontrak (POST /api/contracts/{cid}/kpr/disbursements). Fix di financing_router.py:141 mendelegasikan pencairan ke kpr_disburse.disburse — jalur yang SAMA dengan kontrak — sehingga wajib tranche_code, syarat tahap dicek, dan AR/kuitansi/jurnal konsisten. FE DisburseDialog di FinancingDialogs.js dirombak: tanpa Milestone/Progres, hanya select tahap + amount readonly (kecuali finance:manage). Verifikasi end-to-end lulus."
+}

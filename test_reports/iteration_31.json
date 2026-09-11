@@ -1,0 +1,26 @@
+{
+  "summary": "Iter31 verifies read-only GET /api/finance/ap/bills/{bill_id} + ApBillDetailSheet UI. 6/6 pytests pass (test_iter31_ap_detail.py). Backend shape validated on 3 real bills: (a) termin from note 'Termin TRM/DEMO51/CAIR' — CV Taman Hijau id 6000799f-b56e-494f-9752-a87872539001: claim+spk+retention RET/... present, journals[0] contains Dr 1-1600 / Cr 2-1100 / Cr 2-1200. (b) CV Sumber Beton Sejahtera 82874735-b3ed-... status=partial: 1 payment, ≥1 withholding_docs, 2 journals, paid_consistent=true. (c) TB Sumber Bangunan 4d84f2de-... status=paid, po populated (po_number/po_type/vendor/total), outstanding=0. 404 branch verified. Both finance@ and superadmin@ can view. summary invariants verified: paid=Σpayments.amount, outstanding=net-paid_recorded, paid_consistent flag correct. Journal source_id scope constrained to {bill_id, retention.id, source_retention.id}. UI (finance@ · /finance → tab Utang): 7 ap-bill-detail-btn + 7 ap-bill-detail-icon rendered; opening the 3 target bills exposes all six sections (vendor, summary [6 kotak], source, payments, retention, journals) with correct source cards (termin card / PO card / withholding note), payment row cols present, 1–2 journal cards each with 'buku besar' external link. Regression: Bayar dialog opens & closes on Batal; Setujui buttons still present for pending_approval bills. verify_business_invariants.py LULUS exit 0 (no data changed).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter31_ap_detail.py",
+    "/app/test_reports/pytest/iter31.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ap_router.bill_detail line 62-64: uses `(claim or bill).get('spk_id')` — correct fallback but if both are None the fetch is skipped (fine). Consider explicit early-return for readability.",
+    "line 65-66: PO fetch guarded by bill.get('po_id') but projection uses bill['po_id'] directly — safe due to short-circuit.",
+    "Sheet loader in ApBillDetailSheet re-fetches on every open (no stale cache) which is correct for a fresh bill state. Good.",
+    "Journal source_id scope union with retention/source_retention is elegant; note that release_bill journals live on retention.id via bill_kind=retention_release — currently they land under retention scope which is desired."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter31_ap_detail.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "finance@/superadmin@sipro.co.id — Sipro#2026 (per /app/memory/test_credentials.md)",
+  "seed_data_creation": "None. Feature is read-only; no writes performed. Existing demo bills used.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "iter31 pytest hits real prod-demo bill IDs (Taman Hijau/Sumber Beton/TB Sumber Bangunan). If seed changes, refresh IDs via db.ap_invoices.find({vendor:{$regex}}). Login endpoint returns access_token (not token). Frontend login page: submit via get_by_role('button', name='Masuk') — no type=submit. After login user lands on /beranda; navigate to /finance and click 'Utang' text tab (query param ?tab=ap does NOT auto-select).",
+  "rca of the issue": "n/a — all green."
+}

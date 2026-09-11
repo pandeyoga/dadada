@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 28 verified P101 features: (1) Batalkan Reservasi — admin cancel-preview/cancel with refund modes (full|partial|forfeit), sales cancel of own unpaid reservation, admin cancel blocked without refund_mode, sales blocked once BF paid; (2) Modul Pengajuan Keuangan (/fund-requests) — expense/reimbursement (attachment required)/advance flows, SoD (sales approve own → 403), scoping (sales sees only own, can_approve=false; finance can_approve=true), approve → disburse (settled for non-advance with journal_ids) → advance settle with returned_amount, reject state-guard, cancel by requester on submitted, summary endpoint. Backend pytest 3/3 passed. Frontend Playwright: lead profile → 'Unit & SPR' → deal-cancel-button → dialog (summary+reason+submit) → deal cancelled + toast, unit released, lead stage back to nurturing (confirmed via API); /fund-requests page loads with page-testid, create dialog (type/title/amount) creates row PGJ/2026/0012 (toast 'Pengajuan terkirim ke finance.'), detail sheet opens with history; finance login → approve → disburse dialog → submit → target status 'settled'.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_p101_iter28.py",
+    "/app/test_reports/pytest/iter28_results.xml",
+    "/app/tests/smoke_p101.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Deal cancel: preview correctly differentiates can_cancel/requires_admin/blocked_reason based on BF payment; refund_modes limited to [full,partial,forfeit] as expected; after admin partial refund, BF invoice reflects refunded_total + forfeited_total = paid amount — clean bookkeeping.",
+    "Fund requests: numbering follows PGJ/YYYY/NNNN, one-stage flow implemented cleanly (submitted→approved→disbursed→settled) with advance branch; SoD enforced (self-approve 403); reimbursement without attachment_ids correctly rejected with 400; disburse for non-advance auto-transitions to settled and returns journal_ids.",
+    "RBAC scoping on GET /fund-requests: sales sees own rows only with can_approve=false; finance sees org-wide with can_approve=true. Correct."
+  ],
+  "updated_files": ["/app/backend/tests/test_p101_iter28.py", "/app/test_reports/iteration_28.json"],
+  "success_rate": {"backend": "100% (3/3)", "frontend": "100%"},
+  "test_credentials": "superadmin@sipro.co.id / finance@sipro.co.id / sales@sipro.co.id — password Sipro#2026",
+  "seed_data_creation": "Created 2 reservations (superadmin partial-refund; sales unpaid-cancel) and 4 fund requests (expense, expense-to-cancel, advance, UI Approve iter28 PGJ/2026/0013). Fund requests remain in DB (settled/approved/cancelled variants). Previously created rows from earlier iterations still present.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All P101 flows are stable end-to-end. To reproduce quickly re-run: `pytest /app/backend/tests/test_p101_iter28.py` and `python /app/tests/smoke_p101.py`. Available demo units and nurturing/appointment leads are used; ensure ≥1 lead not in stage 'booking' remains for future reservation tests."
+}

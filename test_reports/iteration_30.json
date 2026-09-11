@@ -1,0 +1,24 @@
+{
+  "summary": "Iter30 backend + UI verification for (1) HPP RAB vs realisasi WIP per unit + akrual 2-1700, (2) vendor_payment fund_request↔AP bill, (3) GL reconcile lampu merah, (4) probe with real photo evidence. All 6 iter30 pytests pass. Official probe_ar_ap_gl.py + verify_business_invariants.py both LULUS (exit 0). UI verified: /finance banner data-state='ok' with all 6 gl-reconcile-row data-ok=true (2-1100/2-1200/2-1400/2-1450/2-1600/TB); /boq → rab-tab-hpp-unit shows hpp-unit-panel with 6 MetricCards (HPP RAB, Dikontrakkan, Terverifikasi, Ditagih, WIP 1-1600, Akrual 2-1700) and 18 hpp-unit-row-<code> rows with over-RAB units highlighted rose (A-01, A-02, A-03, B-01); /fund-requests dialog vendor_payment reveals fund-request-ap-bill Select. Reconcile mismatch simulation via direct journal_entries insert (Cr 2-1100 1000 / Dr 6-1300 1000, source_type=probe) correctly flips 2-1100 row to data-ok=false diff=1000 and top-level d.ok=false; deletion restores ok=true. Vendor payment E2E: rejects if bill not approved, rejects non-vendor_payment with ap_bill_id, rejects over-outstanding, rejects duplicate submission ('sudah diajukan'), successful create binds vendor/amount/project, disburse marks bill paid, no fund_request source_type journal, 6-1300 balance unchanged.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter30_audit_fundreq.py",
+    "/app/test_reports/pytest/iter30.xml",
+    "/app/scripts/probe_ar_ap_gl.py",
+    "/app/scripts/verify_business_invariants.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "No GET /finance/ap/bills/{id} single endpoint; consumers must use list+filter. Consider adding for symmetry (minor).",
+    "reconcile() checks are org-scoped correctly; TB compares total debit vs credit (both sourced from journal_entries) — cannot detect one-sided lines but detects arithmetic imbalance which is sufficient."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter30_audit_fundreq.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "finance@/pm@/superadmin@sipro.co.id — pw Sipro#2026",
+  "seed_data_creation": "None persisted. All TEST_ AP bills/journals/fund_requests self-cleaned by pytest fixture and probe script. Also purged 2 orphan approved TEST_ AP bills leaked from earlier failing runs during authoring — reconcile back to ok.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "iter30 pytest at /app/backend/tests/test_iter30_audit_fundreq.py covers reconcile shape, mismatch detection+recovery, hpp-unit 404 + shape, vendor_payment fund_request end-to-end (approve gate, over-amount gate, duplicate gate, disburse-pays-bill, no extra expense journal, no source_type=fund_request JE), and post-cleanup reconcile invariant. Uses direct mongo access via MONGO_URL for probe journal insert.",
+  "rca of the issue": "n/a — all 4 iter30 features verified green."
+}
