@@ -69,13 +69,46 @@ async def _labeled_options(org_id: str) -> dict:
 
 
 async def _org_values(org_id: str) -> dict:
-    """Nilai dinamis DB + jenis izin tambahan milik organisasi (`permit.types_custom`)."""
+    """Nilai dinamis DB + nilai tambahan milik organisasi (setting `custom_setting` per grup,
+    mis. `permit.types_custom`, `financing_bank.custom`)."""
     out = await _dynamic_values(org_id)
-    custom = await cfg.get("permit.types_custom", org_id=org_id) or []
-    vals = [str(v).strip() for v in custom if str(v).strip()]
-    if vals:
-        out["permit_type"] = sorted({*out.get("permit_type", []), *vals})
+    for name, group in ref.GROUPS.items():
+        key = group.get("custom_setting") or ("permit.types_custom" if name == "permit_type" else None)
+        if not key:
+            continue
+        custom = await cfg.get(key, org_id=org_id) or []
+        vals = [str(v).strip() for v in custom if str(v).strip()]
+        if vals:
+            out[name] = sorted({*out.get(name, []), *vals})
     return out
+
+
+class NewValueIn(BaseModel):
+    value: str
+
+
+@router.post("/{group}/values")
+async def add_reference_value(group: str, payload: NewValueIn,
+                              user: dict = Depends(get_current_user)):
+    """Simpan nilai baru grup dinamis ke MASTER organisasi (bukan hanya di form yang sedang
+    diisi) — bank/jenis izin yang ditambah lewat pemilih tetap ada walau form batal disimpan."""
+    g = ref.GROUPS.get(group)
+    if not g:
+        raise HTTPException(status_code=404, detail=f"Grup reference '{group}' tidak ada.")
+    key = g.get("custom_setting") or ("permit.types_custom" if group == "permit_type" else None)
+    if not (g.get("dynamic") and g.get("allow_new", True) and key):
+        raise HTTPException(status_code=400, detail=f"Grup '{group}' tidak menerima nilai baru.")
+    value = " ".join(payload.value.split())
+    if len(value) < 2:
+        raise HTTPException(status_code=400, detail="Nilai minimal 2 huruf.")
+    org = user.get("org_id", ORG_ID)
+    known = {o["value"].lower() for o in g.get("options", [])} | {
+        v.lower() for v in (await _org_values(org)).get(group, [])}
+    if value.lower() not in known:
+        cur = [str(v) for v in (await cfg.get(key, org_id=org) or [])]
+        await cfg.set_value(key, cur + [value], actor=user.get("email"), org_id=org)
+    registry = ref.public_registry(await _org_values(org))
+    return {"data": {"group": group, "value": value, "options": registry[group]["options"]}}
 
 
 @router.get("")

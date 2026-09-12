@@ -243,6 +243,9 @@ DEFAULTS: dict = {d["key"]: d for d in [
     _d("retention.months", 3, "int", "legal", "Masa retensi bangunan (bulan)",
        "Masa retensi/garansi bangunan setelah akad atau AJB.", minimum=0, maximum=36),
     # ============ KPR ============
+    _d("financing_bank.custom", [], "list", "kpr", "Bank / lembaga keuangan tambahan",
+       "Bank di luar daftar bawaan yang ditambahkan lewat pemilih bank (Produk KPR, skema pencairan, "
+       "pengajuan KPR, rekening mitra). Tersimpan sebagai master sehingga tetap muncul walau belum dipakai."),
     _d("kpr.use_appraisal_step", True, "bool", "kpr", "Pakai tahap survei & appraisal bank",
        "Bila dimatikan, alur KPR langsung dari pengajuan ke SP3K."),
     _d("kpr.sla_days", {"berkas_lengkap": 7, "diajukan_ke_bank": 14, "appraisal": 7,

@@ -287,7 +287,13 @@ GROUPS: dict = {
         # Fase 27: satu daftar bank dipakai bersama (KPR pembeli, rekening agen/mitra) —
         # sengaja TIDAK diduplikasi jadi grup "bank" tersendiri.
         "label": "Bank / Lembaga Keuangan", "strict": False, "dynamic": True,
-        "source": {"collection": "financing_apps", "field": "bank_name"},
+        # Nilai yang sudah dipakai di pengajuan KPR, master Produk KPR, skema pencairan KPR, dan
+        # rekening mitra ikut muncul — ditambah master `[CFG] financing_bank.custom`.
+        "sources": [{"collection": "financing_apps", "field": "bank_name"},
+                    {"collection": "kpr_products", "field": "bank_name"},
+                    {"collection": "kpr_disbursement_schemes", "field": "bank"},
+                    {"collection": "agents", "field": "bank_name"}],
+        "custom_setting": "financing_bank.custom",
         "options": [
             _o("BTN", "Bank BTN"), _o("BNI", "Bank BNI"), _o("BRI", "Bank BRI"),
             _o("Mandiri", "Bank Mandiri"), _o("BCA", "Bank BCA"),
