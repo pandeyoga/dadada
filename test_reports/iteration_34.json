@@ -1,0 +1,23 @@
+{
+  "summary": "ITER34 — Uji toggle approval manajer untuk kupon/promo/skema diskon pada tabel Pusat Konfigurasi › Harga & Promo, plus sinkronisasi Switch↔Select di dialog ubah aturan. Backend PUT /api/pricing/{coupons|promos}/{id} untuk approval_mode dan validasi nilai. Semua alur lulus. RBAC untuk sales: sales tidak bisa membuka Pusat Konfigurasi sama sekali (redirect ke /) — dicatat sesuai instruksi.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_pricing_approval_toggle_iter34.py",
+    "/app/test_reports/pytest/iter34.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PricingRuleTable.toggleApproval mengirim body {approval_mode, requires_approval}; server mengabaikan requires_approval bila approval_mode diberikan (models_p69 memaksa konsistensi) — aman, tetapi frontend sebaiknya hanya kirim approval_mode untuk mengurangi duplikasi.",
+    "Toast pada toggle switch menggunakan '${r.code}: selalu perlu persetujuan manajer.' untuk ON dan 'ikut ambang organisasi.' untuk OFF — konsisten dengan permintaan.",
+    "Dialog memakai Switch (form-approval-toggle) sinkron dua-arah dengan Select (form-approval); memilih 'never' pada select menonaktifkan switch — verified."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (3/3)", "frontend": "100% (semua alur inti + persistensi setelah reload)"},
+  "test_credentials": "Sesuai /app/memory/test_credentials.md (Sipro#2026).",
+  "seed_data_creation": "Tidak ada. Kupon SIPRO2026 dan promo PROMO-LAUNCH dikembalikan ke approval_mode 'global' setelah uji. DISC-CASH juga dikembalikan ke 'global' setelah pengujian sub Skema diskon.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Toggle approval manajer bekerja pada 3 sub-tab (Skema diskon, Promo, Kupon). Test IDs yang dikonfirmasi: pricing-rule-approval-toggle-{CODE}, pricing-rule-approval-{CODE} (data-mode=global|always|never), pricing-rule-form-approval-toggle, pricing-rule-form-approval, pricing-rule-form-approval-opt-{global|always|never}. Backend: PUT /api/pricing/{slug}/{id} dengan approval_mode; nilai invalid → 422 (pydantic). Sales user tidak punya akses ke /config (redirect ke /), sehingga kondisi 'switch disabled untuk sales' tidak dapat diuji melalui UI.",
+  "rca of the issue": "N/A — tidak ada bug ditemukan."
+}

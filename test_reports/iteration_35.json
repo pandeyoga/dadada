@@ -1,0 +1,33 @@
+{
+  "summary": "Verified 5 owner notes (sesi 2026-09-12) for SIPRO: backend pytest 5 passed/1 skipped after resetting KTR/2026/0003 legal.akad_kredit + deals.akad_at (test suite is NOT idempotent as claimed in review). Also verified API endpoints (customers legal_stage filter + legal_counts, kpr disbursement summary, finance receipts report + PDF, quotations/simulate with unit.scheme_prices=skema). UI verified for features 2, 3, 5 as super_admin.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "tests/test_owner_notes_2026_09_12.py", "issue": "Suite is not idempotent — after first run, KTR/2026/0003 has legal.akad_kredit set; the module fixture kpr_contract fails on second run with 'tidak ada kontrak KPR demo tanpa akad' because rows filter returns empty. Fixture should reset legal.akad_kredit / deals.akad_at at setup (teardown) instead of relying on there being an untouched KPR contract. Manually reset via mongo to re-run."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_owner_notes_2026_09_12.py"
+  ],
+  "action_items": [
+    "Make backend suite tests/test_owner_notes_2026_09_12.py idempotent by resetting KTR/2026/0003 legal.akad_kredit + deals.akad_at + akad_override in the kpr_contract fixture (currently it leaves state that blocks reruns).",
+    "Minor: testid mismatch between review spec ('finance-export-pdf') and actual code ('finance-export-pdf-button' in constants/testIds/finance.js). Button exports PDF correctly; update spec or unify testid to 'finance-export-pdf'."
+  ],
+  "critical_code_review_comments": [
+    "Idempotency: kpr_contract fixture in test_owner_notes_2026_09_12.py does not unset legal.akad_kredit on setup — reruns fail with unhelpful assertion. Consider db.contracts.update_one({...},{'$unset':{'legal.akad_kredit':''}}) + db.deals.update_one({...},{'$unset':{'akad_at':'','akad_override':''}}) before returning c.",
+    "Testid naming inconsistency: review spec references 'finance-export-pdf' but code uses 'finance-export-pdf-button'. Consider aligning."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (5 passed, 1 skipped after reset; APIs OK: customers, kpr/disbursement-summary, finance/reports/receipts, /pdf 200, quotations/simulate price_source=skema)", "frontend": "100% for tested flows (features 2, 3, 5)"},
+  "test_credentials": "superadmin@sipro.co.id / Sipro#2026 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Temporary PATCH on unit 4a3f9e6d-4e8f-45d2-83b4-cb529a3dcd77 setting scheme_prices.kpr=875000000 for quotations/simulate validation, then cleared back to {} (cleanup done). Also had to unset contracts.KTR/2026/0003.legal.akad_kredit + deals.akad_at once to re-run pytest; after pytest ran again those fields were set again (as expected by tests 2/5).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Only 1 KPR contract in seed (KTR/2026/0003, deal 5a6ef161-2889-4f97-9519-ea6221ad6666, customer bf91b87e-04ce-401a-a15d-516461b19485). After running pytest test_owner_notes_2026_09_12.py this contract will have legal.akad_kredit recorded with override; UI shows 'pengecualian · <alasan>' badge. To rerun pytest, first: db.contracts.update_one({'number':'KTR/2026/0003'},{'$unset':{'legal.akad_kredit':''}}); db.deals.update_one({'id':'5a6ef161-...'},{'$unset':{'akad_at':'','akad_override':''}}). Feature 4 (AddonPlanBox) not tested UI-wise because deal 5a6ef161 has no AR items with addon_code in seed (per review this is 'tidak ada data', not a bug). Frontend testid for PDF export in Reports panel is 'finance-export-pdf-button' (not 'finance-export-pdf' as review spec states).",
+  "rca of the issue": "Not idempotent test fixture: kpr_contract fetches KPR contracts filtered by legal.akad_kredit unset. Test test_akad_override_requires_reason_then_records POSTs /contracts/{cid}/legal/akad_kredit which persists akad_kredit — subsequent runs find no untouched contract → AssertionError. Mitigation: unset legal.akad_kredit + deals.akad_at at fixture setup."
+}

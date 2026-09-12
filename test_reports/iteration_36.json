@@ -1,0 +1,47 @@
+{
+  "summary": "Sesi verifikasi lengkap perbaikan piutang porsi-bank vs porsi-pembeli (backend + UI). 7/7 pytest test_ar_bank_portion_2026_09_12 lulus, 3/3 skenario API tambahan lulus (test_ar_api_scenarios_2026_01). E2E API pencairan setelah setoran pembeli sudah dieksekusi oleh main agent; tester hanya memverifikasi tanpa mengulang pencairan (menghindari efek samping). UI ReceiptDialog, ArDetailSheet, PaymentSchemePanel (KPR), CustomerPaymentPlanTab, dan DisburseDialog semua menampilkan elemen sesuai spesifikasi.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ArDetailSheet", "issue": "Testid 'finance-ar-detail' tidak ada pada elemen wrapper Sheet (ar-payer-split & ar-cost-invoices dan ar-item hadir). Tidak memblokir alur — hanya menyulitkan seleksi wrapper oleh test otomatis.", "selector": "[data-testid=\"finance-ar-detail\"]", "priority": "LOW"},
+      {"component": "ReceiptDialog", "issue": "Testid 'finance-receipt-submit' tidak ada pada tombol 'Simpan Pembayaran' (tombol berfungsi dan bisa diseleksi via text). Konsistensi testid.", "selector": "[data-testid=\"finance-receipt-submit\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_flows": [
+    "GET /finance/ar/{deal A-01}: buyer_outstanding=424.990.000, bank_outstanding=kpr_outstanding=255.000.000, items[3] payer=bank label 'Pelunasan / KPR 30%'.",
+    "POST /finance/ar/receipts amount=outstanding penuh method=transfer → 400 dengan pesan porsi bank menunggu pencairan KPR.",
+    "POST /finance/ar/receipts amount=2000 method=transfer → 200, alokasi hanya ke Termin I buyer, bank_outstanding tidak berubah, DELETE dengan reason ≥10 huruf berhasil dan outstanding kembali.",
+    "UI Piutang → Terima Bayar A-01: ar-receipt-summary memuat 'Sisa porsi pembeli Rp 424.990.000 · porsi bank Rp 255.000.000 menunggu pencairan KPR'; ar-receipt-amount default = 212.490.000 (Termin I); ar-receipt-alloc-row awal 2 baris data-payer=buyer; centang ar-receipt-allow-bank menambah baris ke-3 data-payer=bank.",
+    "UI Detail AR A-01: ar-payer-split menampilkan sisa pembeli/bank; ar-item dengan data-payer=bank memuat ar-item-bank 'porsi bank · pencairan KPR'; ar-cost-invoices menampilkan teks kosong ('Tidak ada biaya…') karena kontrak A-01 tanpa komponen all-in.",
+    "UI /config?tab=scheme (Pusat Konfigurasi › Skema Pembayaran): dialog Ubah/Tambah dengan Jenis=KPR (pembiayaan bank) menampilkan config-scheme-term-row-payer-switch per baris termin; jenis Cash bertahap TIDAK menampilkan switch.",
+    "UI customer bf91b87e Rencana Bayar: badge 'porsi bank · pencairan KPR' pada baris 'Pelunasan / KPR 30%'; cust-payment-plan-summary-payer memuat sisa porsi pembeli vs porsi bank.",
+    "UI DisburseDialog KPR: tidak ada blocker akad, financing-disburse-ar-hint = 'Pencairan melunasi porsi bank · sisa Rp 255.000.000 · porsi pembeli Rp 424.990.000 tetap disetor pembeli'."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_ar_bank_portion_2026_09_12.py",
+    "/app/backend/tests/test_ar_api_scenarios_2026_01.py"
+  ],
+  "action_items": [
+    "(opsional, LOW) Tambahkan data-testid=\"finance-ar-detail\" pada wrapper Sheet ArDetailSheet.",
+    "(opsional, LOW) Tambahkan data-testid=\"finance-receipt-submit\" pada tombol Simpan Pembayaran di ReceiptDialog."
+  ],
+  "critical_code_review_comments": [
+    "Angka pratinjau spec di review (buyer_outstanding=424.994.000, ar-receipt-amount 212.494.000) berbeda tipis dari data live (424.990.000 / 212.490.000). Bukan bug — hanya update data seed. Sesuaikan angka di dokumentasi jika perlu.",
+    "Terlihat beberapa kwitansi kecil (Rp 2.000, Rp 1.000) muncul di tab Rencana Bayar pelanggan A-01 dari sesi uji sebelumnya. Verifikasi bahwa outstanding tetap konsisten (679.990.000) — cleanup soft-delete tampaknya menyisakan tampilan di jadwal termin; dievaluasi bukan regresi baru."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_ar_api_scenarios_2026_01.py (baru)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "95%"},
+  "test_credentials": "superadmin@sipro.co.id / Sipro#2026",
+  "seed_data_creation": "Tidak ada seed baru. Kuitansi uji dibuat & dihapus dalam test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Deal utama: A-01 (5a6ef161-...) kontrak KTR/2026/0003 (f9729e8f-...). Outstanding: 679.990.000 (buyer 424.990.000 + bank 255.000.000). Financing app 9564eee1-... plafon 255jt, T1 open. Untuk pytest gunakan '-n0' karena xdist bikin race dengan cleanup. Test lama test_kpr_disburse_bugfix.py memakai DEMO_CID hardcoded dari DB lama — abaikan.",
+  "rca_of_the_issue": "Perbaikan yang diminta owner sudah diimplementasikan dengan benar: (1) setoran pembeli TIDAK melunasi porsi bank (FIFO melewati item payer=bank, kelebihan atas porsi pembeli ditolak 400), (2) UI nominal bawaan = termin jatuh tempo berikutnya (bukan seluruh outstanding), (3) pencairan KPR tetap bisa dilakukan setelah setoran pembeli karena kpr_outstanding hanya menghitung porsi bank. Semua alur diverifikasi baik via pytest maupun UI."
+}
