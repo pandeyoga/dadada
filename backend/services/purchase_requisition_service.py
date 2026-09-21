@@ -30,7 +30,6 @@ OPEN_PR_STATUSES = {"draft", "pending_approval", "approved"}
 
 async def next_pr_number() -> str:
     """KN-A12 — sequence ATOMIK bersama (find_one_and_update $inc), bukan 'nomor tertinggi + 1'."""
-    from core_utils import next_doc_number
     return await next_doc_number("purchase_requisitions", "number", "PR-", width=5, scheme="shared")
 
 

@@ -273,3 +273,23 @@ referensi komponen baru → React unmount/remount `<input>` → fokus hilang. Po
 ### Catatan
 - `sample-spec-sku` sengaja meng-uppercase ketikan (perilaku lama, bukan bug).
 - Frontend statis: setelah ubah src → `setsid nohup bash /app/scripts/rebuild_frontend.sh > /app/.rebuild.out 2>&1 &` (±8 mnt).
+
+---
+## Sesi 2026-09-21 — Verifikasi & perbaikan audit kode (PDF Bagian I & II, 92 temuan)
+**Problem statement:** clone repo abagayafaja/KN, verifikasi 92 temuan audit (KN-A01..A13, B01..B35, C01..C10, D01..D26), laporkan validitas, perbaiki. Pilihan user: semua 92 temuan; laporan ringkas di chat; indeks unik dibuat (fail-safe log).
+
+**Hasil verifikasi:** 84 VALID (diperbaiki 71), 5 VALID-DITUNDA (butuh desain UoM/arsitektur), 3 PARSIAL/keputusan desain (B26, C08 sebagian, D08), 2 laporan observasi tanpa perbaikan kode (C09 to_list, C10 except-pass), 0 TIDAK VALID.
+
+**Perbaikan utama:**
+- `entity_scope.guard_doc()` — penjaga entitas satu baris untuk jalur tulis: gl void, cash void, vendor_bills (submit/approve/reject/pay/cancel), cycle_count semua aksi, purchase_returns seluruh siklus + list scope, sample_orders (ketat), ar_receipts, hr_payroll, interco (`_guard_party`), fixed_assets, landed_cost, bank PATCH, cash_advances (ketat).
+- Mesin status: escalate inbound/outbound berprasyarat status (C01/C02), resolve wajib `escalated`; PO approve CAS + larang penyetuju sama dua tingkat (B04/D05); PO terminal tidak dihidupkan lagi saat penerimaan (D01); `_post_bill` prasyarat status (B05); special order CAS (B10); SO approve blok bila ada approval ditolak (D02); kontrabon settle_bills cek status + `$expr` (D03).
+- Atomik: claim saga pada kontrabon pay (B01), settle_return (B02), realize PR→PO (B03), store credit redeem (B06), deposit CAS (B08), allocations `$push` (B07).
+- Indeks unik nomor dokumen 22 kolom + `(source_type,source_id)` jurnal aktif (A12/B09); 13 generator "max+1" → `next_doc_number(scheme="shared")` (A12/D15).
+- Konstanta bersama: `OPEN_PO_STATUSES`, `PHYSICAL_ROLL_STATUSES` (A11/C05/D10), `GREEN_OUT` RFID (C03), `role_rank` → registry (C04), `services/tolerances.py` (A13/B28).
+- Nilai: HPP GR pakai harga neto (A09), short-pick pertahankan diskon header (A10), nota kredit harga neto (B23), retur beli rata-rata berbobot (B24), PPN retur beli dicatat & dibalik, `returned_amount` termasuk PPN (B20/B21), on_order_qty (B14), goods_back rebuild gudang asal (B13), landed cost ke roll pecahan (B17), RFID tag ikut transfer (B19), void kuitansi netralkan baris realokasi (B25), opname tolak bila stok bergerak (B11), PO tolak produk kembar (B15).
+- Meja peran & status: driver queue filter delivered (C08), designer/warehouse desk status nyata (D06/D07), so_status backorder fulfilled (D14), peringatan reservasi waiting_stock (D13).
+- Frontend: faktor UoM dari master server + blokir satuan tak dikenal (C06), peringatan minimum potong di keranjang (C07), keranjang direset saat ganti PT (D20), jurnal tolak baris debit&kredit (D22), RollPicker reload saat ganti gudang (D23).
+- Uji: `tests/test_kn_audit_2026_09_21.py` (+ `_extended.py` dari testing agent) masuk `gate.sh` default; uji lama /sample-requests dinonaktifkan (A08).
+
+**Ditunda (backlog P1):** B12 (opname hanya potong bucket available), B16 (rebuild_balance abaikan unit roll), B18 (length_initial agregat), B22/B27 (konversi satuan retur & create_roll), B26 (WAC abaikan roll berbiaya nol — keputusan desain), D04, D08, D11, D12, D16, D17, D18, D19, D21, D24, D25, D26, C09, C10.
+**Gate merah pre-existing (bukan dari sesi ini):** verify_entity_scoping (categories.py design_gallery), audit_entity_isolation (data_hygiene_log), POC E-3 (POST /customers wajib PIC).

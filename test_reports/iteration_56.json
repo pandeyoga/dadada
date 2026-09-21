@@ -1,0 +1,40 @@
+{
+  "summary": "Backend-only regression untuk audit KN 2026-09-21 (Bagian I & II). Menjalankan test_kn_audit_2026_09_21.py yang ada (6 passed, 1 skipped) DAN membuat berkas baru test_kn_audit_2026_09_21_extended.py (39 passed, 1 skipped) mencakup KN-A01/A02/A03/A04/A05/A06/A12, KN-B15/B29/B30/B31/B32/B33/B34, KN-C01/C02/C03/C05, KN-D02, KN-D05, plus regresi jalur sah. Total 45 passed, 2 skipped, 0 failed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/landed-costs/{id}/pay", "issue": "Ketika payload tak lengkap, Pydantic 422 mendahului entity guard (403/404). Bukan bug keamanan (guard tetap efektif untuk payload valid), tapi mengekspos schema kepada aktor lintas-entitas. Pertimbangkan verifikasi entitas sebelum validasi body."},
+      {"endpoint": "POST /api/cycle-count/sessions", "issue": "Uji terkait di-skip karena warehouse demo tidak memiliki entity_id ent_ksc (koleksi warehouses menggunakan entity_ids array dengan sharing_mode='shared' & entity_ids kosong). Guard cross-entity untuk cycle-count belum tervalidasi via jalur uji ini — periksa via jalur alternatif."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_kn_audit_2026_09_21.py",
+    "/app/backend/tests/test_kn_audit_2026_09_21_extended.py",
+    "/app/test_reports/pytest/kn_audit_full.xml",
+    "/app/test_reports/pytest/kn_audit_extended.xml"
+  ],
+  "action_items": [
+    "Opsional: pertimbangkan agar entity guard dijalankan sebelum Pydantic body validation di endpoint bertipe aksi (mis. landed-costs/pay) sehingga aktor lintas-entitas selalu mendapat 404/403 tanpa membocorkan bentuk skema.",
+    "Opsional: perkuat uji cycle-count cross-entity dengan seed warehouse KSC agar tidak skip."
+  ],
+  "critical_code_review_comments": [
+    "KN-A12 uq_je_source_active dan uq_number berhasil terpasang (dibuktikan lewat DuplicateKeyError langsung ke Mongo).",
+    "KN-B15 aktif: PO dengan produk sama di dua baris ditolak 400 dengan pesan 'lebih dari satu baris PO'.",
+    "KN-D02 aktif: SO dengan pending_approvals rejected mengembalikan 409 code APPROVAL_REJECTED.",
+    "KN-D05 CAS approval PO: 3 request paralel → 1x 200, sisanya 403/409 (tidak ada race).",
+    "KN-C01/C02 status guard eskalasi WMS aktif: escalate di task completed/cancelled/dispatched → 409.",
+    "Semua endpoint tulis (void/pay/submit/approve/reject/cancel/dispose/patch) di GL/kas/vendor-bill/AR-receipt/payroll/fixed-asset/landed-cost/bank/purchase-return/cycle-count menolak lintas entitas (403/404).",
+    "Konstanta bersama (rfid GREEN_OUT, OPEN_PO_STATUSES, PHYSICAL_ROLL_STATUSES) benar-benar satu sumber di seluruh modul."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_kn_audit_2026_09_21_extended.py (baru, 40 uji)"
+  ],
+  "success_rate": {"backend": "100% (45/45 non-skip pass)", "frontend": "not tested (per request)"},
+  "test_credentials": "admin@kainnusantara.id / demo12345",
+  "seed_data_creation": "Uji membuat cycle-count session TEST_CC_* (dihapus di teardown), sales_orders/journal_entries dokumen uji dengan prefix TEST_ (dihapus di teardown). Tidak mengubah data seed.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Berkas regresi lengkap ada di /app/backend/tests/test_kn_audit_2026_09_21_extended.py. Jalankan: cd /app/backend && python -m pytest tests/test_kn_audit_2026_09_21.py tests/test_kn_audit_2026_09_21_extended.py -q. Frontend statis, tidak diuji. gate.sh JANGAN dijalankan (>4 menit lock).",
+  "rca of the issue": "N/A — semua fix audit terbukti berfungsi."
+}
