@@ -200,3 +200,79 @@ def parse_workbook(content: bytes) -> dict:
         out[ent["key"]] = rows
     wb.close()
     return {"sheets": out, "unknown_sheets": unknown}
+
+
+# ------------------------------------------------------------------ impor Leads langsung
+LEADS_ENT = next(e for e in ENTITIES if e["key"] == "leads")
+_LEAD_ALIASES = {"nama": "name", "nama lengkap": "name", "hp": "phone", "no hp": "phone",
+                 "no. hp": "phone", "telepon": "phone", "telp": "phone", "whatsapp": "phone",
+                 "wa": "phone", "nomor": "phone", "sumber": "source", "kampanye": "campaign",
+                 "minat": "interest_unit_type", "tipe": "interest_unit_type", "sales": "assigned_to",
+                 "pic": "assigned_to", "catatan": "notes", "keterangan": "notes"}
+
+
+def build_leads_only_workbook() -> bytes:
+    wb = Workbook()
+    _write_guide(wb)
+    ranges = _write_values(wb)
+    rows = [{f["key"]: f["example"] for f in LEADS_ENT["fields"] if f["example"] not in ("", None)}]
+    _write_entity_sheet(wb, LEADS_ENT, rows, ranges)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _lead_cols(header) -> list:
+    label_to_key = {f["label"].lower(): f["key"] for f in LEADS_ENT["fields"]}
+    valid = {f["key"] for f in LEADS_ENT["fields"]}
+    cols = []
+    for h in header:
+        h = (str(h).strip() if h is not None else "")
+        hl = h.lower().split("\n")[0].strip()
+        cols.append(h if h in valid else label_to_key.get(hl) or _LEAD_ALIASES.get(hl))
+    return cols
+
+
+def _lead_rows(cols: list, rows_iter, skip_desc: bool) -> list:
+    rows = []
+    for ri, raw in enumerate(rows_iter, start=2):
+        vals = {k: _cell_value(v) for k, v in zip(cols, raw) if k}
+        if not any(v is not None for v in vals.values()):
+            continue
+        if skip_desc and ri == DESC_ROW and isinstance(vals.get("name"), str) \
+                and "\n" in str(raw[0] or ""):
+            continue
+        vals["row"] = ri
+        rows.append(vals)
+    return rows
+
+
+def parse_leads_upload(content: bytes, filename: str) -> list:
+    """Excel (sheet 'Leads' bila ada, selain itu sheet pertama) atau CSV → baris siap run_import."""
+    if filename.lower().endswith(".csv"):
+        import csv
+        text = content.decode("utf-8-sig", errors="replace")
+        reader = csv.reader(io.StringIO(text), delimiter=";" if text.count(";") > text.count(",") else ",")
+        header = next(reader, None)
+        if not header:
+            return []
+        cols = _lead_cols(header)
+        rows = _lead_rows(cols, reader, False)
+    else:
+        wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        ws = next((w for w in wb.worksheets if w.title.strip().lower() == "leads"),
+                  next((w for w in wb.worksheets if w.title.upper() not in (GUIDE_SHEET, VALUES_SHEET)
+                        and not w.title.startswith("_")), None))
+        if ws is None:
+            raise ValueError("Tidak ada sheet data yang dikenali.")
+        it = ws.iter_rows(values_only=True)
+        header = next(it, None)
+        if not header:
+            return []
+        cols = _lead_cols(header)
+        rows = _lead_rows(cols, it, True)
+        wb.close()
+    if "name" not in cols or "phone" not in cols:
+        raise ValueError("Kolom 'name' (Nama) dan 'phone' (No. HP) wajib ada di baris pertama.")
+    # baris tipe (str/int/...) dari ekspor Semua Data
+    return [r for r in rows if not (r.get("name") == "str" and r.get("phone") == "str")]

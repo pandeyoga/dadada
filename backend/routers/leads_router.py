@@ -1,5 +1,5 @@
 """Leads (CRM) + Appointments — Slice A. RBAC + row-scope enforced."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 import listing as lst
 import reference as ref
@@ -238,6 +238,46 @@ async def import_leads(payload: LeadImport,
         created += 1
     await dispatch_pending()
     return {"data": {"created": created}}
+
+
+@router.get("/leads/import-template.xlsx")
+async def leads_import_template(user: dict = Depends(require_permission("leads", "create"))):
+    """Template Excel ringkas: hanya sheet Leads (+ petunjuk & daftar nilai)."""
+    from fastapi.responses import Response
+    from data_mgmt_excel import build_leads_only_workbook
+    return Response(content=build_leads_only_workbook(),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": "attachment; filename=SIPRO_Template_Leads.xlsx"})
+
+
+@router.post("/leads/import-file")
+async def import_leads_file(file: UploadFile = File(...), dry_run: bool = Form(True),
+                            user: dict = Depends(require_permission("leads", "create"))):
+    """Impor lead dari Excel/CSV langsung di halaman Leads. Sales cakupan-sendiri → semua lead
+    ditugaskan ke dirinya; kolom `assigned_to` di berkas diabaikan."""
+    from data_mgmt_excel import parse_leads_upload
+    from data_mgmt_import import run_import
+    from routers.data_mgmt_router import _read_upload
+    content = await _read_upload(file, (".xlsx", ".xlsm", ".csv"))
+    try:
+        rows = parse_leads_upload(content, file.filename or "")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:  # noqa: BLE001 — openpyxl melempar banyak jenis galat untuk berkas rusak
+        raise HTTPException(status_code=400, detail=f"Berkas tidak bisa dibaca: {e}")
+    if not rows:
+        raise HTTPException(status_code=400, detail="Tidak ada baris data. Minimal kolom Nama dan No. HP.")
+    if len(rows) > 2000:
+        raise HTTPException(status_code=400, detail="Maksimal 2000 baris per impor.")
+    if is_scoped_sales(user):
+        for r in rows:
+            r["assigned_to"] = user.get("email")
+    org = user.get("org_id", ORG_ID)
+    report = await run_import({"leads": rows}, org, user.get("email"), "upsert", dry_run)
+    ent = next((e for e in report["entities"] if e["key"] == "leads"), None)
+    if not dry_run and ent and ent["insert"]:
+        await dispatch_pending()
+    return {"data": {"dry_run": dry_run, "filename": file.filename, **(ent or report["totals"])}}
 
 
 @router.get("/leads/{lead_id}")

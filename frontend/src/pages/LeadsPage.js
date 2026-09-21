@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { UserPlus, Zap, MessageSquarePlus } from "lucide-react";
+import { UserPlus, Zap, MessageSquarePlus, FileSpreadsheet } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import DataTable from "@/components/patterns/DataTable";
@@ -9,6 +9,7 @@ import FilterBar from "@/components/patterns/FilterBar";
 import AgingCell from "@/components/patterns/AgingCell";
 import StatusPill from "@/components/patterns/StatusPill";
 import AssignLeadsDialog from "@/components/leads/AssignLeadsDialog";
+import ImportLeadsDialog from "@/components/leads/ImportLeadsDialog";
 import LeadKpiStrip from "@/components/leads/LeadKpiStrip";
 import AddLeadDialog from "@/components/sales/AddLeadDialog";
 import SimulateLeadDialog from "@/components/sales/SimulateLeadDialog";
@@ -59,6 +60,7 @@ export default function LeadsPage() {
   const [error, setError] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [simOpen, setSimOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [assignFor, setAssignFor] = useState(null);
 
   const load = useCallback(async () => {
@@ -195,6 +197,12 @@ export default function LeadsPage() {
             onClick={() => setSimOpen(true)}>
             <Zap className="mr-1.5 h-4 w-4" /> Simulasi Lead Masuk
           </Button>
+          {can("leads", "create") ? (
+            <Button data-testid={LEADS.importBtn} variant="outline" size="sm"
+              onClick={() => setImportOpen(true)}>
+              <FileSpreadsheet className="mr-1.5 h-4 w-4" /> Impor Excel
+            </Button>
+          ) : null}
           <Button data-testid={LEADS.addBtn} size="sm" onClick={() => setAddOpen(true)}>
             <UserPlus className="mr-1.5 h-4 w-4" /> Tambah Lead
           </Button>
@@ -244,6 +252,7 @@ export default function LeadsPage() {
 
       <AddLeadDialog open={addOpen} onOpenChange={setAddOpen} onDone={load} />
       <SimulateLeadDialog open={simOpen} onOpenChange={setSimOpen} onDone={load} />
+      <ImportLeadsDialog open={importOpen} onOpenChange={setImportOpen} onDone={load} />
       <AssignLeadsDialog open={!!assignFor} onOpenChange={(v) => !v && setAssignFor(null)}
         rows={assignFor?.rows || []} owners={owners}
         onDone={() => { assignFor?.clear?.(); setAssignFor(null); load(); }} />
