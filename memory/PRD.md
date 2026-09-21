@@ -52,3 +52,10 @@ Lihat `/app/memory/test_credentials.md`.
 
 ## Next Tasks
 - Menunggu review user atas 3 perubahan; lanjut per feedback.
+
+
+## 2026-06 — Impor Leads via Excel (bug fix)
+- Template migrasi master kini punya sheet **Leads** (kunci: No. HP) → handler `h_leads` (stage acquisition, auto-assign sales, skor, HP +62, upsert per HP).
+- Impor mentah "Semua Data" (sheet `leads`, id kosong) kini mengisi default lead (`_lead_defaults` di data_mgmt_full_session.py).
+- `BACKUP_DIR` ditambahkan ke backend/.env (preview). Di VPS sudah diset lewat docker-compose.
+- Diverifikasi testing agent: 7/7 pytest lulus (/app/test_reports/iteration_42.json).
