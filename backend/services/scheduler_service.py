@@ -344,8 +344,8 @@ async def _apply_jobs() -> int:
         cfg = cfg_all[jid]
         try:
             _scheduler.remove_job(jid)
-        except Exception:  # noqa: BLE001 — belum terdaftar
-            pass
+        except Exception as exc:  # noqa: BLE001 — belum terdaftar
+            logger.warning("[_apply_jobs] efek samping gagal diabaikan: %s", exc)  # KN-C10
         if not cfg.get("enabled", True):
             continue
         if job["kind"] == "daily":
@@ -425,8 +425,8 @@ def shutdown() -> None:
     if _scheduler is not None and _scheduler.running:
         try:
             _scheduler.shutdown(wait=False)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[shutdown] efek samping gagal diabaikan: %s", exc)  # KN-C10
     _scheduler = None
 
 

@@ -20,6 +20,7 @@ FASE D (PS-03/PS-04/PS-08/PS-11 · keputusan D-04/D-05/D-07/D-09) menambahkan:
     potong bon / tagih ganti rugi / terima dengan catatan.
   * **HPP berjenjang** per langkah (`costing.steps[]`).
 """
+import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -37,6 +38,8 @@ from services.roll_service import create_inbound_roll
 from services.process_recipe_service import compute_forecast
 from services import line_scope as _lines      # FASE L — satu pintu normalisasi lini
 from services import master_registry as mreg   # FASE T — satu pembaca master tahapan
+logger = logging.getLogger(__name__)
+
 
 DRAFT, IN_PROCESS, PARTIAL, COMPLETED, CANCELLED = (
     "draft", "in_process", "partially_received", "completed", "cancelled")
@@ -1114,8 +1117,8 @@ async def _next_service_bill_no() -> str:
     if last and isinstance(last.get("bill_number"), str) and last["bill_number"].startswith("VBM-"):
         try:
             n = int(last["bill_number"].split("-")[1])
-        except (ValueError, IndexError):
-            pass
+        except (ValueError, IndexError) as exc:
+            logger.warning("[_next_service_bill_no] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return f"VBM-{n + 1:05d}"
 
 

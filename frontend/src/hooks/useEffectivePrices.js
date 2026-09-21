@@ -52,6 +52,8 @@ export function useEffectivePrices({
 }) {
   const [priceMap, setPriceMap] = useState({});
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [retryTick, setRetryTick] = useState(0);
   const idsKey = (productIds || []).filter(Boolean).join(",");
 
   useEffect(() => {
@@ -61,6 +63,7 @@ export function useEffectivePrices({
     }
     let cancelled = false;
     setLoading(true);
+    setError("");
     const timer = setTimeout(async () => {
       try {
         const params = { customer_id: customerId, product_ids: idsKey };
@@ -79,18 +82,23 @@ export function useEffectivePrices({
           };
         });
         setPriceMap(out);
-      } catch {
-        if (!cancelled) setPriceMap({});
+      } catch (e) {
+        // KN-D17 — gagal memuat harga kontrak TIDAK boleh diam-diam jatuh ke harga umum:
+        // buka kanal galat supaya layar checkout memblokir & meminta muat ulang.
+        if (!cancelled) {
+          setPriceMap({});
+          setError(e?.response?.data?.detail || e?.message || "Harga pelanggan gagal dimuat");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     }, delay);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [customerId, entityId, idsKey, quantity, enabled, delay, refreshKey]);
+  }, [customerId, entityId, idsKey, quantity, enabled, delay, refreshKey, retryTick]);
 
   const priceOf = useCallback((productId, qty) => pickPrice(priceMap[productId], qty),
                               [priceMap]);
-  return { priceMap, priceOf, loading };
+  return { priceMap, priceOf, loading, error, retry: () => setRetryTick((t) => t + 1) };
 }
 
 export default useEffectivePrices;

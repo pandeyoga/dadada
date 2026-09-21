@@ -18,6 +18,7 @@ Kebijakan (Pusat Pengaturan → Persetujuan & Ambang; lihat `config_catalog_appr
 
 Catatan: "Direksi" = peran **admin** (keputusan pemilik) — tidak ada peran baru.
 """
+import logging
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -28,6 +29,8 @@ from config_divisions import (APPROVER_MATRIX, DIREKSI_MIN_KEY, STAGE_BY_ID,
 from core_utils import new_id, now_iso, safe_doc
 from db import db
 from services.config_resolver import value_of
+logger = logging.getLogger(__name__)
+
 
 LOG_COLL = "approval_matrix_log"
 
@@ -298,8 +301,8 @@ async def record(*, stage: str, action: str, actor: Dict[str, Any], doc: Dict[st
                     st.get("collection") or "approval_matrix", entry["doc_id"],
                     {"stage": stage, "level": entry["level"], "outcome": outcome,
                      "violation": entry["violation"]}, reason=note[:400])
-    except Exception:  # noqa: BLE001 — jejak utama sudah tersimpan
-        pass
+    except Exception as exc:  # noqa: BLE001 — jejak utama sudah tersimpan
+        logger.warning("[record] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return safe_doc(entry)
 
 

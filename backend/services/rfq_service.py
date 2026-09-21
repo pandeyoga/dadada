@@ -13,10 +13,13 @@ Keputusan desain owner:
 
 Koleksi kanonik: `rfqs` (prefix rfq_). Status: draft → open → awarded | cancelled.
 """
+import logging
 from typing import Any, Dict, List, Optional
 from db import db
 from core_utils import now_iso, new_id, DEFAULT_ENTITY_ID, safe_doc, timeline_entry, next_doc_number, rupiah
 from services.config_service import evaluate_approval, compute_order_pricing, get_effective_settings
+logger = logging.getLogger(__name__)
+
 
 OPEN_STATUSES = {"draft", "open"}
 
@@ -267,8 +270,8 @@ async def _create_po_from_lines(supplier_id: str, lines: List[Dict[str, Any]],
         try:
             from services.notification_service import notify_po_awaiting_approval
             await notify_po_awaiting_approval(po)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[_create_po_from_lines] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return safe_doc(po)
 
 

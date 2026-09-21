@@ -3,7 +3,7 @@ import { TrendingUp, TrendingDown, AlertCircle, Clock, Package, DollarSign, User
 import KNSelect from "../../components/KNSelect";
 import { getStage, stageMeta } from "../../utils/soStatus";
 
-function OrderDashboard({ orders = [], loading = false }) {
+function OrderDashboard({ orders = [], loading = false, summary = null }) {
   const [timeRange, setTimeRange] = useState("7d"); // 7d, 30d, 90d
   
   // Calculate metrics
@@ -16,9 +16,14 @@ function OrderDashboard({ orders = [], loading = false }) {
     
     const FULFILLED_STATUSES = ["confirmed", "partially_picked", "picked",
       "partially_shipped", "shipped", "dispatched", "done"];
-    const totalRevenue = recentOrders
+    // KN-D18 — omzet dari agregat SERVER (grand_total setelah diskon & PPN, seluruh pesanan
+    // ter-scope); jumlah lokal atas halaman yang termuat hanya cadangan bila agregat belum tiba.
+    const serverRev = summary?.revenue?.[timeRange];
+    const localRevenue = recentOrders
       .filter(o => FULFILLED_STATUSES.includes(o.status))
-      .reduce((sum, o) => sum + (o.total_amount || 0), 0);
+      .reduce((sum, o) => sum + (o.grand_total ?? o.total_amount ?? 0), 0);
+    const totalRevenue = serverRev ? serverRev.grand_total : localRevenue;
+    const revenueFromServer = !!serverRev;
     
     const pendingOrders = orders.filter(o => 
       ["waiting_approval", "reserved", "approved"].includes(o.status)
@@ -62,6 +67,7 @@ function OrderDashboard({ orders = [], loading = false }) {
     
     return {
       totalRevenue,
+      revenueFromServer,
       totalOrders: recentOrders.length,
       pendingOrders: pendingOrders.length,
       expiringSoon: expiringSoon.length,
@@ -70,7 +76,7 @@ function OrderDashboard({ orders = [], loading = false }) {
       statusCounts,
       recentOrders: orders.slice(0, 10)
     };
-  }, [orders, timeRange]);
+  }, [orders, timeRange, summary]);
   
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat("id-ID", {
@@ -113,7 +119,8 @@ function OrderDashboard({ orders = [], loading = false }) {
             </div>
             <p className="text-[10px] font-bold uppercase tracking-wide text-[#6B6B73]">Revenue</p>
           </div>
-          <p className="text-[18px] font-bold text-[#007AFF]">{formatCurrency(metrics.totalRevenue)}</p>
+          <p data-testid="order-dashboard-revenue" className="text-[18px] font-bold text-[#007AFF]">{formatCurrency(metrics.totalRevenue)}</p>
+          <p className="text-[10px] text-slate-500">{metrics.revenueFromServer ? "Setelah diskon & PPN · seluruh pesanan" : "Sementara: hanya pesanan yang termuat"}</p>
           <p className="text-[10px] text-[#8E8E93] mt-1">{metrics.totalOrders} orders</p>
         </div>
         

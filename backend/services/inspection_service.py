@@ -32,12 +32,15 @@ kapan, dan atas dasar apa barang diterima/ditolak.
 sampai **manajer** melepasnya ber-alasan (`release_hold`).
 """
 from __future__ import annotations
+import logging
 
 from typing import Any, Dict, List, Optional, Tuple
 
 from core_utils import new_id, next_doc_number, now_iso, safe_doc, timeline_entry
 from db import db
 from services import line_scope
+logger = logging.getLogger(__name__)
+
 
 COLL = "inspections"
 
@@ -684,8 +687,8 @@ async def assign(ins_id: str, payload: Dict[str, Any],
             entity_id=saved.get("entity_id"),
             recipient_role="", recipient_user=aid,
             ref=f"ins_assigned:{saved.get('id', '')}:{aid}")
-    except Exception:  # noqa: BLE001
-        pass          # penugasan tetap sah walau pemberitahuannya gagal
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[assign] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return saved
 
 

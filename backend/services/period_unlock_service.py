@@ -18,6 +18,7 @@ Invarian:
   `backdated_in_unlock` — dijaga guard + gate.
 - **INV-CLS-02**: tiap unlock yang disetujui punya `reason` + pengusul ≠ penyetuju.
 """
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -25,6 +26,8 @@ from db import db
 from core_utils import new_id, now_iso, safe_doc
 from services import closing_service as cs
 from services.config_resolver import value_of
+logger = logging.getLogger(__name__)
+
 
 COLL = "period_unlock_requests"
 TERMINAL = ("expired", "reclosed", "rejected")
@@ -267,8 +270,8 @@ async def reclose_expired(notify: bool = True) -> Dict[str, Any]:
                     link="period-unlock", entity_id=r.get("entity_id") or None,
                     recipient_role="admin", ref=f"plureclose:{r['id']}",
                     dedupe_scope="day")
-            except Exception:  # noqa: BLE001 — notifikasi best-effort
-                pass
+            except Exception as exc:  # noqa: BLE001 — notifikasi best-effort
+                logger.warning("[reclose_expired] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return {"created": 0, "scanned": closed, "reclosed": closed,
             "detail": f"{closed} jendela unlock ditutup otomatis", "at": now_iso()}
 

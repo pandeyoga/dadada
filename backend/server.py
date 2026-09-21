@@ -135,6 +135,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Total-Count", "X-Truncated"],   # KN-D25 — penanda daftar terpotong
 )
 
 # Register all routers

@@ -56,6 +56,7 @@ INVARIAN
   teralokasi`, dan setiap rupiah yang dipindahkan oleh keputusan (alokasi ulang / refund)
   punya jurnal + tidak melebihi kelebihan bayar kwitansinya.
 """
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -64,6 +65,8 @@ from db import db
 from services import gl_service
 from services import payment_plan_service as plans
 from services.config_resolver import resolve
+logger = logging.getLogger(__name__)
+
 
 COLL = "payment_variance_decisions"
 EPS = 0.01
@@ -440,8 +443,8 @@ async def _write_off_orders(order_ids: List[str], amount: float, *, decision_id:
         await db.sales_orders.update_one({"id": oid}, {"$set": {"payment_status": status}})
         try:
             await plans.recompute_for_doc("sales_order", oid)
-        except Exception:  # noqa: BLE001 — turunan, tak boleh menggagalkan keputusan
-            pass
+        except Exception as exc:  # noqa: BLE001 — turunan, tak boleh menggagalkan keputusan
+            logger.warning("[_write_off_orders] efek samping gagal diabaikan: %s", exc)  # KN-C10
         done.append({"order_id": oid, "order_number": order.get("number", oid),
                      "amount": round(take, 2), "payment_status": status})
         left = round(left - take, 2)
@@ -607,8 +610,8 @@ async def _insert_decision(doc: Dict[str, Any]) -> Dict[str, Any]:
                 await _refs.safe_link(("payment_variance", doc["id"]),
                                       ("sales_order", t["order_id"]), "settles",
                                       note="selisih pembayaran pesanan ini")
-    except Exception:  # noqa: BLE001 — jejak relasi best-effort
-        pass
+    except Exception as exc:  # noqa: BLE001 — jejak relasi best-effort
+        logger.warning("[_insert_decision] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return safe_doc(doc)
 
 
@@ -839,8 +842,8 @@ async def reverse_decision(decision_id: str, reason: str,
                 "updated_at": now_iso()}})
             try:
                 await plans.recompute_for_doc("sales_order", oid)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[reverse_decision] efek samping gagal diabaikan: %s", exc)  # KN-C10
         rev_je = await gl_service.post_variance_reversal(
             decision_id=decision_id, entity_id=entity_id, amount=amount,
             debit_acc=gl_service.ACC_PIUTANG, credit_acc=gl_service.ACC_SELISIH_BAYAR,
@@ -876,8 +879,8 @@ async def reverse_decision(decision_id: str, reason: str,
                 "updated_at": now_iso()}})
             try:
                 await plans.recompute_for_doc("sales_order", oid)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[reverse_decision] efek samping gagal diabaikan: %s", exc)  # KN-C10
         await ars.adjust_deposit(d.get("customer_id", ""), amount)
         rev_je = await gl_service.post_variance_reversal(
             decision_id=decision_id, entity_id=entity_id, amount=moved_to_ar,
@@ -1047,8 +1050,8 @@ async def decide_bill(bill: Dict[str, Any], assessment: Dict[str, Any],
             await _refs.safe_link(("payment_variance", decision_id),
                                   ("vendor_bill", bill["id"]), "parent",
                                   note="selisih pembayaran tagihan supplier")
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[decide_bill] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return saved
 
 

@@ -17,11 +17,14 @@ Urutan penentuan (paling dipercaya lebih dulu):
 
 Tidak ada URL yang di-hardcode di dalam kode.
 """
+import logging
 import os
 import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
+logger = logging.getLogger(__name__)
+
 
 _FRONTEND_ENV = Path("/app/frontend/.env")
 
@@ -40,8 +43,8 @@ def _origin_of(value: str) -> str:
         p = urlparse(v)
         if p.scheme and p.netloc:
             return f"{p.scheme}://{p.netloc}"
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[_origin_of] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return v
 
 
@@ -74,6 +77,6 @@ def public_app_url(request: Optional[Any] = None) -> str:
             origin = _origin_of(hinted)
             if origin:
                 return origin
-        except Exception:  # noqa: BLE001 — objek request tak standar → lanjut ke env
-            pass
+        except Exception as exc:  # noqa: BLE001 — objek request tak standar → lanjut ke env
+            logger.warning("[public_app_url] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return configured_app_url()

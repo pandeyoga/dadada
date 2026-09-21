@@ -25,6 +25,7 @@ Prioritas resolusi faktor (paling spesifik → paling umum):
   langkah perbaikan (bukan error teknis).
 """
 from __future__ import annotations
+import logging
 
 from typing import Any, Dict, List, Optional
 
@@ -32,6 +33,8 @@ from db import db
 from core_utils import new_id, now_iso, parse_decimal, safe_doc
 from services import uom_rules_service as _uomr
 from services import supplier_item_service as _sis
+logger = logging.getLogger(__name__)
+
 
 SETTINGS_SCOPE = "receiving"
 CONTEXT_SCAN = "goods_receipt_scan"
@@ -338,8 +341,8 @@ async def uom_options(task: Dict[str, Any]) -> Dict[str, Any]:
                 "remaining": rem_doc,
             })
             seen.add(sup_uom)
-        except ReceivingUomError:
-            pass
+        except ReceivingUomError as exc:
+            logger.warning("[uom_options] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
     if mode != "off" and base_uom not in seen:
         try:
@@ -354,8 +357,8 @@ async def uom_options(task: Dict[str, Any]) -> Dict[str, Any]:
                 "remaining": round(rem / probe["task_qty"], 2) if probe["task_qty"] else None,
             })
             seen.add(base_uom)
-        except ReceivingUomError:
-            pass
+        except ReceivingUomError as exc:
+            logger.warning("[uom_options] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
     default_uom = task_uom
     if mode == "prefer" and sup_uom and sup_uom in seen:

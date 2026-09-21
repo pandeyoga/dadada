@@ -19,6 +19,7 @@ Alokasi:
 
 Idempotensi nomor: AR-##### via next_doc_number (deletion-safe).
 """
+import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -36,6 +37,8 @@ from services.customer_service import (
     NON_AR_METHODS,
 )
 from request_context import active_entity_or
+logger = logging.getLogger(__name__)
+
 
 EPS = 0.01
 CASH_METHODS = {"cash", "tunai", "kontan"}
@@ -100,8 +103,8 @@ async def _post_cash_in(receipt: Dict[str, Any], actor: Dict[str, Any]) -> Optio
     try:
         from services import gl_service as _gl
         await _gl.post_cash_transaction(cdoc)
-    except Exception:  # noqa: BLE001 — kwitansi tetap sah; backfill akan menyusul
-        pass
+    except Exception as exc:  # noqa: BLE001 — kwitansi tetap sah; backfill akan menyusul
+        logger.warning("[_post_cash_in] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return cdoc["id"]
 
 
@@ -145,8 +148,8 @@ async def apply_from_deposit(order_id: str, amount: float, decision_id: str,
     try:
         from services import payment_plan_service as _plans
         await _plans.recompute_for_doc("sales_order", order_id)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[apply_from_deposit] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return res
 
 
@@ -166,8 +169,8 @@ async def apply_from_bank_holding(order_id: str, amount: float, line_id: str,
     try:
         from services import payment_plan_service as _plans
         await _plans.recompute_for_doc("sales_order", order_id)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[apply_from_bank_holding] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return res
 
 
@@ -185,8 +188,8 @@ async def apply_from_case(order_id: str, amount: float, case_id: str,
     try:
         from services import payment_plan_service as _plans
         await _plans.recompute_for_doc("sales_order", order_id)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[apply_from_case] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return res
 
 
@@ -232,8 +235,8 @@ async def unapply_for_case(order_id: str, amount: float, case_id: str,
     try:
         from services import payment_plan_service as _plans
         await _plans.recompute_for_doc("sales_order", order_id)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[unapply_for_case] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return {"order_id": order_id, "order_number": o.get("number", order_id),
             "unapplied": amt, "outstanding_after": round(gt - new_paid, 2),
             "payment_status": status, "entity_id": o.get("entity_id", "")}
@@ -483,8 +486,8 @@ async def create_receipt(payload: Dict[str, Any], actor: Dict[str, Any]) -> Dict
             try:
                 from services import payment_plan_service as _plans
                 await _plans.recompute_for_doc("sales_order", _al["order_id"])
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[create_receipt] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
     # P0-1 — posting kas masuk (hanya untuk kas baru; deposit bukan kas baru).
     cash_txn_id = await _post_cash_in(doc, actor)
@@ -614,8 +617,8 @@ async def void_receipt(receipt_id: str, actor: Dict[str, Any], reason: str = "")
         try:
             from services import payment_plan_service as _plans
             await _plans.recompute_for_doc("sales_order", oid)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[void_receipt] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
     # 2) Void cash_transaction terkait (saldo kas tak lagi menghitungnya) + jurnal PEMBALIK
     #    supaya buku besar ikut kembali (Dr Piutang / Cr Kas), bukan hanya buku kas.
@@ -631,8 +634,8 @@ async def void_receipt(receipt_id: str, actor: Dict[str, Any], reason: str = "")
             from services import gl_service as _gl
             await _gl.post_cash_void(_cid, label=f"void {r.get('number', '')}",
                                      created_by=actor.get("name", "system"))
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[void_receipt] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
     # 3) Koreksi deposit (balik deposit_delta yang sempat diterapkan).
     delta = round(float(r.get("deposit_delta", 0) or 0), 2)

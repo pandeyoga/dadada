@@ -61,8 +61,8 @@ async def _returnable_by_product(order_id: str) -> Dict[str, float]:
     sold: Dict[str, float] = {}
     for it in order.get("items", []):
         pid = it.get("product_id")
-        if pid:
-            sold[pid] = sold.get(pid, 0.0) + float(it.get("quantity", 0) or 0)
+        if pid:   # KN-B22 — batas dalam SATUAN DASAR (base_quantity bila ada)
+            sold[pid] = sold.get(pid, 0.0) + float(it.get("base_quantity") or it.get("quantity", 0) or 0)
     shipped: Dict[str, float] = {}
     async for t in db.wms_tasks.find(
             {"order_id": order_id, "flow_type": "outbound"},
@@ -79,6 +79,26 @@ async def _returnable_by_product(order_id: str) -> Dict[str, float]:
         if pid not in returnable and s > 0:
             returnable[pid] = round(s, 2)
     return returnable
+
+
+async def _normalize_return_items_to_base(items: List[Dict]) -> List[Dict]:
+    """KN-B22 — konversi `quantity_returned` tiap item ke satuan dasar produk; simpan jejak
+    kuantitas & unit asli (`quantity_returned_input`, `unit_input`)."""
+    from services.roll_service import to_base_qty
+    out: List[Dict] = []
+    for it in items or []:
+        it = dict(it)
+        pid = it.get("product_id")
+        prod = await db.products.find_one({"id": pid}, {"_id": 0}) if pid else None
+        base = (prod or {}).get("base_unit") or "meter"
+        unit = (it.get("unit") or base)
+        qty = float(it.get("quantity_returned", 0) or 0)
+        if prod and unit.lower() != base.lower() and qty > 0:
+            it["quantity_returned_input"], it["unit_input"] = qty, unit
+            it["quantity_returned"] = round(await to_base_qty(prod, qty, unit), 2)
+        it["unit"] = base
+        out.append(it)
+    return out
 
 
 async def _already_returned_by_product(order_id: str, exclude_id: str = "") -> Dict[str, float]:
@@ -160,10 +180,15 @@ async def _create_credit_note_and_post_gl(
     for it in order.get("items", []):
         # KN-B23 — harga NETO per unit (line_total ÷ qty) supaya diskon tidak ikut
         # dikembalikan ke pelanggan; jatuh ke `price` bruto hanya bila line_total tak ada.
-        _q = float(it.get("quantity", 0) or 0)
+        _q = float(it.get("base_quantity") or it.get("quantity", 0) or 0)   # KN-B22 — per satuan DASAR
+        _oq = float(it.get("quantity", 0) or 0)
         _lt = it.get("line_total")
-        _net = (float(_lt or 0) / _q) if (_lt is not None and _q > 0) \
-            else float(it.get("price", it.get("unit_price", 0)) or 0)
+        if _lt is not None and _q > 0:
+            _net = float(_lt or 0) / _q
+        else:
+            _net = float(it.get("price", it.get("unit_price", 0)) or 0)
+            if _q > 0 and _oq > 0 and abs(_q - _oq) > 1e-9:
+                _net = _net * _oq / _q   # harga per unit pesanan → per satuan dasar
         _hdr = float(order.get("order_discount_percent", 0) or 0) if isinstance(order, dict) else 0.0
         price_by_pid[it.get("product_id")] = round(_net * (1 - _hdr / 100.0), 4) if _hdr > 0 else _net
 
@@ -341,6 +366,11 @@ async def create_return(
     # Resolve entity from order bila tidak diberikan
     if not entity_id:
         entity_id = order.get("entity_id", "")
+
+    # KN-B22 — SATU satuan untuk retur: kuantitas retur disimpan dalam SATUAN DASAR produk
+    # (stok/roll/COGS memakai basis), dan harga nota kredit dihitung per satuan dasar.
+    # Item berunit pesanan (yard/roll) dikonversi lewat master UoM — bukan dipakai mentah.
+    items = await _normalize_return_items_to_base(items)
 
     # R1-06 — batasi qty retur: (retur aktif sebelumnya + retur ini) ≤ terkirim/terjual per produk.
     await assert_return_within_limits(order_id, items)

@@ -7,6 +7,7 @@ Tahapan kirim: prepared → loaded (WAJIB foto muat) → in_transit (posisi) →
 (WAJIB foto POD + nama penerima) → completed; loaded/in_transit → failed (alasan).
 Tahapan ambil sendiri: prepared (menunggu diambil) → delivered (serah terima tervalidasi) → completed.
 """
+import logging
 import secrets
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -16,6 +17,8 @@ from db import db
 from core_utils import new_id, now_iso, safe_doc, next_doc_number
 from services import storage_service as storage
 from services import fleet_service as fleet
+logger = logging.getLogger(__name__)
+
 
 COLL = "logistics_deliveries"
 MODES = {"expedition": "Ekspedisi", "own_fleet": "Armada sendiri", "self_pickup": "Diambil pelanggan"}
@@ -362,8 +365,8 @@ async def history(scope: Dict[str, Any], date_from: str = "", date_to: str = "",
             a = datetime.fromisoformat(str(r["created_at"]).replace("Z", "+00:00"))
             b = datetime.fromisoformat(str(r.get("delivered_at") or r.get("completed_at")).replace("Z", "+00:00"))
             lead.append(max((b - a).total_seconds() / 86400, 0))
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[_when] efek samping gagal diabaikan: %s", exc)  # KN-C10
     stats = {"total": total, "delivered": len(delivered), "failed": sum(1 for r in rows if r.get("status") == "failed"),
              "avg_lead_days": round(sum(lead) / len(lead), 1) if lead else None,
              "shipping_cost_total": round(sum(float(r.get("shipping_cost") or 0) for r in rows), 2),
@@ -560,8 +563,8 @@ async def transition(delivery_id: str, payload: Dict[str, Any], actor_name: str)
         try:
             from services import special_order_phase2 as _p2
             await _p2.on_delivered(doc["order_id"])
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[transition] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return await get_delivery(delivery_id)
 
 

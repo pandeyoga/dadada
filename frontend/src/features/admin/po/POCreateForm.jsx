@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Plus, XCircle, Sparkles, AlertTriangle, Receipt } from "lucide-react";
 import { formatCurrency } from "../../../utils/formatters";
 import axios, { API } from "../../../services/apiClient";
+import { computeOrderPreview } from "../../../utils/pricing";
 import KNSelect from "../../../components/KNSelect";
 import { productOption, supplierCodesLabel } from "../../../utils/productSearch";   // MD-08
 import DecimalInput from "../../../components/DecimalInput";
@@ -52,12 +53,14 @@ export default function POCreateForm({
   const [priceBelowMoq, setPriceBelowMoq] = useState(false);  // FASE F-2 — di bawah MOQ kontrak
   // P0-1 — config pajak efektif (PPN Masukan) untuk estimasi breakdown live.
   const [taxCfg, setTaxCfg] = useState({ ppn_rate: 12, ppn_mode: "excluded", is_pkp: true, dpp_nilai_lain: false });
+  const [purchasingCfg, setPurchasingCfg] = useState({});   // KN-D19 — sakelar diskon pembelian
 
   useEffect(() => {
     let alive = true;
     axios.get(`${API}/settings/effective`)
       .then((res) => {
         const t = res.data?.tax || {};
+        if (alive) setPurchasingCfg(res.data?.purchasing || {});
         if (alive) setTaxCfg({
           ppn_rate: Number(t.ppn_rate ?? 12),
           dpp_nilai_lain: !!t.dpp_nilai_lain,
@@ -75,31 +78,21 @@ export default function POCreateForm({
   const round2 = (n) => Math.round((num(n) + Number.EPSILON) * 100) / 100;
   const clampPct = (v) => Math.min(Math.max(num(v), 0), 100);
 
-  // P0-1 — estimasi breakdown harga PO (mirror compute_order_pricing backend).
+  // P0-1 / KN-D19 / KN-D21 — estimasi harga PO memakai SATU cermin server (`computeOrderPreview`,
+  // bagian `purchasing`): sakelar diskon `purchasing.allow_item_discount/allow_order_discount`
+  // dihormati (dulu layar tetap memotong padahal server mengabaikannya → total tersimpan
+  // lebih tinggi dari yang disetujui di layar), dan tax_mode non_ppn = tax_override server.
   const pricing = (() => {
-    let gross = 0, itemDisc = 0;
-    for (const it of formData.items) {
-      const sub = round2(num(it.price) * num(it.quantity));
-      const da = round2(sub * clampPct(it.discount_percent) / 100);
-      gross += sub; itemDisc += da;
-    }
-    gross = round2(gross); itemDisc = round2(itemDisc);
-    const afterItem = round2(gross - itemDisc);
-    const odp = clampPct(formData.order_discount_percent);
-    const oda = round2(afterItem * odp / 100);
-    const net = round2(afterItem - oda);
-    const discTotal = round2(itemDisc + oda);
-    const rate = Number(taxCfg.ppn_rate) || 0;
-    const dppFactor = taxCfg.dpp_nilai_lain ? 11 / 12 : 1;
-    const effRate = rate * dppFactor;
-    const mode = taxCfg.ppn_mode || "excluded";
-    const noTax = formData.tax_mode === "non_ppn" || !taxCfg.is_pkp || rate <= 0;
-    let dpp = net, ppn = 0, grand = net;
-    if (!noTax) {
-      if (mode === "included") { const hj = round2(net / (1 + effRate / 100)); dpp = round2(hj * dppFactor); ppn = round2(net - hj); grand = net; }
-      else { dpp = round2(net * dppFactor); ppn = round2(net * effRate / 100); grand = round2(net + ppn); }
-    }
-    return { gross, itemDisc, oda, discTotal, net, dpp, ppn, grand, rate: noTax ? 0 : rate, mode, noTax, dppNilaiLain: !noTax && !!taxCfg.dpp_nilai_lain };
+    const p = computeOrderPreview(
+      formData.items.map((it) => ({ price: num(it.price), quantity: num(it.quantity), discount_percent: clampPct(it.discount_percent) })),
+      formData.order_discount_percent,
+      { purchasing: purchasingCfg, tax: taxCfg },
+      { cfgSection: "purchasing", taxOverride: formData.tax_mode === "non_ppn" ? "non_ppn" : undefined },
+    );
+    const noTax = !p.isPkp || p.ppnRate <= 0;
+    return { gross: p.gross, itemDisc: p.itemsDisc, oda: p.orderDisc, discTotal: p.discountTotal, net: p.net,
+             dpp: p.dpp, ppn: p.ppn, grand: p.grand, rate: noTax ? 0 : p.ppnRate, mode: p.mode, noTax,
+             dppNilaiLain: p.dppNilaiLain, allowItem: p.allowItem, allowOrder: p.allowOrder };
   })();
 
   function handleSupplierSelect(v) {
@@ -296,8 +289,9 @@ export default function POCreateForm({
               value={newItem.price}
               onChange={(v) => setNewItem({ ...newItem, price: v })} />
             <input data-testid="item-discount-input" type="number" placeholder="Disc%" min="0" max="100"
-              title="Diskon item (%)"
-              value={newItem.discount_percent}
+              title={pricing.allowItem ? "Diskon item (%)" : "Diskon item dinonaktifkan di Pengaturan Pembelian — server mengabaikannya"}
+              disabled={!pricing.allowItem}
+              value={pricing.allowItem ? newItem.discount_percent : 0}
               onChange={(e) => setNewItem({ ...newItem, discount_percent: parseFloat(e.target.value) || 0 })}
               className="field" />
             <KNSelect data-testid="item-expected-grade-select" value={newItem.expected_grade || ""}
@@ -361,7 +355,7 @@ export default function POCreateForm({
             {formData.items.map((item, i) => {
               const p = products.find((pr) => pr.id === item.product_id);
               const sub = round2(num(item.price) * num(item.quantity));
-              const lt = round2(sub - sub * clampPct(item.discount_percent) / 100);
+              const lt = round2(sub - (pricing.allowItem ? sub * clampPct(item.discount_percent) / 100 : 0));   // KN-D19
               return (
                 <div key={i} data-testid={`po-item-row-${i}`}
                   className="grid grid-cols-[1fr_136px_84px_52px_56px_88px_28px] items-center px-2.5 py-1.5 border-b border-[#EFF0F2] last:border-0 text-[11.5px]">
@@ -387,7 +381,9 @@ export default function POCreateForm({
             <div>
               <label className="block text-[10.5px] font-semibold text-[#6B6B73] mb-1">Diskon Pesanan (%)</label>
               <input data-testid="order-discount-input" type="number" min="0" max="100" placeholder="0"
-                value={formData.order_discount_percent}
+                disabled={!pricing.allowOrder}
+                title={pricing.allowOrder ? "" : "Diskon pesanan dinonaktifkan di Pengaturan Pembelian — server mengabaikannya"}
+                value={pricing.allowOrder ? formData.order_discount_percent : 0}
                 onChange={(e) => setFormData({ ...formData, order_discount_percent: parseFloat(e.target.value) || 0 })}
                 className="field" />
             </div>

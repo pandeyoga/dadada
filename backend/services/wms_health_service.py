@@ -2,12 +2,15 @@
 insiden terbuka, red reads hari ini, antrean putaway, PA terbuka, gate exception,
 roll tanpa tag, akurasi cycle count terakhir, device stale. Read-only agregasi.
 """
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from db import db
 from services.rfid_service import PHYSICAL_STATUSES
 from services.rfid_incident_service import HEARTBEAT_STALE_SECONDS
+logger = logging.getLogger(__name__)
+
 
 
 async def health_dashboard(scope_ids: List[str]) -> Dict[str, Any]:
@@ -81,8 +84,8 @@ async def health_dashboard(scope_ids: List[str]) -> Dict[str, Any]:
             try:
                 stale = (now - datetime.fromisoformat(hb.replace("Z", "+00:00"))) \
                     .total_seconds() > HEARTBEAT_STALE_SECONDS
-            except ValueError:
-                pass
+            except ValueError as exc:
+                logger.warning("[health_dashboard] efek samping gagal diabaikan: %s", exc)  # KN-C10
         if stale and d.get("status") == "online":
             rows[d["warehouse_id"]]["devices_stale"] += 1
 

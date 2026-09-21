@@ -6,6 +6,7 @@ intake tipe permintaan + spesifikasi + referensi pelanggan, lalu ROUTING otomati
 Rantai dokumen (OD ↔ Permintaan Desain ↔ Sample ↔ SKU ↔ PR/PO ↔ SO) dibaca lewat `chain_of`.
 """
 from __future__ import annotations
+import logging
 
 from typing import Any, Dict, List, Optional
 
@@ -15,6 +16,8 @@ from services import storage_service as storage
 from services import design_request_service as dreq
 from services import rnd_sample_service as smp
 from services import rnd_spec_service as spec_svc
+logger = logging.getLogger(__name__)
+
 
 REQUEST_TYPES = ("printing", "labdip", "handfeel", "proofing")
 PHASES = [
@@ -41,8 +44,8 @@ async def add_reference(od: Dict[str, Any], actor: str, filename: str, content_t
     if od.get("design_request_id"):
         try:
             await dreq.add_reference(od["design_request_id"], {"name": actor}, filename, ct, data, caption or _label(od))
-        except Exception:  # noqa: BLE001 — referensi OD tetap tersimpan walau salin gagal
-            pass
+        except Exception as exc:  # noqa: BLE001 — referensi OD tetap tersimpan walau salin gagal
+            logger.warning("[add_reference] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return meta
 
 
@@ -107,8 +110,8 @@ async def route_on_approve(od: Dict[str, Any], actor: Dict[str, Any], entity_id:
                     if isinstance(data, tuple):
                         data = data[0]
                     await dreq.add_reference(req["id"], actor, r["filename"], r["content_type"], data, r.get("caption") or _label(od))
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[route_on_approve] efek samping gagal diabaikan: %s", exc)  # KN-C10
         except Exception as exc:  # noqa: BLE001
             links["routing_errors"] = (links.get("routing_errors") or []) + [f"Permintaan desain: {exc}"]
     rnd_types = [t for t in types if t in ("labdip", "handfeel")]

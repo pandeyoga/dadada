@@ -19,9 +19,12 @@ export const subscribe = (fn) => { listeners.add(fn); return () => listeners.del
 export const clearResults = () => write(R_KEY, []);
 export const removePending = (key) => write(Q_KEY, read(Q_KEY).filter((it) => it.key !== key));
 
+/** KN-D26 — konteks badan usaha SAAT DIREKAM ikut disimpan & dipakai saat sinkron (bukan yang aktif nanti). */
+const entityNow = () => axios.defaults.headers.common["X-Entity-Id"] || "";
+
 export function enqueue(item) {
   const q = read(Q_KEY);
-  q.push({ ...item, queued_at: new Date().toISOString() });
+  q.push({ ...item, entity_id: item.entity_id ?? entityNow(), queued_at: new Date().toISOString() });
   write(Q_KEY, q);
   return item.key;
 }
@@ -43,7 +46,16 @@ export async function syncQueue() {
     while (q.length) {
       const it = q[0];
       try {
-        const res = await axios({ method: it.method || "post", url: it.url, data: it.data, params: it.params, headers: { "Idempotency-Key": it.key } });
+        // KN-D26 — X-Entity-Id dari saat perekaman; antrean lama tanpa jejak entitas ditolak
+        // (bukan dikirim ke PT yang kebetulan aktif) supaya pindaian tidak masuk buku PT lain.
+        if (!it.entity_id) {
+          pushResult({ ok: false, label: it.label, key: it.key, status: 0,
+                       detail: "Aksi direkam tanpa konteks badan usaha — tidak dikirim. Ulangi aksi ini setelah memilih badan usaha." });
+          q = q.slice(1); write(Q_KEY, q);
+          continue;
+        }
+        const res = await axios({ method: it.method || "post", url: it.url, data: it.data, params: it.params,
+                                  headers: { "Idempotency-Key": it.key, "X-Entity-Id": it.entity_id } });
         pushResult({ ok: true, label: it.label, key: it.key, status: res.status, replay: res.headers?.["x-idempotent-replay"] === "true", detail: res.data?.message || "" });
       } catch (e) {
         if (isNetworkError(e)) break;                          // masih offline → coba lagi nanti

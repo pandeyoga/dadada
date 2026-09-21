@@ -36,6 +36,7 @@ membaca mutasinya. Sekarang SETIAP fungsi menerima `entity_ids` (hasil
 (`entity_id == "all"`) tetap boleh dipakai semua entitas, tetapi barisnya di-stamp
 dengan entitas AKTIF pengimpor supaya tetap terisolasi.
 """
+import logging
 import re
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
@@ -47,6 +48,8 @@ from db import db
 from core_utils import new_id, now_iso, safe_doc, rupiah
 from services import bank_statement_parser as parser
 from services.config_resolver import value_of
+logger = logging.getLogger(__name__)
+
 
 STATUS = ("unmatched", "matched", "ignored", "holding")
 GROUP_ENTITY = "all"
@@ -998,8 +1001,8 @@ async def learn_from_manual(line: Dict[str, Any], txns: List[Dict[str, Any]], ac
                   f"Setujui aturannya agar mutasi berikutnya cocok otomatis."),
             link="/finance/bank-reconciliation", entity_id=line.get("entity_id", ""),
             recipient_role="manager", ref=rule["id"])
-    except Exception:  # noqa: BLE001 — notifikasi bukan syarat sahnya aturan
-        pass
+    except Exception as exc:  # noqa: BLE001 — notifikasi bukan syarat sahnya aturan
+        logger.warning("[learn_from_manual] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return safe_doc(rule)
 
 

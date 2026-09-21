@@ -27,6 +27,7 @@ Yang dijamin di sini:
   * **FASE S** pelaksanaan ditutup dua langkah berurutan: `finish` (sample JADI)
     lalu `deliver` (dikirim, **tujuan wajib**) — user story S.F-4.
 """
+import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 import domain_registry as dr
@@ -40,6 +41,8 @@ from services import storage_service as storage
 from services import supplier_item_service
 from services.rnd_spec_service import RndError
 from services import line_scope as _lines      # FASE L — satu pintu normalisasi lini
+logger = logging.getLogger(__name__)
+
 
 COLL = "md_samples"
 PREFIX = "smp"
@@ -1318,8 +1321,8 @@ async def performer_report(query: Dict[str, Any]) -> List[Dict[str, Any]]:
                 t1 = datetime.fromisoformat(str(rd.get("received_at")).replace("Z", "+00:00"))
                 a["days_sum"] += max((t1 - t0).total_seconds() / 86400.0, 0.0)
                 a["days_n"] += 1
-            except Exception:  # noqa: BLE001 — round belum disetor
-                pass
+            except Exception as exc:  # noqa: BLE001 — round belum disetor
+                logger.warning("[performer_report] efek samping gagal diabaikan: %s", exc)  # KN-C10
     out = []
     for a in agg.values():
         out.append({

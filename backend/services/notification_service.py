@@ -4,11 +4,14 @@ Tidak ada data mock: notifikasi dihitung dari kondisi nyata di
 `inventory_balances` (stok menipis) dan `sales_orders` (reservasi mendekati
 kedaluwarsa 3 hari). Dedupe berbasis `ref` agar tidak menumpuk duplikat.
 """
+import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone, timedelta
 from db import db
 from core_utils import new_id, now_iso, safe_doc, rupiah
 from services.inventory_service import product_summary
+logger = logging.getLogger(__name__)
+
 
 LOW_STOCK_THRESHOLD = 100.0  # meter — ambang batas default stok menipis
 
@@ -110,8 +113,8 @@ async def create_notification(
     try:
         from services import wa_alert_service
         await wa_alert_service.push_notification(clean)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[create_notification] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return clean
 
 

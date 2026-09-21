@@ -1,4 +1,5 @@
 """Media per SKU, lokal, ber-versi CAS. Foto nyata/mockup ditinjau sebelum sales melihat."""
+import logging
 import asyncio
 import io
 from fastapi import HTTPException
@@ -6,6 +7,8 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from db import db
 from core_utils import new_id, now_iso
 from services import storage_service as storage
+logger = logging.getLogger(__name__)
+
 
 MAX_MEDIA = 30
 MAX_BYTES = 10 * 1024 * 1024
@@ -54,8 +57,8 @@ async def store(product, data, filename, kind, actor, *, source=None, ai=None):
         # No published reference yet; failed CAS must not leave an orphan file.
         try:
             storage._abs_path(path).unlink(missing_ok=True)
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.warning("[store] efek samping gagal diabaikan: %s", exc)  # KN-C10
         raise
     return present(media)
 

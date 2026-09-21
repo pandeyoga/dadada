@@ -22,6 +22,7 @@ Satu **kasus bernomor** (`<ENT>/CASE-#####`) per masalah, dengan **playbook** pe
 Antreannya **nyata**: `scan()` membuat kasus sendiri dari titipan dana yang menganggur
 dan pembayaran yang terlihat dobel — bukan menunggu orang mengetik kasus.
 """
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -34,6 +35,8 @@ from services.config_resolver import value_of
 from services.finance_case_playbooks import (
     BY_CODE, CASE_TYPES, PLAYBOOKS, action_or_fail, playbook_or_fail,
 )
+logger = logging.getLogger(__name__)
+
 
 COLL = "finance_cases"
 REASON_DOC_TYPE = "finance_case"          # `amendment_reasons.applies_to` (taksonomi G-1)
@@ -327,8 +330,8 @@ async def _link_source(doc: Dict[str, Any]) -> None:
         for oid in doc.get("order_ids") or []:
             await refs.safe_link(("finance_case", doc["id"]), ("sales_order", oid),
                                  "settles", note="kasus keuangan pesanan ini")
-    except Exception:  # noqa: BLE001 — jejak relasi pelengkap, bukan syarat sah
-        pass
+    except Exception as exc:  # noqa: BLE001 — jejak relasi pelengkap, bukan syarat sah
+        logger.warning("[_link_source] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
 
 async def _notify_new(doc: Dict[str, Any]) -> None:
@@ -342,8 +345,8 @@ async def _notify_new(doc: Dict[str, Any]) -> None:
             link="finance-cases", entity_id=doc.get("entity_id") or None,
             recipient_role="manager", ref=doc["id"],
             action_type="finance_case", action_id=doc["id"], action_role="manager")
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[_notify_new] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
 
 async def _touch(case_id: str, sets: Dict[str, Any], event: Dict[str, Any]) -> None:
@@ -492,8 +495,8 @@ async def _link_documents(case_id: str, docs: List[Dict[str, Any]]) -> None:
             if d.get("kind") == "ar_receipt" and d.get("id"):
                 await refs.safe_link(("finance_case", case_id), ("ar_receipt", d["id"]),
                                      "parent", note="kwitansi yang dikoreksi kasus ini")
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[_link_documents] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
 
 async def reject(case_id: str, reason_code: str, note: str, actor: Dict[str, Any],

@@ -3,6 +3,7 @@
 Handles business logic for Special Orders (custom products not in catalog).
 Simple approval: amount > threshold requires manager approval.
 """
+import logging
 from datetime import datetime, timezone
 from fastapi import HTTPException
 from typing import Dict, Any, List
@@ -10,6 +11,8 @@ from db import db
 from core_utils import new_id, now_iso, safe_doc, parse_decimal
 import domain_registry as _dr        # Fase A · R7 — SSOT domain (stamp defaults)
 from services import status_history as sh
+logger = logging.getLogger(__name__)
+
 
 # Gambar default produk custom (sama dengan default ProductPayload)
 _DEFAULT_PRODUCT_IMAGE = (
@@ -197,8 +200,8 @@ async def approve_special_order(special_order_id: str, approved_by: str) -> Dict
     try:
         if not (result.get("request_types") or []):
             await create_sku_from_special_order(special_order_id, created_by=approved_by)
-    except Exception:  # noqa: BLE001 — SKU best-effort; manual fallback tersedia via endpoint
-        pass
+    except Exception as exc:  # noqa: BLE001 — SKU best-effort; manual fallback tersedia via endpoint
+        logger.warning("[approve_special_order] efek samping gagal diabaikan: %s", exc)  # KN-C10
     # Re-fetch agar field linkage (linked_product_id/sku) ikut terkirim ke FE.
     refreshed = await db.special_orders.find_one({"id": special_order_id}, {"_id": 0})
     return refreshed or result

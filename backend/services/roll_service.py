@@ -13,12 +13,14 @@ single-warehouse preference + split roll saat reservasi parsial.
 """
 from typing import Any, Dict, List, Optional, Tuple
 import re
+import logging
 from fastapi import HTTPException
 from pymongo import ReturnDocument
 from db import db
 from core_utils import now_iso, new_id, to_cents, DEFAULT_ENTITY_ID
 from schemas import WAREHOUSE_PRIORITY
 from services import movement_label_service as _mlabel   # E5.3/E-9 — nama singkat badan usaha
+logger = logging.getLogger(__name__)
 
 # ── INV-ROLL-01 — SATU sumber nomor roll ─────────────────────────────────────
 # MASALAH YANG DISELESAIKAN (terukur pada data demo 2026-08-18, 59 roll):
@@ -165,6 +167,18 @@ def _domain_snapshot(prod: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return dr.roll_domain_snapshot(prod)
 
 
+async def to_base_qty(prod: Dict[str, Any], qty: float, unit: Optional[str]) -> float:
+    """KN-B16/B27 — kuantitas dalam `unit` → satuan dasar produk (identitas bila sama/kosong).
+    Faktor dari master UoM (uom_service); konversi yang tidak tersedia → 400 (tidak diam-diam 1×)."""
+    from services import uom_service as _u
+    base = _u._norm(prod.get("base_unit") or "meter")
+    u = _u._norm(unit or base)
+    if not u or u == base:
+        return float(qty)
+    fixed = await _u.load_fixed_factors()
+    return _u.convert(prod, float(qty), u, base, fixed, precision=4)
+
+
 # ── Rebuild proyeksi balance dari rolls ──────────────────────────────────────
 
 async def rebuild_balance(product_id: str, warehouse_id: str, owner_entity_id: str) -> Dict[str, Any]:
@@ -175,9 +189,20 @@ async def rebuild_balance(product_id: str, warehouse_id: str, owner_entity_id: s
     ).to_list(10000)
     buckets = {b: 0.0 for b in ALL_BUCKETS}
     roll_counts = {b: 0 for b in ALL_BUCKETS}  # F2 (UoM SSOT) — jumlah roll per bucket
+    # KN-B16 — saldo dijumlahkan dalam SATUAN DASAR produk: roll ber-unit lain (data lama /
+    # impor) dikonversi, bukan dijumlahkan mentah bersama meter.
+    _prod = await db.products.find_one({"id": product_id}, {"_id": 0, "base_unit": 1, "sku": 1, "uom_conversion": 1,
+                                                            "kg_per_meter": 1, "gsm": 1, "width_cm": 1}) or {}
+    _base = (_prod.get("base_unit") or "meter").lower()
     for r in rolls:
         status = r.get("status")
         length = float(r.get("length_remaining", 0) or 0)
+        _ru = (r.get("unit") or _base).lower()
+        if _ru != _base and length:
+            try:
+                length = await to_base_qty(_prod, length, _ru)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[rebuild_balance] roll %s unit %s≠%s tak terkonversi: %s", r.get("id"), _ru, _base, exc)
         bucket = (PHYSICAL_STATUS_TO_BUCKET.get(status)
                   or TRANSIT_STATUS_TO_BUCKET.get(status)
                   or OFFSITE_OWNED_STATUS_TO_BUCKET.get(status))
@@ -230,8 +255,8 @@ async def rebuild_balance(product_id: str, warehouse_id: str, owner_entity_id: s
         try:
             from services import lot_service as _lots
             await _lots.recompute_many(list(lot_ids))
-        except Exception:  # noqa: BLE001 — proyeksi lot tidak boleh menggagalkan stok
-            pass
+        except Exception as exc:  # noqa: BLE001 — proyeksi lot tidak boleh menggagalkan stok
+            logger.warning("[rebuild_balance] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return doc
 
 
@@ -437,8 +462,8 @@ async def generate_rolls_from_balances(created_by: str = "seed") -> Dict[str, in
         try:
             from services import lot_migration as _lotm
             await _lotm.backfill_missing(actor="seed")
-        except Exception:  # noqa: BLE001 — jangan gagalkan seeding
-            pass
+        except Exception as exc:  # noqa: BLE001 — jangan gagalkan seeding
+            logger.warning("[_make_roll] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
     n_segments = await rebuild_all_balances()
     return {"rolls": len(roll_docs), "segments": n_segments, "skipped": 0}
@@ -1507,6 +1532,9 @@ async def create_inbound_roll(
         status=lot_status or ("released" if status == "available" else "in_process"),
         actor=created_by, parent_lot_ids=parent_lot_ids)
     _uc = round(float(unit_cost), 4) if unit_cost is not None else round(float(prod.get("harga_pokok") or 0), 4)
+    # KN-B27 — `unit` pemanggil DIHORMATI: kuantitas dikonversi ke satuan dasar produk
+    # (dulu 100 yard lahir sebagai roll "100 meter" karena unit hanya menimpa label).
+    quantity = await to_base_qty(prod, float(quantity), unit)
     roll = {
         "id": new_id("roll"), "product_id": product_id, "owner_entity_id": owner_entity_id,
         "ownership_type": "internal", "consignor_ref": None,
@@ -1574,17 +1602,25 @@ async def apply_cycle_count_adjustment(
             acquired_via="cycle_count_adjustment", ref_id=session_id, created_by=created_by,
         )
         return diff
-    # susut: kurangi roll available FEFO (tertua dulu)
+    # susut: kurangi roll FEFO (tertua dulu). KN-B12 — bucket yang dipotong mengikuti
+    # urutan risiko: available → hold/quarantine/blocked/damaged/wip → reserved/committed
+    # (dulu HANYA available: susut yang melebihi available diam-diam tidak diterapkan,
+    # opname disetujui tapi saldo tetap meleset dari hasil hitung fisik).
     need = -diff
+    _order = {"available": 0, "hold": 1, "quarantine": 1, "blocked": 1, "damaged": 1, "wip": 1,
+              "reserved": 2, "committed": 2}
     rolls = await db.inventory_rolls.find(
         {"product_id": product_id, "warehouse_id": warehouse_id, "owner_entity_id": owner_entity_id,
-         "status": "available", "length_remaining": {"$gt": 0}}, {"_id": 0},
+         "status": {"$in": list(_order)}, "length_remaining": {"$gt": 0}}, {"_id": 0},
     ).to_list(10000)
-    rolls.sort(key=lambda r: (r.get("created_at", ""), -float(r.get("length_remaining", 0))))
+    rolls.sort(key=lambda r: (_order.get(r.get("status"), 9), r.get("created_at", ""), -float(r.get("length_remaining", 0))))
     removed = 0.0
+    _touched_orders: set = set()
     for r in rolls:
         if need <= 0.001:
             break
+        if r.get("status") in ("reserved", "committed") and r.get("reserved_ref"):
+            _touched_orders.add(str(r.get("reserved_ref")))
         rlen = float(r["length_remaining"])
         take = min(rlen, need)
         new_len = round(rlen - take, 2)
@@ -1608,6 +1644,12 @@ async def apply_cycle_count_adjustment(
         })
         removed += take
         need -= take
+    if need > 0.001:
+        logger.warning("[cycle_count] %s/%s susut %.2f tidak seluruhnya bisa diterapkan (sisa %.2f) — roll fisik habis",
+                       product_id, warehouse_id, -diff, need)
+    if _touched_orders:
+        logger.warning("[cycle_count] susut menyentuh roll reservasi pesanan %s — alokasi pesanan perlu dicek",
+                       sorted(_touched_orders)[:10])
     await rebuild_balance(product_id, warehouse_id, owner_entity_id)
     return -round(removed, 2)
 

@@ -46,14 +46,22 @@ export function convFactor(product, unit) {
  * 0,9144 m); tanpa itu berat prefill di form GR/PO salah ~9,4% dan server menolak
  * penerimaan karena selisih konversi melebihi toleransi.
  */
+const WEIGHT_BASE_KG = { kg: 1, kilogram: 1, gram: 0.001, g: 0.001, ton: 1000 };
+
 export function kgPerBaseUnit(product) {
+  const base = norm(product?.base_unit || "meter");
+  // KN-D24 — cabang BASIS BERAT (cermin `uom_service.kg_per_base_unit`): benang/bahan kimia
+  // ber-base kg/gram punya faktor pasti tanpa gramasi; dulu layar mengembalikan 0 dan modal
+  // penerimaan menonaktifkan tombolnya sendiri padahal server menerima.
+  if (WEIGHT_BASE_KG[base] != null) return WEIGHT_BASE_KG[base];
+  const catalogKg = uomDimensionOf(base) === "weight" ? uomCatalogFactor(base) : null;   // master `base_type="weight"`
+  if (catalogKg > 0) return catalogKg;
   const explicit = Number(product?.kg_per_meter) || 0;
   const gsm = Number(product?.gramasi) || 0;
   const width = Number(product?.lebar) || 0;
   const kgPerMeter = explicit > 0 ? explicit : (gsm * width) / 1000;
   if (!(kgPerMeter > 0)) return 0;
-  const base = norm(product?.base_unit || "meter");
-  if (["meter", "m", "mtr", "kg", ""].includes(base)) return kgPerMeter;
+  if (["meter", "m", "mtr", ""].includes(base)) return kgPerMeter;
   const mPerBase = FIXED_LENGTH_FACTORS[base];
   if (!mPerBase || mPerBase <= 0) return kgPerMeter;   // base non-panjang (roll/pcs)
   return kgPerMeter * mPerBase;

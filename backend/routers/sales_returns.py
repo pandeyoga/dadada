@@ -2,6 +2,7 @@
 Sub-fase 1.11 — Returns & Barang Sisa
 Router prefix: /api/sales-returns
 """
+import logging
 from fastapi import APIRouter, Request, File, UploadFile, HTTPException, Query
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
@@ -20,6 +21,8 @@ from services import return_service, storage_service as storage
 from services import line_scope                # FASE L — pagar & penyaring lini produk
 from services import return_state as st
 from pagination import is_paged, get_page_params, build_search, merge_query, fetch_page, envelope
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/api")
 
@@ -193,8 +196,8 @@ async def get_return(return_id: str, request: Request) -> Dict[str, Any]:
         if order:
             doc["order_status"] = order.get("status")
             doc["order_grand_total"] = order.get("grand_total")
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("[get_return] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return doc
 
 

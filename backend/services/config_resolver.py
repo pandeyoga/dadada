@@ -18,12 +18,15 @@ Desain:
 INV-CFG-03: baris `config_values` tidak pernah di-update pada field nilai. Hanya
 `applied_at` (penanda bookkeeping proyeksi) yang boleh diisi sekali.
 """
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import config_registry as registry
 from core_utils import new_id, now_iso
 from db import db
+logger = logging.getLogger(__name__)
+
 
 COLL = "config_values"
 
@@ -573,5 +576,5 @@ async def ensure_indexes() -> None:
                                      ("effective_from", 1)], name="cfgv_lookup", background=True)
         await db[COLL].create_index([("applied_at", 1)], name="cfgv_pending", background=True)
         await db[COLL].create_index([("created_at", -1)], name="cfgv_recent", background=True)
-    except Exception:  # noqa: BLE001 — index bentrok tidak boleh menggagalkan request
-        pass
+    except Exception as exc:  # noqa: BLE001 — index bentrok tidak boleh menggagalkan request
+        logger.warning("[ensure_indexes] efek samping gagal diabaikan: %s", exc)  # KN-C10

@@ -9,6 +9,7 @@ Param `entity_id`:
   - "all"        → semua entitas yang diizinkan (oversight admin/manager).
   - "<id>"       → entitas spesifik (harus ∈ allowed, else 403).
 """
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Request, Query
@@ -17,6 +18,8 @@ from dependencies import require_permission
 from core_utils import safe_doc
 from entity_scope import entity_ctx, resolve_list_scope
 from services import sales_ownership   # FASE E-8 (E8.4/US11) — "Pesanan Saya"
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/api")
 
@@ -49,8 +52,8 @@ async def stock_aging(request: Request, days_threshold: int = 30,
             try:
                 last_dt = datetime.fromisoformat(last_movement_date.replace("Z", "+00:00"))
                 days_since = (datetime.now(timezone.utc) - last_dt).days
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("[stock_aging] efek samping gagal diabaikan: %s", exc)  # KN-C10
         is_aging = days_since is None or days_since >= days_threshold
         if is_aging:
             result.append({

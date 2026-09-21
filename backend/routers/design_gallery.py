@@ -6,6 +6,7 @@ Auto-tag AI (Claude) GRACEFUL: bila key kosong → 200 {enabled:false} (BUKAN er
 
 Path aksi pakai segmen literal (/files, /autotag) agar verify_api_contract 0 ERROR.
 """
+import logging
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Request, Query, UploadFile, File
 from fastapi.responses import Response
@@ -16,6 +17,8 @@ from schemas_design_gallery import (DesignAiIllustrateIn, DesignApproveIn, Desig
                                     DesignRejectIn, DesignVersionIn, GalleryInput, GalleryUpdate,
                                     IllustrationCommentIn)
 from services import design_gallery_service as gallery
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/api")
 
@@ -45,8 +48,8 @@ async def _perm_manage(request: Request) -> Dict[str, Any]:
     """
     try:
         return await require_permission(request, "rnd", "manage")
-    except HTTPException:
-        pass
+    except HTTPException as exc:
+        logger.warning("[_perm_manage] efek samping gagal diabaikan: %s", exc)  # KN-C10
     try:
         return await require_permission(request, "hr", "manage_attendance")
     except HTTPException:

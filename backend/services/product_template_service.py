@@ -11,6 +11,7 @@ Generate = cartesian product semua axis → buat produk ber-SKU
   SKU  = f"{sku_prefix}-{kode1}-{kode2}..." (uppercase, lewati SKU yang sudah ada)
   Nama = f"{template.name} {label1} {label2}..."
 """
+import logging
 import itertools
 import re
 from typing import Any, Dict, List, Optional
@@ -19,6 +20,8 @@ import domain_registry as dr
 from db import db
 from core_utils import new_id, now_iso, safe_doc
 from services import base_fabric
+logger = logging.getLogger(__name__)
+
 
 PREFIX = "ptpl"
 DEFAULT_IMAGE = ""
@@ -247,8 +250,8 @@ async def generate_variants(template_id: str, data: Dict[str, Any], *, actor, en
             elif key == "lebar":
                 try:
                     lebar = float(opt.get("value") or opt["label"])
-                except (TypeError, ValueError):
-                    pass
+                except (TypeError, ValueError) as exc:
+                    logger.warning("[generate_variants] efek samping gagal diabaikan: %s", exc)  # KN-C10
         sku = (f"{prefix}-" + "-".join(codes)).upper()
         if sku in existing:
             old = existing[sku]

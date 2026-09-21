@@ -173,7 +173,7 @@ export default function OrdersView({
         </button>
       </div>
       
-      {viewMode === "dashboard" && <OrderDashboard orders={orders} loading={loading} />}
+      {viewMode === "dashboard" && <OrderDashboard orders={orders} loading={loading} summary={summary} />}
       
       {viewMode === "list" && (
         <>

@@ -27,6 +27,9 @@ async def hygiene_log(request: Request, collection: Optional[str] = None, revert
         query["reverted"] = reverted
     if q.strip():
         query["doc_label"] = {"$regex": q.strip(), "$options": "i"}
+    # Gate isolasi — jejak hygiene ter-scope entitas master yang diubah (baris tanpa entitas = bersama).
+    from entity_scope import entity_ctx, resolve_list_scope_inherit
+    query = resolve_list_scope_inherit("data_hygiene_log", query, await entity_ctx(request), None)
     total = await db.data_hygiene_log.count_documents(query)
     items = await db.data_hygiene_log.find(query, {"_id": 0}).sort("applied_at", -1).skip(max(0, skip)).limit(max(1, min(limit, 500))).to_list(500)
     return {"items": items, "total": total}

@@ -14,6 +14,7 @@ PRINSIP:
 
 Normal balance: asset & expense = debit; liability, equity, income = credit.
 """
+import logging
 import re
 from typing import Any, Dict, List, Optional
 
@@ -28,6 +29,8 @@ from services.customer_service import (
     DEAD_STATUSES,
 )
 from request_context import active_entity_or
+logger = logging.getLogger(__name__)
+
 
 EPS = 0.01
 
@@ -2609,8 +2612,8 @@ async def post_payroll_run(run: Dict[str, Any], slips: List[Dict[str, Any]],
             inc = await post_incentive_accrual(entity_id, period, created_by)
             if inc:
                 incentive_je_id = inc.get("id", "")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[post_payroll_run] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
     def L(code, dr, cr, d=""):
         return {"account_code": code, "debit": round(dr, 2), "credit": round(cr, 2), "description": d}

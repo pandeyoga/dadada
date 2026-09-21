@@ -7,6 +7,7 @@ special_order_phase2.py — Fase 2 Special Order (OD):
 Eksklusivitas SKU ditegakkan di `assert_customer_allowed` (dipanggil pembuat SO/POS).
 """
 from __future__ import annotations
+import logging
 
 from typing import Any, Dict, List, Optional
 
@@ -18,6 +19,8 @@ from services import storage_service as storage
 from services import rnd_sample_service as smp
 from services import rnd_spec_service as spec_svc
 from services import special_order_routing as routing
+logger = logging.getLogger(__name__)
+
 
 DECISIONS = ("acc", "revisi", "tolak")
 DEFAULT_MARGIN_PCT = 30.0
@@ -151,8 +154,8 @@ async def _spawn_revision_sample(od: Dict[str, Any], actor: Dict[str, Any], enti
         await notif.create_addressed(roles=("md", "manager"), entity_id=entity_id, notif_type="special_order_revision",
                                      title=f"Revisi pelanggan · {od.get('number')} → sample {sample.get('number')}",
                                      body=note[:200], severity="warning", link="rnd-samples", ref=sample["id"])
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[_spawn_revision_sample] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return sample
 
 
@@ -345,8 +348,8 @@ async def auto_procure(od: Dict[str, Any], actor: Dict[str, Any], warehouse_id: 
         from services.special_order_service import transition_special_order_status
         try:
             await transition_special_order_status(od["id"], "in_production", actor.get("email", ""))
-        except ValueError:
-            pass
+        except ValueError as exc:
+            logger.warning("[auto_procure] efek samping gagal diabaikan: %s", exc)  # KN-C10
     out.update({"po_id": po.get("id", ""), "po_number": po.get("po_number", ""), "warehouse_id": wh})
     return out
 
@@ -415,8 +418,8 @@ async def on_shipment_dispatched(so_id: str) -> None:
     for st in ("ready", "shipped"):
         try:
             await transition_special_order_status(od["id"], st, "Sistem (Surat Jalan)")
-        except ValueError:
-            pass
+        except ValueError as exc:
+            logger.warning("[on_shipment_dispatched] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
 
 async def on_delivered(so_id: str) -> None:
@@ -426,8 +429,8 @@ async def on_delivered(so_id: str) -> None:
     from services.special_order_service import transition_special_order_status
     try:
         await transition_special_order_status(od["id"], "done", "Sistem (Terkirim)")
-    except ValueError:
-        pass
+    except ValueError as exc:
+        logger.warning("[on_delivered] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
 
 async def desk_rows(scope: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
@@ -500,6 +503,6 @@ async def on_design_approved(design: Dict[str, Any], actor: Dict[str, Any]) -> O
                                      title=f"Proofing otomatis {sample.get('number')} · {od.get('number')}",
                                      body=f"Desain {design.get('code')} di-ACC. Kirim proofing ke supplier untuk {od.get('customer_name', '')}.",
                                      severity="info", link="rnd-proofing", ref=sample["id"])
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[on_design_approved] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return sample

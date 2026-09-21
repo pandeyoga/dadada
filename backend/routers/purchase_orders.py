@@ -1,4 +1,5 @@
 """Purchase Orders router: simplified PO management for inbound receiving."""
+import logging
 from typing import Any, Dict
 from fastapi import APIRouter, HTTPException, Request
 from pymongo import ReturnDocument
@@ -19,6 +20,8 @@ from services import po_board_service as _po_board       # FASE P — papan PO p
 # FASE E/F-1 — katalog barang supplier (nama/kode + satuan supplier) untuk baris PO
 from services import supplier_item_service as _sis
 from domain_registry import DomainValidationError
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/api")
 
@@ -110,8 +113,8 @@ async def recompute_po_status(po_id: str) -> None:
             try:
                 from services.special_order_service import transition_special_order_status
                 await transition_special_order_status(po["special_order_id"], "ready", "Sistem (PO diterima)")
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[recompute_po_status] efek samping gagal diabaikan: %s", exc)  # KN-C10
             try:
                 from services import special_order_phase2 as _p2
                 await _p2.on_goods_received(po["special_order_id"])
@@ -656,8 +659,8 @@ async def _create_po_core(payload: PurchaseOrderCreate, actor: Dict[str, Any], *
         for _cid in _used_contracts:
             try:
                 await _cs.mark_used(_cid)
-            except Exception:  # noqa: BLE001 — best-effort, jangan gagalkan PO
-                pass
+            except Exception as exc:  # noqa: BLE001 — best-effort, jangan gagalkan PO
+                logger.warning("[_create_po_core] efek samping gagal diabaikan: %s", exc)  # KN-C10
     # Inbound task dibuat hanya bila PO TIDAK butuh approval (atau nanti setelah approve)
     if not needs_approval:
         await _create_inbound_tasks_for_po(po)
@@ -780,8 +783,8 @@ async def approve_purchase_order(po_id: str, request: Request) -> Dict[str, Any]
                                  outcome=f"disetujui tingkat {pending['level']}",
                                  actor=actor["name"])
             await notify_po_awaiting_approval(updated)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[approve_purchase_order] efek samping gagal diabaikan: %s", exc)  # KN-C10
         await audit(actor["name"], "po_approved_level", "purchase_order", po_id,
                     {"po_number": po.get("po_number"), "level": pending["level"],
                      "next_role": next_pending["required_role"]})
@@ -806,8 +809,8 @@ async def approve_purchase_order(po_id: str, request: Request) -> Dict[str, Any]
         from services.notification_service import resolve_action
         await resolve_action("po_approve", po_id, outcome="disetujui penuh",
                              actor=actor["name"])
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[approve_purchase_order] efek samping gagal diabaikan: %s", exc)  # KN-C10
     await audit(actor["name"], "po_approved", "purchase_order", po_id,
                 {"po_number": po.get("po_number"), "total_amount": po.get("total_amount"),
                  "levels": len(chain)})
@@ -848,8 +851,8 @@ async def reject_purchase_order(po_id: str, request: Request) -> Dict[str, Any]:
     try:
         from services.notification_service import resolve_action
         await resolve_action("po_approve", po_id, outcome="ditolak", actor=actor["name"])
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[reject_purchase_order] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return safe_doc(updated)
 
 

@@ -131,9 +131,16 @@ async def list_balances(request: Request, owner_entity_id: Optional[str] = None)
     await require_permission(request, "product", "view")
     ctx = await entity_ctx(request)
     query: Dict[str, Any] = resolve_list_scope("inventory_balances", {}, ctx, owner_entity_id)
-    balances = await db.inventory_balances.find(query, {"_id": 0}).to_list(2000)
-    warehouses = {w["id"]: w for w in await db.warehouses.find({}, {"_id": 0}).to_list(100)}
-    products = {p["id"]: p for p in await db.products.find({}, {"_id": 0}).to_list(1000)}
+    # KN-D25 — batas 2.000 baris DIBERI PENANDA (header X-Truncated + X-Total-Count) dan join
+    # produk hanya untuk produk yang memang muncul (tidak lagi dipangkas 1.000 → baris ke-1.001
+    # tanpa nama/SKU).
+    _LIMIT = 2000
+    total = await db.inventory_balances.count_documents(query)
+    balances = await db.inventory_balances.find(query, {"_id": 0}).to_list(_LIMIT)
+    warehouses = {w["id"]: w for w in await db.warehouses.find({}, {"_id": 0}).to_list(1000)}
+    _pids = list({b.get("product_id") for b in balances if b.get("product_id")})
+    products = {p["id"]: p for p in await db.products.find({"id": {"$in": _pids}}, {"_id": 0}).to_list(len(_pids) or 1)}
+    from starlette.responses import JSONResponse as _JSON
     # FASE SL — alias supplier ikut ke tabel stok (kode & nama versi pabrik).
     from services.supplier_item_service import attach_supplier_codes
     await attach_supplier_codes(list(products.values()))
@@ -151,7 +158,8 @@ async def list_balances(request: Request, owner_entity_id: Optional[str] = None)
         b["owner_entity_id"] = owner
         b["owner_entity_name"] = entities.get(owner, {}).get("short_name") or entities.get(owner, {}).get("legal_name", owner)
         result.append(b)
-    return result
+    return _JSON(result, headers={"X-Total-Count": str(total),
+                                  "X-Truncated": "1" if total > len(result) else "0"})
 
 
 @router.get("/inventory/rolls")

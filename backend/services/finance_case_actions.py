@@ -10,6 +10,7 @@ Di sini uang benar-benar berpindah. Setiap fungsi `act_*`:
 
 Bentuk dokumen turunan: `{"kind","id","number","label"}`.
 """
+import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -17,6 +18,8 @@ from fastapi import HTTPException
 from core_utils import new_id, now_iso, safe_doc, rupiah
 from db import db
 from services import gl_service as gl
+logger = logging.getLogger(__name__)
+
 
 EPS = 0.01
 
@@ -104,8 +107,8 @@ async def _apply_payment(order_id: str, amount: float, case: Dict[str, Any],
     try:
         from services import payment_plan_service as plans
         await plans.recompute_for_doc("sales_order", order_id)
-    except Exception:  # noqa: BLE001 — jadwal bayar bersifat pelengkap
-        pass
+    except Exception as exc:  # noqa: BLE001 — jadwal bayar bersifat pelengkap
+        logger.warning("[_apply_payment] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return [_doc("order_payment", order_id, res.get("order_number", order_id),
                  f"Pelunasan {_rp(amount)} menempel di pesanan "
                  f"{res.get('order_number', order_id)}")]

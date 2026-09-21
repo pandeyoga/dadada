@@ -11,6 +11,7 @@ Logika murni + I/O Mongo (motor). Di-port dari `scripts/poc_hrd.py` (H-POC PASS)
 
 Timestamp = WIB (UTC+7) eksplisit offset — simpan & tampil konsisten.
 """
+import logging
 import csv
 import io
 import math
@@ -19,6 +20,8 @@ from typing import Any, Dict, List, Optional
 
 from db import db
 from core_utils import new_id, now_iso
+logger = logging.getLogger(__name__)
+
 
 WIB = timezone(timedelta(hours=7))
 
@@ -93,8 +96,8 @@ def compute_metrics(clock_in_iso: str, clock_out_iso: str, shift: Dict[str, Any]
             sout = ci.replace(hour=hout, minute=mout, second=0, microsecond=0)
             res["early_leave_min"] = max(0, int((sout - co).total_seconds() // 60))
             res["overtime_min"] = max(0, work - res["std_min"])
-        except ValueError:
-            pass
+        except ValueError as exc:
+            logger.warning("[compute_metrics] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return res
 
 

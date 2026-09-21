@@ -9,6 +9,7 @@ Kebalikan dari Goods Receipt: barang dikembalikan ke supplier →
 Koleksi kanonik: `purchase_returns` (prefix pret_).
 Status: draft → pending_approval → approved | rejected.
 """
+import logging
 import re
 from typing import Any, Dict, List
 from db import db
@@ -19,6 +20,8 @@ from services import purchase_return_state as prs
 from request_context import active_entity_or
 from services import line_scope as _lines      # FASE L — satu pintu normalisasi lini
 from services import doc_refs_service as _refs  # INV-REF-04 — sapu tautan sebelum hapus
+logger = logging.getLogger(__name__)
+
 
 RETURNED_STATUS = "returned_supplier"  # status terminal roll (tidak masuk bucket manapun)
 
@@ -832,8 +835,8 @@ async def reverse_settlement(return_id: str, actor: str, reason: str = "") -> Di
         try:
             from routers.purchase_orders import recompute_po_payment_status
             await recompute_po_payment_status(ret["po_id"])
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[reverse_settlement] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
     # d) Void refund kas (refund).
     if is_refund:

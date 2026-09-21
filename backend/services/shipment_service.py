@@ -8,6 +8,7 @@ dispatch_task: kirim sebagian/seluruh qty sebuah task outbound.
 
 Qty selalu BASE UNIT (UOM-safe untuk Sub-fase 1.13).
 """
+import logging
 from typing import Any, Dict, Optional, Tuple
 from fastapi import HTTPException
 from pymongo import ReturnDocument
@@ -16,6 +17,8 @@ from services import dual_qty_service as _dual  # FASE U — dua satuan (roll + 
 from core_utils import new_id, now_iso, safe_doc, next_doc_number
 from services.roll_service import ship_order_rolls
 from services.fulfillment_status import recompute_so_status
+logger = logging.getLogger(__name__)
+
 
 EPS = 0.01
 NON_DISPATCHABLE = {"dispatched", "cancelled", "escalated"}
@@ -100,8 +103,8 @@ async def dispatch_task(
     try:
         from services import special_order_phase2 as _p2
         await _p2.on_shipment_dispatched(task["order_id"])
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[dispatch_task] efek samping gagal diabaikan: %s", exc)  # KN-C10
     # F-01 (audit 2026-09-02) — pendapatan & HPP diakui SAAT barang keluar, bukan
     # menunggu backfill saat restart. Best-effort: kegagalan GL tidak membatalkan
     # surat jalan yang sudah terbit (dicatat ke log; backfill akan mengulanginya).

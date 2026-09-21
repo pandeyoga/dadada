@@ -106,8 +106,12 @@ def main() -> int:
     other = next((e["id"] for e in ents if e["id"] != home), ents[0]["id"])
     print(f"  konteks: home={home} · badan usaha lain={other}\n")
 
+    # POST /customers kini WAJIB PIC internal (sales penanggung jawab) — ambil satu akun sales.
+    _sales = [u for u in (admin.get(f"{BASE}/api/users", timeout=30).json() or [])
+              if isinstance(u, dict) and u.get("role") == "sales" and u.get("active", True)]
     cust_body = {"name": f"POC E3 {tag}", "pic_name": "PIC POC", "phone": "081200000000",
-                 "address": "Jl. Uji Pagar 1", "city": "Bandung"}
+                 "address": "Jl. Uji Pagar 1", "city": "Bandung",
+                 "assigned_sales_id": (_sales[0]["id"] if _sales else None)}
 
     # ── 1. BUKTI-MERAH: buat data di mode gabungan harus DITOLAK ─────────────
     print("── 1. Mode gabungan: membuat data DITOLAK dengan pesan menuntun ──")

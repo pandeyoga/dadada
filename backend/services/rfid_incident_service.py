@@ -5,6 +5,7 @@ Insiden dibuat otomatis dari pembacaan gate berhasil-MERAH (ingest & simulasi).
 Dedupe: EPC+device yang sama dalam 10 menit → hitungan `hits` bertambah,
 tidak membanjiri daftar alarm.
 """
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -12,6 +13,8 @@ from fastapi import HTTPException
 
 from db import db
 from core_utils import new_id, now_iso, safe_doc
+logger = logging.getLogger(__name__)
+
 
 DEDUPE_MINUTES = 10
 HEARTBEAT_STALE_SECONDS = 300
@@ -56,8 +59,8 @@ async def create_from_read(read: Dict[str, Any]) -> None:
             entity_id=read.get("owner_entity_id"),
             recipient_role="warehouse", ref=inc_id, dedupe=True,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("[create_from_read] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
 
 async def list_incidents(status: Optional[str], warehouse_id: Optional[str],

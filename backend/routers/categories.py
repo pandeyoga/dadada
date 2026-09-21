@@ -70,7 +70,11 @@ async def list_motifs(request: Request) -> Dict[str, Any]:
             key = str(m or "").strip()
             if key and key != "-" and key.casefold() not in seen:
                 seen[key.casefold()] = {"value": key, "label": key, "source": src}
-    async for d in db.design_gallery.find({"design_type": "motif", "status": {"$ne": "retired"}}, {"_id": 0, "title": 1, "code": 1}):
+    # Gate F0-C — galeri desain adalah koleksi SCOPED: motif hanya dari badan usaha yang boleh dilihat akun.
+    from entity_scope import entity_ctx, resolve_list_scope
+    _q = resolve_list_scope("design_gallery", {"design_type": "motif", "status": {"$ne": "retired"}},
+                            await entity_ctx(request), None)
+    async for d in db.design_gallery.find(_q, {"_id": 0, "title": 1, "code": 1}):
         key = str(d.get("title") or "").strip()
         if key and key.casefold() not in seen:
             seen[key.casefold()] = {"value": key, "label": f"{key}{' · ' + d['code'] if d.get('code') else ''}", "source": "desain"}

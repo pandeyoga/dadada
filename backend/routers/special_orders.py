@@ -3,6 +3,7 @@
 Handles custom product orders (products not yet in catalog).
 Status flow aligned with sales_orders for consistency.
 """
+import logging
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -30,6 +31,8 @@ from schemas import (
     PurchaseRequisitionCreate, PurchaseRequisitionItem, SpecialOrderToPR,
     SalesOrderCreate, SalesOrderItemIn,
 )
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/api")
 
@@ -422,8 +425,8 @@ async def submit_special_order(order_id: str, request: Request) -> Dict[str, Any
     try:
         from services.notification_service import notify_special_order_waiting
         await notify_special_order_waiting(fresh, actor_name=user.get("name", ""))
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[submit_special_order] efek samping gagal diabaikan: %s", exc)  # KN-C10
     fresh["chain"] = await routing.chain_of(fresh)
     return fresh
 
@@ -765,8 +768,8 @@ async def create_pr_from_special_order(
     if so["status"] == "confirmed":
         try:
             await transition_special_order_status(order_id, "in_production", user["email"])
-        except ValueError:
-            pass
+        except ValueError as exc:
+            logger.warning("[create_pr_from_special_order] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
     await audit(user.get("name", ""), "special_order_pr_created", "special_order", order_id,
                 {"pr_number": pr["number"], "pr_id": pr["id"]})

@@ -13,10 +13,13 @@ Prinsip:
 - Saat seluruh backorder sebuah order terpenuhi → status kembali ke `reserved`
   (lanjut alur approval normal).
 """
+import logging
 from typing import Any, Dict, List
 from db import db
 from core_utils import now_iso
 from services.roll_service import allocate_and_reserve_rolls
+logger = logging.getLogger(__name__)
+
 
 EPS = 0.01
 
@@ -127,8 +130,8 @@ async def auto_fulfill_backorders(product_id: str, owner_entity_id: str) -> Dict
                 await _ops.notify_backorder_ready(
                     {**order, "status": new_status}, product_id,
                     kind="fulfilled", qty=round(order_got, 2))
-            except Exception:  # noqa: BLE001 — notifikasi tidak boleh menggagalkan fulfillment
-                pass
+            except Exception as exc:  # noqa: BLE001 — notifikasi tidak boleh menggagalkan fulfillment
+                logger.warning("[auto_fulfill_backorders] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
     result["qty_fulfilled"] = round(result["qty_fulfilled"], 2)
     return result

@@ -4,6 +4,7 @@ Koleksi kanonik (entity-scoped): hr_field_tracks (trk_), hr_visits (visit_).
 RBAC: baca peta/kunjungan = hr.view (admin+manager). Push posisi + check-in/out =
 autentikasi + karyawan ter-link (lihat/ubah data SENDIRI). Lihat memory/PLAN_HRD.md §H2.
 """
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List
 
@@ -17,6 +18,8 @@ from entity_scope import entity_ctx, resolve_list_scope
 from pagination import is_paged, get_page_params, fetch_page, envelope
 from schemas_hr_tracking import PositionInput, VisitCheckIn, VisitCheckOut
 from services import tracking_service as trk
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/api")
 WIB = timezone(timedelta(hours=7))
@@ -235,8 +238,8 @@ async def visit_check_out(visit_id: str, payload: VisitCheckOut, request: Reques
     try:
         ci = datetime.fromisoformat(cur["check_in"]["ts"])
         dur = max(0, int((now - ci).total_seconds() // 60))
-    except (ValueError, KeyError, TypeError):
-        pass
+    except (ValueError, KeyError, TypeError) as exc:
+        logger.warning("[visit_check_out] efek samping gagal diabaikan: %s", exc)  # KN-C10
     updates = {
         "check_out": {"ts": now.isoformat(), "lat": payload.lat, "lon": payload.lon},
         "status": "done", "duration_min": dur, "outcome": payload.outcome or "other",

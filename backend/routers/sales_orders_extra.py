@@ -5,6 +5,7 @@ file di bawah batas guardrail (<800 baris). Semua endpoint memakai prefix /api y
 sama; router ini DIREGISTER SEBELUM `sales_orders` di server.py agar path spesifik
 (mis. /sales-orders/frequent-products) tetap match sebelum /sales-orders/{order_id}.
 """
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Request
@@ -41,6 +42,8 @@ from services.sales_order_helpers import (
     so_transition as _transition,
     compute_frequent_products as _compute_frequent_products,
 )
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/api")
 
@@ -232,6 +235,23 @@ async def get_orders_stats(request: Request, entity_id: str = None,
         datetime.now(timezone.utc) + timedelta(hours=24)
     )
 
+    # KN-D18 — omzet dihitung di SERVER atas SELURUH pesanan ter-scope (bukan 20 baris
+    # halaman pertama) dan memakai grand_total (setelah diskon & PPN) — sama dengan layar
+    # pesanan & buku besar; kartu dasbor tidak lagi menjumlah `total_amount` bruto.
+    _fulfilled = ["confirmed", "partially_picked", "picked", "partially_shipped", "shipped", "dispatched", "done"]
+    _now = datetime.now(timezone.utc)
+    revenue: Dict[str, Any] = {}
+    for key, days in (("7d", 7), ("30d", 30), ("90d", 90)):
+        cutoff = (_now - timedelta(days=days)).isoformat()
+        agg = await db.sales_orders.aggregate([
+            {"$match": {**scope, "status": {"$in": _fulfilled}, "created_at": {"$gte": cutoff}}},
+            {"$group": {"_id": None, "count": {"$sum": 1},
+                        "grand_total": {"$sum": {"$ifNull": ["$grand_total", "$total_amount"]}}}},
+        ]).to_list(1)
+        row = agg[0] if agg else {}
+        revenue[key] = {"count": int(row.get("count", 0) or 0),
+                        "grand_total": round(float(row.get("grand_total", 0) or 0), 2)}
+
     return {
         "by_status": status_counts,
         "total_reserved_qty": total_reserved_qty,
@@ -241,7 +261,9 @@ async def get_orders_stats(request: Request, entity_id: str = None,
         # dipaginasi, angka itu akan diam-diam mengecil mengikuti isi halaman. Dihitung di
         # server supaya kartu & daftar tidak pernah bercerita beda.
         "backorder_count": await db.sales_orders.count_documents({**scope, "has_backorder": True}),
-        "total_orders": await db.sales_orders.count_documents(scope)
+        "total_orders": await db.sales_orders.count_documents(scope),
+        "revenue": revenue,
+        "revenue_basis": "grand_total (setelah diskon & PPN) · status terpenuhi · seluruh pesanan ter-scope",
     }
 
 
@@ -447,8 +469,8 @@ async def approve_order(order_id: str, request: Request) -> Dict[str, Any]:
         from services import delivery_service as _ds
         await _ds.dispatch_event("sales_order", order_id, "approved",
                                  order.get("entity_id"), actor["name"])
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[approve_order] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return result
 
 
@@ -490,8 +512,8 @@ async def confirm_order(order_id: str, request: Request) -> Dict[str, Any]:
         from services import delivery_service as _ds
         await _ds.dispatch_event("sales_order", order_id, "confirmed",
                                  (_final or {}).get("entity_id"), actor["name"])
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[confirm_order] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return _final
 
 
@@ -521,8 +543,8 @@ async def mark_delivered(order_id: str, request: Request) -> Dict[str, Any]:
     try:
         from services import special_order_phase2 as _p2
         await _p2.on_delivered(order_id)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[mark_delivered] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return strip_cost_fields(result, actor.get("role"))
 
 

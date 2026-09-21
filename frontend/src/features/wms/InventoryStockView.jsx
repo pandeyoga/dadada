@@ -64,6 +64,7 @@ const emptyForm = {
 
 export default function InventoryStockView({ warehouses = [], products = [], entities = [], customers = [], selectedEntity = "all", user }) {
   const [balances, setBalances]       = useState([]);
+  const [balancesTotal, setBalancesTotal] = useState({ truncated: false, total: 0 });
   const [peggedRolls, setPeggedRolls] = useState([]);
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState("");
@@ -150,6 +151,9 @@ export default function InventoryStockView({ warehouses = [], products = [], ent
         axios.get(`${API}/pegging/rolls`),
       ]);
       setBalances(Array.isArray(b.data) ? b.data : []);
+      // KN-D25 — server menandai daftar yang terpotong (X-Truncated/X-Total-Count).
+      setBalancesTotal({ truncated: String(b.headers?.["x-truncated"] || "0") === "1",
+                         total: Number(b.headers?.["x-total-count"] || 0) });
       setPeggedRolls(Array.isArray(pg.data) ? pg.data : []);
       setError("");
     } catch (e) { setError(e.response?.data?.detail || "Gagal memuat data stok & inventori."); }
@@ -260,6 +264,12 @@ export default function InventoryStockView({ warehouses = [], products = [], ent
 
       <ErrorNotice message={error} onRetry={fetchBalances} onDismiss={() => setError("")} testId="inventory-stock-error" />
 
+      {balancesTotal.truncated && (
+        <div data-testid="inventory-truncated-warning" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-[11.5px] text-amber-800">
+          Kartu ringkasan hanya menjumlahkan {balances.length.toLocaleString("id-ID")} dari {balancesTotal.total.toLocaleString("id-ID")} segmen stok
+          — persempit dengan filter gudang/entitas untuk angka yang lengkap.
+        </div>
+      )}
       <InventorySummaryCards
         totalOnHand={totalOnHand}
         totalAvail={totalAvail}

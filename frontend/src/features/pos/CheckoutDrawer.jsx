@@ -73,7 +73,7 @@ export default function CheckoutDrawer({
   // PT → umum). `pickPrice` per baris menghormati qty minimum aturan harga khusus,
   // sehingga angka di review checkout SAMA dengan yang disimpan server.
   const cartIds = useMemo(() => cart.map((i) => i.product.id), [cart]);
-  const { priceMap: specialMap } = useEffectivePrices({
+  const { priceMap: specialMap, error: priceError, retry: retryPrices } = useEffectivePrices({
     customerId: selectedCustomer?.id || "",
     entityId: entityFor,
     productIds: cartIds,
@@ -455,12 +455,18 @@ export default function CheckoutDrawer({
             {step > 1 ? (
               <button data-testid="checkout-back" className="secondary-button" onClick={() => setStep(step - 1)}><ChevronLeft size={14} /> Kembali</button>
             ) : <span />}
+            {priceError && (
+              <div data-testid="checkout-price-error" className="mr-auto flex items-center gap-2 rounded border border-red-300 bg-red-50 px-3 py-1.5 text-xs text-red-700">
+                <span>Harga kontrak pelanggan gagal dimuat ({String(priceError)}). Angka di layar bisa berbeda dari yang disimpan.</span>
+                <button type="button" data-testid="checkout-price-retry" className="underline font-semibold" onClick={retryPrices}>Muat ulang</button>
+              </div>
+            )}
             {step < 3 ? (
               <button data-testid="checkout-next" className="primary-button" disabled={step === 1 ? !canNext1 : !canNext2} onClick={() => setStep(step + 1)}>
                 Lanjut <ChevronRight size={14} />
               </button>
             ) : (
-              <button data-testid="checkout-submit" className={`primary-button ${sampleMode ? "!bg-[#9A5B00] hover:!bg-[#7A4700]" : ""}`} disabled={!canWrite || !selectedCustomer || !selectedAddress || cart.length === 0 || lotPlan.loading || creditBlocked || pickupInvalid || deliveryInvalid || teamInvalid || billingInvalid} title={writeBlockHint} onClick={handleSubmitClick}>
+              <button data-testid="checkout-submit" className={`primary-button ${sampleMode ? "!bg-[#9A5B00] hover:!bg-[#7A4700]" : ""}`} disabled={!canWrite || !selectedCustomer || !selectedAddress || cart.length === 0 || lotPlan.loading || creditBlocked || pickupInvalid || deliveryInvalid || teamInvalid || billingInvalid || !!priceError} title={priceError ? "Harga pelanggan gagal dimuat — muat ulang dulu." : writeBlockHint} onClick={handleSubmitClick}>
                 <PackageCheck size={14} /> {!canWrite ? "Pilih Badan Usaha Dulu" : billingInvalid ? "Pilih Gratis/Berbayar" : creditBlocked ? "Terblokir Kredit" : pickupInvalid ? "Pilih Tanggal Ambil" : teamInvalid ? "Perbaiki Tim Sales" : deliveryInvalid ? "Tanggal Kirim Tak Valid" : requiresLotConfirmation ? "Tinjau Lot & Buat" : sampleMode ? `Buat Pesanan Sampel (${sampleBilling === "free" ? "Gratis" : "Berbayar"})` : "Buat Sales Order"}
               </button>
             )}

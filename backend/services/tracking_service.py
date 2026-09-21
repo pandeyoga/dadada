@@ -5,12 +5,15 @@ Manager (admin/manager) subscribe → Live Map; karyawan lapangan (sales) publis
 Koleksi: hr_field_tracks (trk_). Posisi disimpan ter-throttle; cache 'posisi terkini'
 untuk snapshot cepat + broadcast realtime.
 """
+import logging
 import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Set
 
 from db import db
 from core_utils import new_id, now_iso, safe_doc
+logger = logging.getLogger(__name__)
+
 
 WIB = timezone(timedelta(hours=7))
 STORE_INTERVAL_SEC = 30          # tulis DB maksimum 1×/30 dtk/karyawan (cache tetap realtime)
@@ -101,8 +104,8 @@ async def hydrate_latest() -> None:
         async for row in db.hr_field_tracks.aggregate(pipeline):
             d = safe_doc(row["doc"])
             manager.latest[d["employee_id"]] = {k: d.get(k) for k in _LIVE_FIELDS}
-    except Exception:  # noqa: BLE001 — jangan gagalkan startup
-        pass
+    except Exception as exc:  # noqa: BLE001 — jangan gagalkan startup
+        logger.warning("[hydrate_latest] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
 
 def is_online(ts_iso: str) -> bool:

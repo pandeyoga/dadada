@@ -3,6 +3,7 @@
 Akses: admin/manager/sales (view+create), admin/manager (void).
 Respons: ARRAY/OBJEK telanjang (kontrak KN3).
 """
+import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Request, Query, HTTPException
@@ -11,6 +12,8 @@ from pydantic import BaseModel, Field
 from dependencies import require_permission, audit
 from entity_scope import entity_ctx, resolve_list_scope, assert_entity_access, guard_doc, resolve_requested_entity
 from services import ar_receipt_service
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/api")
 
@@ -85,8 +88,8 @@ async def create_receipt(payload: ReceiptPayload, request: Request,
             await _ds.dispatch_event("ar_receipt", _rid, "created",
                                      body.get("entity_id"),
                                      actor.get("name") if isinstance(actor, dict) else str(actor))
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[create_receipt] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return receipt
 
 

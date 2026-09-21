@@ -15,6 +15,8 @@ from typing import Any, Dict, List
 
 from db import db
 from core_utils import now_iso, rupiah
+logger = logging.getLogger(__name__)
+
 
 log = logging.getLogger("turn")
 
@@ -161,8 +163,8 @@ def after_audit(entity_type: str, entity_id: str) -> None:
     try:
         loop = asyncio.get_running_loop()
         loop.create_task(_safe_check(coll, entity_id))
-    except RuntimeError:
-        pass
+    except RuntimeError as exc:
+        logger.warning("[after_audit] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
 
 async def _safe_check(coll: str, doc_id: str) -> None:

@@ -4,10 +4,13 @@ Koleksi kanonik (entity-scoped): `hr_kpi` (hkpi_). Keputusan owner 2a: metrik
 bebas (nama metrik, target, aktual, skor, catatan, bobot). Skor auto bila kosong:
 `round(min(actual/target,1.5)*100)` (guard target>0). Lihat PLAN_HRD §H5.
 """
+import logging
 from typing import Any, Dict, List, Optional
 
 from db import db
 from core_utils import new_id, now_iso, safe_doc
+logger = logging.getLogger(__name__)
+
 
 
 def compute_score(target: float, actual: float, score: Optional[float] = None) -> float:
@@ -16,8 +19,8 @@ def compute_score(target: float, actual: float, score: Optional[float] = None) -
     if score is not None:
         try:
             return round(max(0.0, min(float(score), 150.0)), 1)
-        except (TypeError, ValueError):
-            pass
+        except (TypeError, ValueError) as exc:
+            logger.warning("[compute_score] efek samping gagal diabaikan: %s", exc)  # KN-C10
     try:
         t = float(target or 0)
         a = float(actual or 0)

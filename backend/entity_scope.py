@@ -234,6 +234,9 @@ SCOPED_COLLECTIONS = {
     # memerah: sales PT-B membaca saldo kredit pelanggan PT-A lewat
     # `/api/store-credit` & `/api/store-credit/ledger`.
     "store_credit_ledger",
+    # Gate audit_entity_isolation — jejak perubahan data hygiene mewarisi `entity_id`
+    # dari master (pelanggan/supplier) yang diubah; baris tanpa entitas = master bersama.
+    "data_hygiene_log",
 }
 
 # Koleksi yang punya baris GLOBAL sah (berlaku untuk semua entitas) dan karena itu
@@ -241,6 +244,7 @@ SCOPED_COLLECTIONS = {
 # Nilai = daftar nilai field entitas yang dianggap "global".
 INHERITED_GLOBAL_VALUES: Dict[str, List[Any]] = {
     "notifications": [None, ""],          # notifikasi sistem tanpa entitas
+    "data_hygiene_log": [None, ""],       # perubahan pada master bersama (tanpa entitas)
     "audit_logs": [None, ""],             # jejak lama (pra-E0) belum ber-stempel
     "incentive_rates": ["all"],           # bawaan grup; override per entitas menang (E-4)
     "approval_rules": ["all"],            # idem

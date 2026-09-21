@@ -1,11 +1,12 @@
 import KNDatePicker from "@/components/KNDatePicker";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import MoneyInput from "@/components/MoneyInput";
 import { XCircle, Plus, AlertTriangle, FileEdit, Trash2, Lock } from "lucide-react";
 import { formatCurrency } from "../../../utils/formatters";
 import KNSelect from "../../../components/KNSelect";
 import { productOption, supplierCodesLabel } from "../../../utils/productSearch";   // MD-08
-import { unitOptions } from "../../../utils/uom";                  // FASE U — satuan dari master
+import { unitOptions } from "../../../utils/uom";
+import axios, { API } from "../../../services/apiClient";                  // FASE U — satuan dari master
 import useUomConversions from "../../../hooks/useUomConversions";  // FASE U — memuat katalog
 
 /**
@@ -63,16 +64,22 @@ export default function POAmendModal({
   const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
   const clampPct = (v) => Math.min(Math.max(Number(v) || 0, 0), 100);
 
+  // KN-D19 / KN-D21 — estimasi memakai cermin server yang sama dengan PO buat & keranjang:
+  // sakelar `purchasing.allow_*_discount` dihormati; tax_mode non_ppn = tax_override server.
+  const [effCfg, setEffCfg] = useState({ purchasing: {}, tax: {} });
+  useEffect(() => {
+    let alive = true;
+    axios.get(`${API}/settings/effective`)
+      .then((r) => { if (alive) setEffCfg({ purchasing: r.data?.purchasing || {}, tax: r.data?.tax || {} }); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
   const est = useMemo(() => {
-    let gross = 0, disc = 0;
-    for (const it of items) {
-      const sub = round2((Number(it.price) || 0) * (Number(it.quantity) || 0));
-      gross += sub; disc += round2(sub * clampPct(it.discount_percent) / 100);
-    }
-    const afterItem = round2(gross - disc);
-    const oda = round2(afterItem * clampPct(orderDisc) / 100);
-    return { gross: round2(gross), disc: round2(disc + oda), net: round2(afterItem - oda) };
-  }, [items, orderDisc]); // eslint-disable-line
+    const p = computeOrderPreview(
+      items.map((it) => ({ price: Number(it.price) || 0, quantity: Number(it.quantity) || 0, discount_percent: clampPct(it.discount_percent) })),
+      orderDisc, effCfg, { cfgSection: "purchasing", taxOverride: taxMode === "non_ppn" ? "non_ppn" : undefined });
+    return { gross: p.gross, disc: p.discountTotal, net: p.net, ppn: p.ppn, grand: p.grand, allowItem: p.allowItem, allowOrder: p.allowOrder };
+  }, [items, orderDisc, effCfg, taxMode]); // eslint-disable-line
 
   function updateItem(idx, patch) {
     setItems((arr) => arr.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
@@ -288,6 +295,9 @@ export default function POAmendModal({
             <div className="flex justify-between"><span className="text-[#6B6B73]">Subtotal (GROSS)</span><span data-testid="po-amend-est-gross" className="tabular-nums">{formatCurrency(est.gross)}</span></div>
             {est.disc > 0 && <div className="flex justify-between"><span className="text-[#6B6B73]">Total Diskon</span><span data-testid="po-amend-est-disc" className="tabular-nums text-[#A8221A]">− {formatCurrency(est.disc)}</span></div>}
             <div className="flex justify-between border-t border-[#E5E6E8] pt-1 mt-1 font-bold"><span>Subtotal Bersih (sebelum PPN)</span><span data-testid="po-amend-est-net" className="tabular-nums text-[#007AFF]">{formatCurrency(est.net)}</span></div>
+            {est.ppn > 0 && <div className="flex justify-between"><span className="text-[#6B6B73]">PPN Masukan</span><span data-testid="po-amend-est-ppn" className="tabular-nums">{formatCurrency(est.ppn)}</span></div>}
+            <div className="flex justify-between font-bold"><span>Total</span><span data-testid="po-amend-est-grand" className="tabular-nums">{formatCurrency(est.grand)}</span></div>
+            {(!est.allowItem || !est.allowOrder) && <p className="text-[10.5px] text-amber-700 mt-1">Diskon {!est.allowItem ? "item" : ""}{!est.allowItem && !est.allowOrder ? " & " : ""}{!est.allowOrder ? "pesanan" : ""} dinonaktifkan di Pengaturan Pembelian — server mengabaikannya.</p>}
           </div>
         </div>
 

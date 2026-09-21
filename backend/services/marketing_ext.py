@@ -3,6 +3,7 @@ marketing_ext.py — Marketing lanjutan: master Akun Sosmed per badan usaha, das
 (bulan ini vs lalu, tren 6 bulan, per platform/akun/PT, tepat waktu), dan ekspor PDF kalender bulanan.
 """
 from __future__ import annotations
+import logging
 
 import html
 from datetime import datetime, timedelta, timezone
@@ -11,6 +12,8 @@ from typing import Any, Dict, List
 from db import db
 from core_utils import new_id, now_iso
 from services.marketing_service import METRIC_FIELDS, PLATFORMS, MarketingError, _next_month
+logger = logging.getLogger(__name__)
+
 
 WIB = timezone(timedelta(hours=7))
 ON_TIME_GRACE_MIN = 60
@@ -101,8 +104,8 @@ def _kpi(rows: List[Dict[str, Any]]) -> Dict[str, float]:
                 sched = datetime.strptime(r["publish_at"][:16], "%Y-%m-%dT%H:%M").replace(tzinfo=WIB)
                 actual = datetime.fromisoformat(r["published_at"].replace("Z", "+00:00"))
                 out["on_time" if actual <= sched + timedelta(minutes=ON_TIME_GRACE_MIN) else "late"] += 1
-            except ValueError:
-                pass
+            except ValueError as exc:
+                logger.warning("[_kpi] efek samping gagal diabaikan: %s", exc)  # KN-C10
     judged = out["on_time"] + out["late"]
     out["on_time_rate_pct"] = round(out["on_time"] / judged * 100, 1) if judged else 0.0
     out["engagement_rate_pct"] = round(out["engagement"] / out["reach"] * 100, 2) if out["reach"] else 0.0

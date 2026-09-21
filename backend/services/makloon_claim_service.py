@@ -14,6 +14,7 @@ Alur status: `open` (otomatis saat selisih lewat toleransi) → `pending_approva
 (diajukan dengan tindakan+nilai) → `approved` (dieksekusi) | `rejected`.
 """
 from __future__ import annotations
+import logging
 
 from typing import Any, Dict, List, Optional
 
@@ -23,6 +24,8 @@ from db import db
 from services import contract_service as cs
 from services import gl_service as gl
 from services import notification_service as notif
+logger = logging.getLogger(__name__)
+
 
 COLL = "makloon_orders"
 
@@ -91,8 +94,8 @@ async def notify_claim_opened(order: Dict[str, Any], step: Dict[str, Any]) -> No
                 entity_id=order.get("entity_id"), recipient_role=role,
                 ref=f"{order.get('id')}:{step.get('seq')}",
                 action_type="makloon_claim", action_id=order.get("id"), action_role=role)
-        except Exception:  # noqa: BLE001 — notifikasi tidak boleh menggagalkan transaksi
-            pass
+        except Exception as exc:  # noqa: BLE001 — notifikasi tidak boleh menggagalkan transaksi
+            logger.warning("[notify_claim_opened] efek samping gagal diabaikan: %s", exc)  # KN-C10
 
 
 async def propose_claim(mko_id: str, seq: int, *, action: str, amount: Any = None,
@@ -129,8 +132,8 @@ async def propose_claim(mko_id: str, seq: int, *, action: str, amount: Any = Non
                 severity="warning", link="makloon-orders", entity_id=order.get("entity_id"),
                 recipient_role=role, ref=f"claimapv:{mko_id}:{seq}",
                 action_type="makloon_claim_approve", action_id=mko_id, action_role=role)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[propose_claim] efek samping gagal diabaikan: %s", exc)  # KN-C10
     return safe_doc(order)
 
 
