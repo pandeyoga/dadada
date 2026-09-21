@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 import rab_engine as re_
 import rab_templates_ext as ext
+import rab_sections as rs
 from core_utils import serialize_doc
 from db import ORG_ID, db
 from rbac import assert_project_access, require_permission
@@ -62,14 +63,16 @@ async def import_template(kind: str = "unit_type", user: dict = Depends(require_
 
 
 @router.get("/templates/{kind}")
-async def list_templates(kind: str, user: dict = Depends(require_permission("boq", "view"))):
+async def list_templates(kind: str, user: dict = Depends(require_permission("boq", "view")),
+                         _sec: dict = Depends(rs.require_rab_section("unit"))):
     if kind not in ("unit_type", "addon"):
         raise HTTPException(status_code=404, detail="Jenis template tidak dikenal.")
     return {"data": serialize_doc(await re_.list_templates(_org(user), kind))}
 
 
 @router.get("/templates/{kind}/{ref_code}")
-async def get_template(kind: str, ref_code: str, user: dict = Depends(require_permission("boq", "view"))):
+async def get_template(kind: str, ref_code: str, user: dict = Depends(require_permission("boq", "view")),
+                       _sec: dict = Depends(rs.require_rab_section("unit"))):
     return {"data": serialize_doc(await re_.get_template(_org(user), kind, ref_code))}
 
 
@@ -151,7 +154,8 @@ async def spk_fasum_cap(sid: str, user: dict = Depends(require_permission("subco
 
 
 @router.get("/projects/{pid}/summary")
-async def project_summary(pid: str, user: dict = Depends(require_permission("boq", "view"))):
+async def project_summary(pid: str, user: dict = Depends(require_permission("boq", "view")),
+                          _sec: dict = Depends(rs.require_rab_section("summary"))):
     await assert_project_access(pid, user)
     return {"data": serialize_doc(await re_.project_summary(_org(user), pid))}
 

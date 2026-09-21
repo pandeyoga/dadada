@@ -73,6 +73,10 @@ async def session_payload(user: dict) -> dict:
     u["nav_role"] = _rbac.nav_role(user.get("role"))
     u["role_label"] = _rbac.role_label(user.get("role"))
     u["role_scope"] = _rbac.role_scope(user.get("role"))
+    # Akses BAGIAN RAB (granular) — dipakai frontend untuk menyembunyikan tab RAB yang
+    # tidak boleh dilihat peran ini. Peran tanpa entri = semua bagian (backward compatible).
+    import rab_sections as _rs
+    u["rab_sections"] = await _rs.allowed_for(user.get("role"))
     # Label manusiawi resource — supaya layar Profil bisa menulis "Bagan Akun", bukan `coa`,
     # tanpa harus membaca /admin/permissions (yang memang khusus admin).
     u["resource_labels"] = {k: v["label"] for k, v in resource_meta(u["permissions"].keys()).items() if k != "*"}

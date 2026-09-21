@@ -13,6 +13,7 @@ from rbac import (require_permission, get_matrix, DEFAULT_PERMISSIONS, ALL_ROLES
                   ROLE_INHERITS, ROLE_DENY, ROLE_GRANTS, ROLE_SCOPES, all_roles, is_known_role,
                   custom_roles, load_custom_roles, role_scope, role_label, inherits_of,
                   default_role_scope, scope_overrides, SCOPE_OVERRIDES_KEY)
+import rab_sections as rs
 from models import UserCreate, UserUpdate, PermissionUpdate
 from rbac_labels import resource_meta, action_meta, GROUP_ORDER
 
@@ -295,6 +296,10 @@ async def get_permissions(user: dict = Depends(require_permission("permissions",
         "inherits": inherits,
         "denied_actions": {r: sorted(a) for r, a in ROLE_DENY.items()},
         "code_grants": ROLE_GRANTS,
+        "rab_sections": {
+            "meta": [{"code": c, "label": l, "help": h} for c, (l, h) in rs.SECTIONS.items()],
+            "map": await rs.get_raw(),
+        },
         "notes": {
             "revoke": ("Mencabut izin = simpan daftar aksi KOSONG untuk peran itu. "
                        "Kunci yang ada tetapi kosong berarti 'tidak boleh' dan "
@@ -341,6 +346,38 @@ async def update_permissions(payload: PermissionUpdate,
     matrix = await get_matrix()
     return {"data": {"matrix": matrix, "effective": effective_matrix(matrix),
                      "changes": perubahan}}
+
+
+class RabSectionsUpdate(BaseModel):
+    sections: dict = {}
+
+
+@router.get("/rab-sections")
+async def get_rab_sections(user: dict = Depends(require_permission("permissions", "view"))):
+    """Akses BAGIAN RAB per peran (granular). `map` = entri yang MEMBATASI saja; peran yang
+    tidak ada di `map` berarti boleh SEMUA bagian (default, backward compatible)."""
+    await load_custom_roles(force=True)
+    return {"data": {
+        "meta": [{"code": c, "label": l, "help": h} for c, (l, h) in rs.SECTIONS.items()],
+        "sections": rs.SECTION_CODES,
+        "map": await rs.get_raw(),
+        "roles": [r for r in all_roles() if r not in FULL_ACCESS_ROLES],
+        "role_meta": _role_meta(),
+        "note": ("Peran tanpa entri melihat SEMUA bagian. Daftar kosong = tidak boleh bagian "
+                 "apa pun. Owner & Super Admin selalu melihat semua bagian."),
+    }}
+
+
+@router.put("/rab-sections")
+async def update_rab_sections(payload: RabSectionsUpdate,
+                              user: dict = Depends(require_permission("permissions", "manage"))):
+    errors = rs.validate(payload.sections)
+    if errors:
+        raise HTTPException(status_code=400, detail="Akses bagian RAB ditolak: " + " ".join(errors))
+    saved = await rs.save(payload.sections, user.get("email"))
+    await audit_log(user, "update", "permissions", "rab_section_access",
+                    {"sections": saved})
+    return {"data": {"map": saved}}
 
 
 @router.get("/audit-logs")

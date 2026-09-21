@@ -20,7 +20,7 @@ from core_utils import new_id, now_iso, parse_pagination, serialize_doc
 from db import db, ORG_ID
 from models_p31 import (BuildTemplateClone, BuildTemplateIn, ItemDelayCause, ItemOverride,
                         ItemReject, ItemSubmit, ItemVerify, ScheduleGenerate, ScheduleHold)
-from rbac import has_role, assert_project_access, audit_log, require_permission
+from rbac import has_role, assert_project_access, audit_log, require_permission, can as rbac_can
 
 router = APIRouter(prefix="/build", tags=["build"])
 SUPERVISOR_ROLES = ("owner", "super_admin", "project_manager")
@@ -30,12 +30,22 @@ def _org(user: dict) -> str:
     return user.get("org_id", ORG_ID)
 
 
-def _can(user: dict) -> dict:
+async def _can(user: dict) -> dict:
+    """Kemampuan UI diturunkan dari MATRIKS RBAC (bukan daftar peran ditulis di kode).
+
+    Dulu fungsi ini mengunci kemampuan ke nama peran bawaan; akibatnya (1) peran KUSTOM dan
+    (2) izin yang DIBERIKAN admin lewat layar Hak Akses tidak pernah memunculkan tombol —
+    padahal endpoint `require_permission("construction", …)` MEMANG mengizinkannya, sehingga
+    petunjuk layar berbohong dan tombol "Mulai/ajukan" hilang untuk pengguna yang berhak.
+    Sekarang petunjuk = penegakan: `construction:update` → boleh mengerjakan/mengajukan,
+    `construction:approve` → boleh memverifikasi/menerobos, `construction:create` → boleh
+    menyusun template/membangkitkan jadwal.
+    """
     role = user.get("role")
-    return {"submit": role in SUPERVISOR_ROLES + ("site_engineer",),
-            "verify": role in SUPERVISOR_ROLES,
-            "override": role in SUPERVISOR_ROLES,
-            "configure": role in SUPERVISOR_ROLES}
+    return {"submit": await rbac_can(role, "construction", "update"),
+            "verify": await rbac_can(role, "construction", "approve"),
+            "override": await rbac_can(role, "construction", "approve"),
+            "configure": await rbac_can(role, "construction", "create")}
 
 
 async def _get_item(item_id: str, user: dict) -> tuple:
@@ -233,7 +243,7 @@ async def schedules(project_id: str = None, status: str = None, skip: int = 0, l
     out = await bm.board(_org(user), project_id=project_id, status=status,
                          skip=skip, limit=limit)
     return {"data": serialize_doc(out["data"]), "total": out["total"],
-            "summary": await bm.summary(_org(user), project_id), "can": _can(user)}
+            "summary": await bm.summary(_org(user), project_id), "can": await _can(user)}
 
 
 @router.get("/summary")
@@ -314,7 +324,7 @@ async def unit_bundle(unit_id: str,
                      "steps_count": len(t.get("steps") or [])}
                     for t in tpls if be.template_matches(t, keys)]
         return {"data": None, "unit": serialize_doc(unit), "items": [], "weeks": [],
-                "can": _can(user), "buildable": buildable,
+                "can": await _can(user), "buildable": buildable,
                 "matching_templates": matching,
                 "message": ("Unit ini belum punya jadwal pembangunan. Bangkitkan dari "
                             "template sesuai tipe unit agar progres, pengingat, dan bukti "
@@ -331,7 +341,7 @@ async def unit_bundle(unit_id: str,
     grouped = [{"week": w, "items": serialize_doc(rows)} for w, rows in sorted(weeks.items())]
     return {"data": serialize_doc(sched), "unit": serialize_doc(unit),
             "items": serialize_doc(items), "weeks": grouped,
-            "timeline": await bm.timeline(org, sched["id"]), "can": _can(user)}
+            "timeline": await bm.timeline(org, sched["id"]), "can": await _can(user)}
 
 
 @router.post("/schedules/{schedule_id}/hold")
@@ -407,7 +417,7 @@ async def list_items(project_id: str = None, status: str = None, mine: bool = Fa
     total = await db.build_items.count_documents(q)
     rows = await db.build_items.find(q, {"_id": 0}).sort(
         [("planned_finish", 1), ("order", 1)]).skip(skip).limit(limit).to_list(limit)
-    return {"data": serialize_doc(rows), "total": total, "can": _can(user)}
+    return {"data": serialize_doc(rows), "total": total, "can": await _can(user)}
 
 
 @router.get("/items/{item_id}")
@@ -427,7 +437,7 @@ async def get_item(item_id: str,
             "instruction": bi.instruction_lines(item, sched or {}),
             "brief": serialize_doc(bi.brief(item)),
             "contract": (await contract_of(_org(user), [item_id])).get(item_id),
-            "submissions": serialize_doc(subs), "can": _can(user)}
+            "submissions": serialize_doc(subs), "can": await _can(user)}
 
 
 @router.post("/items/{item_id}/start")

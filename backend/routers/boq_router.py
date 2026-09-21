@@ -11,6 +11,7 @@ import opname as op
 from db import db, ORG_ID
 from core_utils import new_id, now_iso, serialize_doc
 from rbac import has_role, require_permission, assert_project_access, project_query
+import rab_sections as rs
 from models import BoQItemCreate, BoQItemUpdate
 from models_p33 import BoQStepMapIn
 
@@ -40,6 +41,12 @@ async def list_items(project_id: str = None, category: str = None, scope: str = 
     if category:
         fq["category"] = category
     if scope:  # Fase 80: item lama tanpa scope dianggap lingkup unit (legacy)
+        # Hak akses BAGIAN RAB (granular): peran boleh dibatasi hanya melihat sebagian bagian.
+        if scope in rs.SECTION_CODES and not await rs.can_view(user.get("role"), scope):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Akses ditolak: peran Anda tidak diberi akses bagian RAB "
+                       f"'{rs.SECTIONS.get(scope, (scope,))[0]}'.")
         fq["$or" if scope == "unit" else "scope"] = (
             [{"scope": "unit"}, {"scope": {"$exists": False}}, {"scope": None}] if scope == "unit" else scope)
     rows = await db.boq_items.find(fq, {"_id": 0}).sort([("cost_code", 1), ("created_at", 1)]).to_list(1000)

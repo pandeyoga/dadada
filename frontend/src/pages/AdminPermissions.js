@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { roleLabel as baseRoleLabel } from "@/utils/formatters";
 import RolesManager from "@/components/admin/RolesManager";
+import RolePermissionEditor from "@/components/admin/RolePermissionEditor";
 import { ACTION_LABEL, WEIGHT_CLS, SOURCE_BADGE, sortActions, sameSet } from "@/components/admin/permissionsMeta";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/services/apiClient";
@@ -39,6 +40,9 @@ export default function AdminPermissions() {
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
   const [openCell, setOpenCell] = useState(null);  // "resource::role" yang sedang dibuka
+  const [mode, setMode] = useState("role");        // "role" (ramah) | "matrix" (tabel penuh)
+  const [selectedRole, setSelectedRole] = useState("");
+  const [rabDraft, setRabDraft] = useState({});     // {role: [sections]} yang MEMBATASI
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -47,6 +51,7 @@ export default function AdminPermissions() {
       const res = await api.get("/admin/permissions");
       setServer(res.data.data);
       setDraft(JSON.parse(JSON.stringify(res.data.data.matrix || {})));
+      setRabDraft(JSON.parse(JSON.stringify(res.data.data.rab_sections?.map || {})));
       setOpenCell(null);
     } catch (e) {
       setError(e?.response?.data?.detail || "Gagal memuat hak akses.");
@@ -61,6 +66,34 @@ export default function AdminPermissions() {
     () => (server?.roles || []).filter((r) => !(server?.full_access_roles || []).includes(r)),
     [server],
   );
+  useEffect(() => {
+    if (roles.length && !roles.includes(selectedRole)) setSelectedRole(roles[0]);
+  }, [roles, selectedRole]);
+
+  // ---- Akses BAGIAN RAB (granular). Peran tanpa entri = semua bagian (bawaan). ----
+  const rabMeta = useMemo(() => server?.rab_sections?.meta || [], [server]);
+  const allSections = useMemo(() => rabMeta.map((m) => m.code), [rabMeta]);
+  const rabServerMap = useMemo(() => server?.rab_sections?.map || {}, [server]);
+  const rabAllowed = useCallback((role) => (
+    Object.prototype.hasOwnProperty.call(rabDraft, role) ? (rabDraft[role] || []) : allSections
+  ), [rabDraft, allSections]);
+  const onRabToggle = useCallback((role, code, on) => {
+    setRabDraft((prev) => {
+      const cur = Object.prototype.hasOwnProperty.call(prev, role) ? (prev[role] || []) : allSections;
+      const next = on ? sortActions([...cur, code]) : cur.filter((c) => c !== code);
+      return { ...prev, [role]: next };
+    });
+  }, [allSections]);
+  const rabChanges = useMemo(() => {
+    const out = [];
+    const roleset = new Set([...Object.keys(rabServerMap), ...Object.keys(rabDraft)]);
+    roleset.forEach((role) => {
+      const a = Object.prototype.hasOwnProperty.call(rabServerMap, role) ? rabServerMap[role] : allSections;
+      const b = Object.prototype.hasOwnProperty.call(rabDraft, role) ? rabDraft[role] : allSections;
+      if (!sameSet(a, b)) out.push(role);
+    });
+    return out;
+  }, [rabServerMap, rabDraft, allSections]);
   const roleLabel = useCallback((r) => server?.role_meta?.[r]?.label || baseRoleLabel(r), [server]);
   const resources = useMemo(() => {
     const all = server?.resources || [];
@@ -202,17 +235,30 @@ export default function AdminPermissions() {
   }, [server, draft]);
 
   const save = async () => {
-    if (!changes.length) { toast.info("Tidak ada perubahan untuk disimpan."); return; }
+    if (!changes.length && !rabChanges.length) { toast.info("Tidak ada perubahan untuk disimpan."); return; }
     setSaving(true);
     try {
-      const res = await api.put("/admin/permissions", { matrix: draft });
-      const n = (res.data.data.changes || []).length;
-      toast.success(n
-        ? `${n} perubahan hak akses tersimpan dan langsung berlaku.`
-        : "Matriks tersimpan (izin efektif tidak berubah).");
-      setServer((prev) => ({ ...prev, matrix: res.data.data.matrix,
-        effective: res.data.data.effective }));
-      setDraft(JSON.parse(JSON.stringify(res.data.data.matrix || {})));
+      let n = 0;
+      if (changes.length) {
+        const res = await api.put("/admin/permissions", { matrix: draft });
+        n = (res.data.data.changes || []).length;
+        setServer((prev) => ({ ...prev, matrix: res.data.data.matrix,
+          effective: res.data.data.effective }));
+        setDraft(JSON.parse(JSON.stringify(res.data.data.matrix || {})));
+      }
+      if (rabChanges.length) {
+        const rr = await api.put("/admin/rab-sections", { sections: rabDraft });
+        const savedMap = rr.data.data.map || {};
+        setServer((prev) => ({ ...prev,
+          rab_sections: { ...(prev.rab_sections || {}), map: savedMap } }));
+        setRabDraft(JSON.parse(JSON.stringify(savedMap)));
+      }
+      const parts = [];
+      if (n) parts.push(`${n} izin modul`);
+      if (rabChanges.length) parts.push(`${rabChanges.length} akses bagian RAB`);
+      toast.success(parts.length
+        ? `Tersimpan: ${parts.join(" & ")} — langsung berlaku.`
+        : "Perubahan tersimpan.");
       setOpenCell(null);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Gagal menyimpan hak akses.");
@@ -232,22 +278,41 @@ export default function AdminPermissions() {
           <h1 className="page-title">Hak Akses (RBAC)</h1>
         </div>
         <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input data-testid={ADMIN.permsSearch} value={q} onChange={(e) => setQ(e.target.value)}
-              placeholder="Cari resource (mis. Bagan Akun, coa)…" className="search-field h-9 w-64 pl-9" />
+          <div className="mr-1 inline-flex overflow-hidden rounded-lg border">
+            <button type="button" data-testid={ADMIN.permsModeRole}
+              onClick={() => setMode("role")}
+              className={`px-3 py-1.5 text-xs font-medium transition ${mode === "role"
+                ? "bg-primary text-primary-foreground" : "bg-card hover:bg-secondary"}`}>
+              Per Peran
+            </button>
+            <button type="button" data-testid={ADMIN.permsModeMatrix}
+              onClick={() => setMode("matrix")}
+              className={`px-3 py-1.5 text-xs font-medium transition ${mode === "matrix"
+                ? "bg-primary text-primary-foreground" : "bg-card hover:bg-secondary"}`}>
+              Matriks
+            </button>
           </div>
+          {mode === "matrix" ? (
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input data-testid={ADMIN.permsSearch} value={q} onChange={(e) => setQ(e.target.value)}
+                placeholder="Cari resource (mis. Bagan Akun, coa)…" className="search-field h-9 w-64 pl-9" />
+            </div>
+          ) : null}
           {editable ? (
             <>
               <Button data-testid={ADMIN.permsReset} variant="outline" size="sm"
-                disabled={!changes.length || saving}
-                onClick={() => { setDraft(JSON.parse(JSON.stringify(server.matrix || {}))); setOpenCell(null); }}>
+                disabled={(!changes.length && !rabChanges.length) || saving}
+                onClick={() => { setDraft(JSON.parse(JSON.stringify(server.matrix || {})));
+                  setRabDraft(JSON.parse(JSON.stringify(server.rab_sections?.map || {})));
+                  setOpenCell(null); }}>
                 <RotateCcw className="mr-1.5 h-4 w-4" /> Kembalikan
               </Button>
-              <Button data-testid={ADMIN.permsSave} size="sm" disabled={!changes.length || saving}
+              <Button data-testid={ADMIN.permsSave} size="sm"
+                disabled={(!changes.length && !rabChanges.length) || saving}
                 onClick={save}>
                 <Save className="mr-1.5 h-4 w-4" />
-                {saving ? "Menyimpan…" : `Simpan${changes.length ? ` (${changes.length})` : ""}`}
+                {saving ? "Menyimpan…" : `Simpan${changes.length + rabChanges.length ? ` (${changes.length + rabChanges.length})` : ""}`}
               </Button>
             </>
           ) : null}
@@ -321,7 +386,15 @@ export default function AdminPermissions() {
         </div>
       ) : null}
 
-      {!resources.length ? (
+      {mode === "role" ? (
+        <RolePermissionEditor
+          editable={editable} server={server} roles={roles}
+          role={selectedRole} onRole={setSelectedRole}
+          roleLabel={roleLabel} labelOf={labelOf}
+          actionLabel={actionLabel} actionHelp={actionHelp} actionWeight={actionWeight}
+          effective={effective} written={written} toggle={toggle} restoreDefault={restoreDefault}
+          rabMeta={rabMeta} rabAllowed={rabAllowed(selectedRole)} onRabToggle={onRabToggle} />
+      ) : !resources.length ? (
         <div data-testid={ADMIN.permsEmpty}
           className="rounded-xl border bg-card p-6 text-center text-sm text-muted-foreground shadow-[var(--shadow-card)]">
           Tidak ada resource yang cocok dengan “{q}”. Kosongkan pencarian untuk melihat

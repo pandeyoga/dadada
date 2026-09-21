@@ -27,7 +27,13 @@ export default function BuildItemCard({ item, can, currentEmail, onStart, onSubm
   const photos = (item.evidence || []).filter(
     (e) => String(e.content_type || "").startsWith("image"));
   const mine = item.assigned_to === currentEmail;
-  const canWork = can?.submit && (mine || can?.verify);
+  // Boleh mengerjakan bila punya izin `construction:update` (can.submit) DAN item ini
+  // memang untuknya: miliknya sendiri, ATAU belum ditugaskan ke siapa pun, ATAU dia
+  // verifikator (supervisor/PM). Dulu syaratnya `mine || verify` saja, sehingga pekerja
+  // dengan izin penuh tetap tidak melihat tombol "Mulai/Ajukan" ketika item belum/di-
+  // assign ke orang lain — persis keluhan "sudah diberi semua akses tapi tombol tak muncul".
+  const assignedToOther = item.assigned_to && !mine;
+  const canWork = can?.submit && (mine || !item.assigned_to || can?.verify);
   const isSubmitter = item.submitted_by === currentEmail;
 
   return (
@@ -196,6 +202,13 @@ export default function BuildItemCard({ item, can, currentEmail, onStart, onSubm
             onClick={() => onDelay(item)}>
             Penyebab telat
           </Button>
+        ) : null}
+        {assignedToOther && can?.submit && !can?.verify
+          && ["ready", "in_progress", "rework"].includes(item.status) ? (
+          <span className="rounded-lg border border-slate-200 bg-secondary/60 px-2 py-1 text-[11px] text-muted-foreground">
+            Ditugaskan ke <b>{item.assigned_to}</b> — hanya dia (atau supervisor) yang bisa
+            mengerjakan.
+          </span>
         ) : null}
       </div>
     </div>

@@ -177,12 +177,30 @@ function BoQItemsTab({ projectId }) {
 }
 
 export default function BoQPage() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const canManage = can("boq", "create");
   const canBudget = can("budget", "view");
   const canTarget = can("targets", "view");
   const [projectId, setProjectId] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
+
+  // Akses BAGIAN RAB (granular). Peran tanpa daftar = semua bagian (backward compatible).
+  const rabSections = user?.rab_sections;
+  const canSection = (s) => !Array.isArray(rabSections) || rabSections.includes(s);
+  const rabTabs = [
+    canSection("unit") && { v: "unit", tid: P80.tabUnit, label: "RAB Unit (per tipe)",
+      node: <RabTypePanel onChanged={() => setReloadKey((k) => k + 1)} /> },
+    canSection("fasum") && { v: "fasum", tid: P80.tabFasum, label: "Fasum / Fasos",
+      node: <RabScopePanel projectId={projectId} scope="fasum" onChanged={() => setReloadKey((k) => k + 1)} /> },
+    canSection("umum") && { v: "umum", tid: P80.tabUmum, label: "Umum",
+      node: <RabScopePanel projectId={projectId} scope="umum" onChanged={() => setReloadKey((k) => k + 1)} /> },
+    canSection("summary") && { v: "summary", tid: P80.tabSummary, label: "Ringkasan & HPP",
+      node: <RabSummaryPanel projectId={projectId} reloadKey={reloadKey} /> },
+    canSection("summary") && { v: "hpp_unit", tid: "rab-tab-hpp-unit", label: "HPP vs Realisasi per Unit",
+      node: <HppUnitPanel projectId={projectId} reloadKey={reloadKey} /> },
+    canSection("unit") && { v: "legacy", tid: "rab-tab-legacy", label: "Item RAB proyek (lama)",
+      node: <BoQItemsTab projectId={projectId} /> },
+  ].filter(Boolean);
 
   const header = (
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -213,25 +231,19 @@ export default function BoQPage() {
   return (
     <div data-testid={PROCUREMENT.boqPage}>
       <TabPage paramKey="hub" header={header} tabs={[
-        { key: "items", label: "Rincian RAB", icon: Calculator,
+        rabTabs.length ? { key: "items", label: "Rincian RAB", icon: Calculator,
           content: (
-            <Tabs defaultValue="unit" className="space-y-4">
+            <Tabs defaultValue={rabTabs[0].v} className="space-y-4">
               <TabsList className="flex-wrap">
-                <TabsTrigger data-testid={P80.tabUnit} value="unit">RAB Unit (per tipe)</TabsTrigger>
-                <TabsTrigger data-testid={P80.tabFasum} value="fasum">Fasum / Fasos</TabsTrigger>
-                <TabsTrigger data-testid={P80.tabUmum} value="umum">Umum</TabsTrigger>
-                <TabsTrigger data-testid={P80.tabSummary} value="summary">Ringkasan & HPP</TabsTrigger>
-                <TabsTrigger data-testid="rab-tab-hpp-unit" value="hpp_unit">HPP vs Realisasi per Unit</TabsTrigger>
-                <TabsTrigger value="legacy">Item RAB proyek (lama)</TabsTrigger>
+                {rabTabs.map((t) => (
+                  <TabsTrigger key={t.v} data-testid={t.tid} value={t.v}>{t.label}</TabsTrigger>
+                ))}
               </TabsList>
-              <TabsContent value="unit"><RabTypePanel onChanged={() => setReloadKey((k) => k + 1)} /></TabsContent>
-              <TabsContent value="fasum"><RabScopePanel projectId={projectId} scope="fasum" onChanged={() => setReloadKey((k) => k + 1)} /></TabsContent>
-              <TabsContent value="umum"><RabScopePanel projectId={projectId} scope="umum" onChanged={() => setReloadKey((k) => k + 1)} /></TabsContent>
-              <TabsContent value="summary"><RabSummaryPanel projectId={projectId} reloadKey={reloadKey} /></TabsContent>
-              <TabsContent value="hpp_unit"><HppUnitPanel projectId={projectId} reloadKey={reloadKey} /></TabsContent>
-              <TabsContent value="legacy"><BoQItemsTab projectId={projectId} /></TabsContent>
+              {rabTabs.map((t) => (
+                <TabsContent key={t.v} value={t.v}>{t.node}</TabsContent>
+              ))}
             </Tabs>
-          ) },
+          ) } : null,
         { key: "kendali", label: "Kendali Biaya", icon: ShieldCheck,
           content: <CostControlPanel projectId={projectId} canManage={canManage}
             onMapped={() => setReloadKey((k) => k + 1)} /> },
