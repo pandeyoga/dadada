@@ -9,17 +9,19 @@ import { roundProofUrl } from "./rndApi";
 import { ROUND_RESULT_META } from "./rndMeta";
 import { roundTypeOf } from "./sampleTypeMeta";
 import ProofImage from "./ProofImage";
+import { useEscapeClose } from "@/utils/escapeLayers";
 
 function ProofLightbox({ items, index, onClose, onStep }) {
+  // INV-UI-10 — Esc lewat tumpukan lapisan bersama (hanya lapisan TERATAS yang tertutup).
+  useEscapeClose(true, onClose);
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === "Escape") { e.stopPropagation(); onClose(); }
       if (e.key === "ArrowRight") onStep(1);
       if (e.key === "ArrowLeft") onStep(-1);
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose, onStep]);
+  }, [onStep]);
   const it = items[index];
   if (!it) return null;
   const rm = ROUND_RESULT_META[it.round.result || ""] || ROUND_RESULT_META[""];

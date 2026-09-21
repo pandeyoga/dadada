@@ -52,6 +52,7 @@ def evaluate_match(
     billed_so_far: Dict[str, float],
     qty_tol: float,
     price_tol: float,
+    value_tol: float = 0.0,
 ) -> Dict[str, Any]:
     """Hitung 3-way match per item + agregat. PURE (tak menyentuh DB).
 
@@ -85,7 +86,9 @@ def evaluate_match(
         # ── qty match ──
         qty_status = "ok"
         tol_qty = abs(remaining) * (qty_tol / 100.0)
-        if billed > remaining + tol_qty + 1e-6:
+        # KN-D16 — ambang RUPIAH bersama (kontrabon): selisih kecil bernilai ≤ value_tol bukan pengecualian.
+        over_value = max(0.0, billed - remaining) * price
+        if billed > remaining + tol_qty + 1e-6 and over_value > value_tol + 0.01:
             qty_status = "over_billed"
             blocked = True
             msg = (f"Tagih {billed:g} melebihi sisa yang boleh ditagih {remaining:g} "
@@ -106,7 +109,7 @@ def evaluate_match(
         # ── price match ──
         price_status = "ok"
         pvar = _variance_pct(price, po_price)
-        if po_price > 0 and abs(pvar) > price_tol + 1e-6:
+        if po_price > 0 and abs(pvar) > price_tol + 1e-6 and abs(price - po_price) * billed > value_tol + 0.01:
             price_status = "price_variance"
             warning = True
             msg = f"Harga {price:g} menyimpang {pvar:+g}% dari harga PO {po_price:g} (toleransi ±{price_tol:g}%)"

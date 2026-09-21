@@ -128,6 +128,9 @@ DOOR_QUEUE: Dict[str, str] = {
     "hr_payroll.py::/api/hr/payroll/runs/{run_id}/approve": "hr_payroll",
     "hr_payroll.py::/api/hr/payroll/runs/{run_id}/reject": "hr_payroll",
     "design_gallery.py::/api/design-gallery/{gallery_id}/approve": "design_gallery",
+    # Design Studio: pintu lifecycle approve = transisi pending_approval → approved pada
+    # design_gallery yang sama → dihitung baris antrean `design_gallery` yang sudah ada.
+    "design_studio.py::/api/design-gallery/{gallery_id}/lifecycle/approve": "design_gallery",
     "design_gallery.py::/api/design-gallery/{gallery_id}/reject": "design_gallery",
     "payment_variance.py::/api/payment-variances/receipt/{receipt_id}/decide":
         "payment_variance",
@@ -147,6 +150,11 @@ DOOR_QUEUE: Dict[str, str] = {
 #: pintu yang SENGAJA tak punya antrean — alasannya WAJIB ditulis (dan diperiksa).
 #: "UTANG:" menandai alasan yang mengakui cacat alur, bukan membenarkannya.
 DOOR_EXEMPT: Dict[str, str] = {
+    "sample_orders.py::/api/sample-orders/{order_id}/approve-payment":
+        "Persetujuan pembayaran sampel BERBAYAR: dokumennya sales_orders berstatus "
+        "waiting_approval (sample_billing=paid) yang SUDAH tampil di meja Admin Sampel "
+        "(sample_orders.py desk → daftar 'bayar') — bukan pintu Pusat Persetujuan umum; "
+        "mendaftarkannya lagi membuat KPI dobel-hitung dengan antrean pesanan sampel.",
     "bank_reconciliation.py::/api/bank-reconciliation/rules/{rule_id}/decide":
         "Keputusan atas USULAN ATURAN pencocokan bank (konfigurasi mesin), bukan dokumen "
         "bisnis yang menunggu orang. Usulannya tampil di panel layar Rekonsiliasi Bank.",
@@ -183,6 +191,12 @@ WAIT_VOCAB: Set[str] = {
 
 #: `(koleksi, status)` yang berbunyi "menunggu" tetapi memang BUKAN antrean keputusan.
 DATA_EXEMPT: Dict[Tuple[str, str], str] = {
+    ("turn_marks", "pending"):
+        "`turn_marks` = tanda 'sudah diberi tahu' per (dokumen, status) milik "
+        "turn_notification_service — SALINAN status dokumen asal untuk anti-notifikasi ganda, "
+        "bukan dokumen yang menunggu keputusan.",
+    ("turn_marks", "pending_approval"): "idem — tanda notifikasi giliran, bukan antrean keputusan.",
+    ("turn_marks", "waiting_approval"): "idem — tanda notifikasi giliran, bukan antrean keputusan.",
     ("wms_tasks", "pending"):
         "Tugas gudang yang belum DIKERJAKAN (pick/pack/putaway) — pekerjaan, bukan "
         "keputusan; antreannya layar Operasi Gudang.",

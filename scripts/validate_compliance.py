@@ -166,11 +166,16 @@ def check_duplicate_endpoints():
     pattern = re.compile(r'@router\.(get|post|put|patch|delete)\([\'"](.*?)[\'"]')
 
     router_dir = BACKEND / "routers"
+    prefix_re = re.compile(r'APIRouter\([^)]*prefix\s*=\s*[\'"]([^\'"]*)[\'"]')
     for f in router_dir.glob("*.py"):
         content = f.read_text()
+        # Path dibandingkan LENGKAP (prefix router + path) — dulu `/dashboard` di
+        # /api vs /api/logistics dilaporkan kembar padahal rute berbeda.
+        pm = prefix_re.search(content)
+        prefix = (pm.group(1) if pm else "").rstrip("/")
         for match in pattern.finditer(content):
             method = match.group(1).upper()
-            path = match.group(2)
+            path = prefix + match.group(2)
             key = f"{method} {path}"
             endpoint_map[key].append(f.name)
 

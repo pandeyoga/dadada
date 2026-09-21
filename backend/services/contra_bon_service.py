@@ -144,9 +144,14 @@ def _rp(v: Any) -> str:
 async def policy(entity_id: str = "") -> Dict[str, Any]:
     ctx = {"entity_id": entity_id or ""}
     raw = {k.split(".", 1)[1]: await value_of(k, ctx) for k in CFG_KEYS}
+    # KN-D16 — ambang 3-way dari SATU sumber (three_way_policy): qty% & harga% = purchasing.*,
+    # rupiah = contra_bon.value_tolerance_rupiah; `contra_bon.qty_tolerance_percent` lama tak dipakai lagi.
+    from services.three_way_policy import tolerances as _tw
+    tw = await _tw(entity_id or "")
     return {
-        "qty_tolerance_percent": float(raw.get("qty_tolerance_percent") or 0),
-        "value_tolerance_rupiah": float(raw.get("value_tolerance_rupiah") or 0),
+        "qty_tolerance_percent": tw["qty_pct"],
+        "price_tolerance_percent": tw["price_pct"],
+        "value_tolerance_rupiah": tw["value_rp"],
         "require_reason": bool(raw.get("require_reason_out_of_tolerance")),
         "approval_threshold": float(raw.get("approval_threshold_rupiah") or 0),
         "approval_role": str(raw.get("approval_role") or "manager").lower(),
@@ -213,6 +218,7 @@ def evaluate_bill_exceptions(bill: Dict[str, Any], po: Optional[Dict[str, Any]],
     if not po:
         return []
     qty_tol = float(pol.get("qty_tolerance_percent") or 0)
+    price_tol = float(pol.get("price_tolerance_percent", pol.get("qty_tolerance_percent")) or 0)   # KN-D16
     val_tol = float(pol.get("value_tolerance_rupiah") or 0)
     po_items = {it.get("product_id"): it for it in (po.get("items") or [])}
     out: List[Dict[str, Any]] = []
@@ -247,7 +253,7 @@ def evaluate_bill_exceptions(bill: Dict[str, Any], po: Optional[Dict[str, Any]],
         if po_price > 0 and abs(price - po_price) > EPS:
             pct = abs(_pct(price, po_price))
             value = _round(abs(price - po_price) * billed)
-            if pct > qty_tol + 1e-6 and value > val_tol + EPS:
+            if pct > price_tol + 1e-6 and value > val_tol + EPS:   # KN-D16 — ambang HARGA, bukan qty
                 out.append({
                     "key": f"{bill['id']}:{pid}:price",
                     "bill_id": bill["id"], "bill_number": bill.get("bill_number", ""),
@@ -257,7 +263,7 @@ def evaluate_bill_exceptions(bill: Dict[str, Any], po: Optional[Dict[str, Any]],
                     "variance_percent": pct, "amount": value,
                     "detail": (f"Harga faktur {_rp(price)} vs harga PO {_rp(po_price)} — "
                                f"selisih {pct:g}% senilai {_rp(value)} "
-                               f"(toleransi {qty_tol:g}% / {_rp(val_tol)})"),
+                               f"(toleransi {price_tol:g}% / {_rp(val_tol)})"),
                 })
     return out
 

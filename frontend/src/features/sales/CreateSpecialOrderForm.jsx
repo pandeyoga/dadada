@@ -4,6 +4,7 @@
  * otomatis saat disetujui (printing → Desainer + R&D proofing; labdip/handfeel → R&D) dengan spesifikasi diwarisi.
  */
 import { useEffect, useState } from "react";
+import useUomConversions from "../../hooks/useUomConversions";   // INV-UOM-02 — satuan dari master
 import { Palette, Sparkles } from "lucide-react";
 import FormModal from "../../components/FormModal";
 import KNDatePicker from "../../components/KNDatePicker";
@@ -19,6 +20,8 @@ const TYPES = [
 ];
 
 export default function CreateSpecialOrderForm({ token, onCreated, onCancel }) {
+  const { unitOptions: _uomOpts } = useUomConversions();   // INV-UOM-02
+  const uomAllOptions = _uomOpts();
   const [customers, setCustomers] = useState([]);
   const [colors, setColors] = useState([]);
   const [templates, setTemplates] = useState([]);
@@ -154,7 +157,7 @@ export default function CreateSpecialOrderForm({ token, onCreated, onCancel }) {
         <Step n={4} title="Jumlah, harga & tenggat">
           <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="Jumlah *"><input className="field" type="number" min="0" data-testid="od-qty" value={f.quantity} onChange={(e) => set("quantity", e.target.value)} /></Field>
-            <Field label="Satuan"><KNSelect data-testid="od-unit" className="field" value={f.unit} options={["meter", "yard", "kg", "pcs", "roll"].map((u) => ({ value: u, label: u }))} onValueChange={(v) => set("unit", v)} /></Field>
+            <Field label="Satuan"><KNSelect data-testid="od-unit" className="field" value={f.unit} options={uomAllOptions} onValueChange={(v) => set("unit", v)} /></Field>
             <Field label="Target harga / satuan (Rp)"><input className="field" type="number" min="0" data-testid="od-price" value={f.target_price} onChange={(e) => set("target_price", e.target.value)} /></Field>
             <Field label="Tenggat kirim *"><KNDatePicker data-testid="od-delivery" value={f.expected_delivery} onChange={(v) => set("expected_delivery", v)} /></Field>
             <Field label="Catatan pesanan"><input className="field" data-testid="od-notes" value={f.notes} onChange={(e) => set("notes", e.target.value)} /></Field>

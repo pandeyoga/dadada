@@ -1,5 +1,6 @@
 /** SupplierLabelPatternEditor — pola label supplier (GS1 / QR JSON / teks berpemisah / regex) + uji scan contoh. */
 import { useState } from "react";
+import useUomConversions from "../../hooks/useUomConversions";   // INV-UOM-02 — satuan dari master
 import { ScanLine } from "lucide-react";
 import axios, { API } from "../../services/apiClient";
 import KNSelect from "../../components/KNSelect";
@@ -26,6 +27,8 @@ const GS1_FIELDS = [
 const LABELS = { supplier_sku: "Kode barang", gtin: "GTIN", lot: "Lot", roll_no: "No. roll", length: "Panjang", length_unit: "Satuan", weight_kg: "Berat kg", color_code: "Warna", count: "Jumlah", format: "Format" };
 
 export default function SupplierLabelPatternEditor({ value, onChange }) {
+  const { unitOptions: _uomOpts } = useUomConversions();   // INV-UOM-02
+  const uomLengthOptions = _uomOpts("length");
   const p = { ...DEFAULT_LABEL_PATTERN, ...(value || {}) };
   const set = (patch) => onChange({ ...p, ...patch });
   const [sample, setSample] = useState("");
@@ -59,7 +62,7 @@ export default function SupplierLabelPatternEditor({ value, onChange }) {
         <label className="block">
           <span className="mb-0.5 block text-[10px] font-semibold text-[#6B6B73]">Satuan panjang di label (bila tak tersurat)</span>
           <KNSelect data-testid="label-pattern-unit" value={p.length_unit} onValueChange={(v) => set({ length_unit: v })} className="field"
-            options={[{ value: "yard", label: "Yard" }, { value: "meter", label: "Meter" }]} />
+            options={uomLengthOptions} />
         </label>
         {(p.format === "delimited" || p.format === "auto") && (
           <>

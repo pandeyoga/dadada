@@ -22,10 +22,11 @@ G = ("global", "entity")
 
 E("contra_bon.qty_tolerance_percent", group="kontrabon", type="pct", default=1.0,
   min=0, max=100, step=0.5, unit="%", scopes=G,
-  label="Toleransi selisih 3-way match (persen)",
-  help="Selisih jumlah/harga antara Pesanan Pembelian, barang yang benar-benar diterima, "
-       "dan faktur supplier yang masih boleh lewat tanpa keputusan berlabel. Selisih "
-       "dianggap pengecualian hanya bila melewati ambang persen INI **dan** ambang rupiah.",
+  label="(Lama) Toleransi selisih 3-way match (persen) — TIDAK DIPAKAI LAGI",
+  help="Audit 2026-09-21 (KN-D16): ambang persen 3-way kini SATU untuk vendor bill & kontrabon, "
+       "dibaca dari Pengaturan Pembelian → `bill_qty_tolerance_percent` (jumlah) dan "
+       "`bill_price_tolerance_percent` (harga). Nilai di sini diabaikan; ambang rupiah tetap "
+       "dari `contra_bon.value_tolerance_rupiah` dan berlaku untuk KEDUA layar.",
   impact="Semakin kecil, semakin banyak selisih yang wajib diputus berlabel sebelum kontrabon "
          "bisa diverifikasi.",
   example="Toleransi 1% · diterima 1.000 yard, ditagih 1.020 yard (+2%) senilai Rp 400.000 "

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import useUomConversions from "../../../hooks/useUomConversions";   // INV-UOM-02 — satuan dari master
 import { Search, ChevronRight, ArrowLeft, Plus } from "lucide-react";
 import axios, { API } from "../../../services/apiClient";
 import { formatCurrency } from "../../../utils/formatters";
@@ -115,6 +116,8 @@ export function MobileSpecialOrders() {
 }
 
 function MobileSpecialOrderCreate({ onBack, onDone }) {
+  const { unitOptions: _uomOpts } = useUomConversions();   // INV-UOM-02
+  const uomAllOptions = _uomOpts();
   const [customers, setCustomers] = useState([]);
   const [f, setF] = useState({ customer_id: "", name: "", description: "", quantity: "", unit: "yard", target_price: "", expected_delivery: "", notes: "" });
   const [busy, setBusy] = useState(false);
@@ -140,7 +143,7 @@ function MobileSpecialOrderCreate({ onBack, onDone }) {
         <KNSelect value={f.customer_id} onValueChange={set("customer_id")} options={customers.map((c) => ({ value: c.id, label: c.name }))} placeholder="Pilih pelanggan" data-testid="m-special-customer" />
         <input className="w-full rounded-xl border border-[#E5E5EA] p-2.5 text-sm" placeholder="Nama barang (mis. Batik motif custom)" value={f.name} onChange={set("name")} data-testid="m-special-name" />
         <textarea className="w-full rounded-xl border border-[#E5E5EA] p-2.5 text-sm" rows={3} placeholder="Spesifikasi: bahan, warna, motif, lebar, finishing…" value={f.description} onChange={set("description")} data-testid="m-special-desc" />
-        <div className="flex gap-2"><input type="number" inputMode="decimal" className="flex-1 rounded-xl border border-[#E5E5EA] p-2.5 text-sm" placeholder="Jumlah" value={f.quantity} onChange={set("quantity")} data-testid="m-special-qty" /><KNSelect value={f.unit} onValueChange={set("unit")} options={[{ value: "yard", label: "yard" }, { value: "meter", label: "meter" }, { value: "roll", label: "roll" }, { value: "pcs", label: "pcs" }]} data-testid="m-special-unit" /></div>
+        <div className="flex gap-2"><input type="number" inputMode="decimal" className="flex-1 rounded-xl border border-[#E5E5EA] p-2.5 text-sm" placeholder="Jumlah" value={f.quantity} onChange={set("quantity")} data-testid="m-special-qty" /><KNSelect value={f.unit} onValueChange={set("unit")} options={uomAllOptions} data-testid="m-special-unit" /></div>
         <input type="number" inputMode="decimal" className="w-full rounded-xl border border-[#E5E5EA] p-2.5 text-sm" placeholder="Harga target per satuan (Rp, boleh 0)" value={f.target_price} onChange={set("target_price")} data-testid="m-special-target-price" />
         <input type="date" className="w-full rounded-xl border border-[#E5E5EA] p-2.5 text-sm" value={f.expected_delivery} onChange={set("expected_delivery")} data-testid="m-special-date" />
         <textarea className="w-full rounded-xl border border-[#E5E5EA] p-2.5 text-sm" rows={2} placeholder="Catatan" value={f.notes} onChange={set("notes")} data-testid="m-special-notes" />

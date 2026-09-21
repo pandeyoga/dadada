@@ -26,12 +26,10 @@ PAYABLE_BILL_STATUSES = {"posted", "paid"}
 
 
 async def _tolerances(entity_id: str) -> Dict[str, float]:
-    s = await get_effective_settings(entity_id)
-    pur = s.get("purchasing", {}) or {}
-    return {
-        "qty": float(pur.get("bill_qty_tolerance_percent", 0.0) or 0.0),
-        "price": float(pur.get("bill_price_tolerance_percent", 5.0) or 0.0),
-    }
+    """KN-D16 — ambang 3-way dari SATU sumber bersama dengan kontrabon (three_way_policy)."""
+    from services.three_way_policy import tolerances as _tw
+    tw = await _tw(entity_id or "")
+    return {"qty": tw["qty_pct"], "price": tw["price_pct"], "value": tw["value_rp"]}
 
 
 def _hydrate(bill: Dict[str, Any]) -> Dict[str, Any]:
@@ -231,7 +229,7 @@ async def create_vendor_bill(payload: VendorBillCreate, request: Request) -> Dic
 
     tol = await _tolerances(entity_id)
     billed_so_far = await already_billed_map(po["id"])
-    match = evaluate_match(po, pricing["items"], match_mode, billed_so_far, tol["qty"], tol["price"])
+    match = evaluate_match(po, pricing["items"], match_mode, billed_so_far, tol["qty"], tol["price"], value_tol=tol["value"])
 
     bill_number = await next_bill_number()
     actor_name = payload.created_by or actor.get("name", "Admin")
@@ -321,7 +319,7 @@ async def _do_submit(bill_id: str, actor: Dict[str, Any]) -> Dict[str, Any]:
         tol = await _tolerances(bill.get("entity_id"))
         billed_so_far = await already_billed_map(bill["po_id"], exclude_bill_id=bill_id)
         match = evaluate_match(po, bill.get("items", []), bill.get("match_mode", "received"),
-                               billed_so_far, tol["qty"], tol["price"])
+                               billed_so_far, tol["qty"], tol["price"], value_tol=tol["value"])
         needs_approval = match["match_status"] == "warning"
         await db.vendor_bills.update_one({"id": bill_id}, {"$set": {
             "items": match["items"], "match_status": match["match_status"],

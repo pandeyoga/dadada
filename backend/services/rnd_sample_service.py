@@ -1035,6 +1035,12 @@ async def decide_sample(sample_id: str, payload: Dict[str, Any],
         spec = await db.md_specs.find_one({"id": cur["spec_id"]}, {"_id": 0, "product_id": 1})
         product_id = (spec or {}).get("product_id") or ""
     contract, item = None, None
+    # INV-ATOMIC-01 — klaim atomik md_samples (status in_progress|assessed) sebelum warna,
+    # kontrak, produk, dan OD disentuh; dua keputusan paralel → satu 409.
+    from services import atomic_claim as _saga
+    await _saga.claim(COLL, sample_id, "sample_decide",
+                      precondition={"status": {"$in": ["in_progress", "assessed"]}},
+                      actor=actor.get("name", ""))
     if bool(pol.get("auto_contract_on_decide", True)):
         prod = await db.products.find_one({"id": product_id}, {"_id": 0}) if product_id else None
         basis = (prod or {}).get("base_unit") or cur.get("unit") or "meter"
@@ -1128,7 +1134,7 @@ async def decide_sample(sample_id: str, payload: Dict[str, Any],
                     "exclusive_customer_id": cur["exclusive_customer_id"], "exclusive_customer_name": cur.get("customer_name", ""),
                     "special_order_id": cur.get("special_order_id", ""), "special_order_number": cur.get("special_order_number", "")}})
     await db[COLL].update_one({"id": sample_id}, {
-        "$set": {"status": "decided", "decision": decision, "updated_at": now_iso()},
+        **_saga.finish_set({"status": "decided", "decision": decision, "updated_at": now_iso()}),
         "$push": {"timeline": timeline_entry(
             "decided", f"Pemenang: {snap['supplier_name']}"
                        + (f" · kontrak {decision['contract_number']}"

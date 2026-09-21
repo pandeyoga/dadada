@@ -1,5 +1,6 @@
 /** UnreadableLabelModal — fallback label rusak: barang DIPILIH dari item PO, hanya nomor roll & ukuran label diketik. */
 import { useEffect, useState } from "react";
+import useUomConversions from "../../../hooks/useUomConversions";   // INV-UOM-02 — satuan dari master
 import { FileQuestion } from "lucide-react";
 import axios, { API } from "../../../services/apiClient";
 import FormModal from "../../../components/FormModal";
@@ -13,6 +14,8 @@ const REASONS = [
 ];
 
 export default function UnreadableLabelModal({ task, supplierId, busy, onClose, onSubmit }) {
+  const { unitOptions: _uomOpts } = useUomConversions();   // INV-UOM-02
+  const uomLengthOptions = _uomOpts("length");
   const [items, setItems] = useState([]);
   const [f, setF] = useState({ supplier_item_id: "", supplier_roll_no: "", declared_length: "", length_unit: task.unit === "meter" ? "meter" : "yard",
     declared_weight_kg: "", lot: "", color_code: "", reason: "label_unreadable", reason_note: "" });
@@ -69,7 +72,7 @@ export default function UnreadableLabelModal({ task, supplierId, busy, onClose, 
               <input type="number" step="0.01" data-testid="unreadable-length-input" value={f.declared_length}
                 onChange={(e) => setF({ ...f, declared_length: e.target.value })} className="field flex-1 tabular-nums" placeholder="120" />
               <KNSelect data-testid="unreadable-length-unit" value={f.length_unit} onValueChange={(v) => setF({ ...f, length_unit: v })}
-                className="field !w-20" options={[{ value: "yard", label: "yd" }, { value: "meter", label: "m" }]} />
+                className="field !w-20" options={uomLengthOptions} />
             </div>
           </label>
           <label className="block">

@@ -503,6 +503,9 @@ async def procure_now(order_id: str, payload: ProcureBody, request: Request) -> 
     """Fase 3 — ulangi PR→PO otomatis ke supplier pemenang (bila saat kunci harga gagal / dimatikan)."""
     user = await require_permission(request, "purchase_requisition", "create")
     od = await _od_or_404(order_id, request)
+    if payload.warehouse_id:   # E4.1 — gudang tujuan wajib boleh dipakai badan usaha OD
+        from services import warehouse_scope_service as whscope
+        await whscope.assert_usable(payload.warehouse_id, od.get("entity_id"), action="menerima PO special order")
     try:
         res = await p2.auto_procure(od, user, payload.warehouse_id)
     except (p2.ODError, ValueError) as exc:
@@ -580,8 +583,10 @@ async def approve_special_order_endpoint(
 
     if nxt is not None:
         # Masih butuh tingkat berikutnya (Direksi) → tetap menunggu persetujuan.
-        await db.special_orders.update_one(
-            {"id": order_id},
+        # INV-ATOMIC-01 — CAS: tingkat berjalan harus masih seperti yang dibaca (dua penyetuju paralel → satu menang).
+        _cas_res = await db.special_orders.find_one_and_update(
+            {"status": "pending_approval", "id": order_id,
+             "approval_level_current": special_order.get("approval_level_current", level["level"])},
             {"$set": {"approval_chain": chain,
                       "approval_level_current": nxt["level"],
                       "required_approval_role": (nxt.get("roles") or ["admin"])[0],
@@ -591,6 +596,8 @@ async def approve_special_order_endpoint(
                  "timestamp": now_iso(), "user": user.get("email", ""),
                  "note": (f"Disetujui tingkat {level['level']} ({level.get('label', '')}) — "
                           f"lanjut ke {nxt.get('label', '')}")}}})
+        if not _cas_res:
+            raise HTTPException(status_code=409, detail="Tingkat persetujuan sudah diputus pihak lain. Muat ulang.")
         await amx.record(stage="po_custom", action="approve", actor=user, doc=special_order,
                          entity_id=entity_id, level=level["level"],
                          level_label=level.get("label", ""),

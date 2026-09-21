@@ -19,8 +19,7 @@ from services.roll_service import rebuild_balance, insert_child_roll
 
 # F2b — horizon default ATP future-aware (hari). Incoming dengan ETA dalam horizon
 # dihitung sebagai "janji aman"; di luar horizon ditampilkan tapi tak menambah ATP.
-DEFAULT_ATP_HORIZON_DAYS = 14
-ACTIVE_BACKORDER_STATUSES = ["waiting_stock", "reserved", "waiting_approval", "approved", "confirmed"]
+from services.atp_policy import ATP_HORIZON_DAYS as DEFAULT_ATP_HORIZON_DAYS, ACTIVE_BACKORDER_STATUSES  # KN-D11
 from services.roll_service import OPEN_PO_STATUSES  # KN-A11 — satu definisi bersama
 
 # Bucket yang ditampilkan di papan (urutan tampil)
@@ -492,13 +491,14 @@ async def atp_detail(scope: Dict[str, Any], product_id: str,
     horizon = now + timedelta(days=max(1, int(horizon_days or DEFAULT_ATP_HORIZON_DAYS)))
     for i in incoming:
         eta_dt = _parse_dt(i["eta"])
-        i["within_horizon"] = bool(eta_dt and eta_dt <= horizon)
+        i["within_horizon"] = (eta_dt <= horizon) if eta_dt else True   # KN-D11 — ETA kosong = dalam horizon
     incoming_in_horizon = round(sum(i["qty"] for i in incoming if i.get("within_horizon")), 2)
     incoming_total = round(sum(i["qty"] for i in incoming), 2)
     pending_total = round(sum(pp["qty"] for pp in pending), 2)
 
-    atp_now = round(available - pending_total, 2)
-    atp_horizon = round(available + incoming_in_horizon - pending_total, 2)
+    from services.atp_policy import compute_atp   # KN-D11 — rumus tunggal
+    atp_now = compute_atp(available, 0.0, pending_total)
+    atp_horizon = compute_atp(available, incoming_in_horizon, pending_total)
     return {
         "product_id": product_id, "sku": p.get("sku", ""), "product_name": p.get("name", ""),
         "base_unit": p.get("base_unit", "meter"), "owner_entity_id": owner,

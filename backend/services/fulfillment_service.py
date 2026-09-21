@@ -87,11 +87,15 @@ async def build_supply_index(
 
     # on_order dari PO terbuka (qty - received_qty), per (produk, gudang, entitas)
     po_query: Dict[str, Any] = {"status": {"$in": OPEN_PO_STATUSES}}
-    pos = await db.purchase_orders.find(po_query, {"_id": 0, "items": 1, "warehouse_id": 1, "entity_id": 1}).to_list(2000)
+    pos = await db.purchase_orders.find(po_query, {"_id": 0, "items": 1, "warehouse_id": 1, "entity_id": 1,
+                                                     "expected_delivery_date": 1}).to_list(2000)
+    from services import atp_policy as _atp
     for po in pos:
         eid = po.get("entity_id") or DEFAULT_ENTITY_ID
         wid = po.get("warehouse_id")
         if not wid:
+            continue
+        if not _atp.within_horizon(po.get("expected_delivery_date")):   # KN-D11 — horizon ATP tunggal
             continue
         for it in po.get("items", []):
             pid = it.get("product_id")
@@ -114,14 +118,18 @@ async def build_supply_index(
             ent, wh = _seg(pid, eid, wid)
             ent["incoming"] += on_order; wh["incoming"] += on_order
 
-    # Derive ATP = available + incoming (round)
+    # KN-D11 — ATP = available + incoming(horizon) − backorder aktif (SATU rumus: atp_policy).
     for pid, ents in supply.items():
         for eid, ent in ents.items():
+            pending_ent = await _atp.pending_backorder_qty(pid, eid)
             for wid, wh in ent["warehouses"].items():
-                wh["atp"] = round(wh["available"] + wh["incoming"], 2)
+                pending_wh = await _atp.pending_backorder_qty(pid, eid, wid)
+                wh["pending_demand"] = pending_wh
+                wh["atp"] = _atp.compute_atp(wh["available"], wh["incoming"], pending_wh)
                 for k in ("available", "reserved", "on_hand", "incoming"):
                     wh[k] = round(wh[k], 2)
-            ent["atp"] = round(ent["available"] + ent["incoming"], 2)
+            ent["pending_demand"] = pending_ent
+            ent["atp"] = _atp.compute_atp(ent["available"], ent["incoming"], pending_ent)
             for k in ("available", "reserved", "on_hand", "incoming"):
                 ent[k] = round(ent[k], 2)
     return supply

@@ -216,7 +216,10 @@ async def rebuild_balance(product_id: str, warehouse_id: str, owner_entity_id: s
     offsite_owned = sum(buckets[b] for b in OFFSITE_OWNED_STATUS_TO_BUCKET.values())  # M2 — WIP di vendor
     owned = physical + in_transit_total + offsite_owned
     incoming = on_order + buckets["in_transit_inbound_qty"]
-    atp = buckets["available_qty"] + incoming  # horizon penuh; reserved sudah keluar dari available
+    # KN-D11 — ATP memakai rumus tunggal atp_policy: available + incoming(horizon) − backorder aktif.
+    from services import atp_policy as _atp
+    pending_demand = await _atp.pending_backorder_qty(product_id, owner_entity_id, warehouse_id)
+    atp = _atp.compute_atp(buckets["available_qty"], incoming, pending_demand)
     # F2 (UoM SSOT) — jumlah roll fisik di gudang & roll yang tersedia dijual
     on_hand_roll_count = sum(roll_counts[b] for b in PHYSICAL_STATUS_TO_BUCKET.values())
     doc = {
@@ -228,6 +231,7 @@ async def rebuild_balance(product_id: str, warehouse_id: str, owner_entity_id: s
         "owned_qty": round(owned, 2),
         "incoming_qty": round(incoming, 2),
         "atp_qty": round(atp, 2),
+        "pending_demand_qty": pending_demand,
         "roll_count": roll_counts["available_qty"],   # F2 — jumlah roll TERSEDIA (siap dijual)
         "on_hand_roll_count": on_hand_roll_count,       # F2 — jumlah roll fisik di gudang
         "roll_counts": roll_counts,                     # F2 — detail count per-bucket
@@ -264,11 +268,14 @@ async def _on_order_qty(product_id: str, warehouse_id: str, owner_entity_id: str
     """Qty pipeline dari purchase_orders yang belum jadi roll (status belum receiving selesai)."""
     pos = await db.purchase_orders.find(
         {"warehouse_id": warehouse_id, "status": {"$in": OPEN_PO_STATUSES}},
-        {"_id": 0, "items": 1, "entity_id": 1},
+        {"_id": 0, "items": 1, "entity_id": 1, "expected_delivery_date": 1},
     ).to_list(500)
+    from services import atp_policy as _atp
     total = 0.0
     for po in pos:
         if po.get("entity_id") and po.get("entity_id") != owner_entity_id:
+            continue
+        if not _atp.within_horizon(po.get("expected_delivery_date")):   # KN-D11 — horizon ATP tunggal
             continue
         for it in po.get("items", []):
             if it.get("product_id") == product_id:

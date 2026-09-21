@@ -321,12 +321,14 @@ async def scan_label(task_id: str, payload: ScanLabelIn, request: Request) -> Di
             logging.getLogger(__name__).warning("Auto-RFID roll %s gagal: %s", roll_doc["roll_no"], exc.detail)
 
     tol_close = tol_recv
+    # INV-ATOMIC-01 — received_qty & qty_rolls_scanned di-$inc (bukan $set nilai yang dibaca
+    # tadi) supaya dua pemindai pada satu tugas tidak saling menimpa; status berprasyarat hidup.
     upd: Dict[str, Any] = {
-        "received_qty": new_received, "updated_at": now_iso(),
+        "updated_at": now_iso(),
         "over_receipt": bool(over), "receive_within_tolerance": not over,
-        "qty_rolls_scanned": int(task.get("qty_rolls_scanned") or 0) + 1,
         "receive_mode": "scan_label",
     }
+    _inc: Dict[str, Any] = {"received_qty": task_qty, "qty_rolls_scanned": 1}
     if not task.get("supplier_lot") and supplier_lot:
         upd["supplier_lot"] = supplier_lot
     if task["status"] == "waiting_goods":
@@ -338,9 +340,16 @@ async def scan_label(task_id: str, payload: ScanLabelIn, request: Request) -> Di
                   "lot": supplier_lot, "roll_id": roll_doc["id"], "roll_no": roll_doc["roll_no"],
                   "supplier_roll_no": supplier_roll_no, "format": roll_doc["scan_source"],
                   "manual": bool(manual), "actor": actor["name"], "timestamp": now_iso()}
+    upd.pop("quantity", None)
     updated = await db.wms_tasks.find_one_and_update(
-        {"id": task_id}, {"$set": upd, "$push": {"scan_log": scan_entry}},
+        {"id": task_id, "status": {"$in": ["waiting_goods", "receiving", "qc_check"]}},
+        {"$set": upd, "$inc": _inc, "$push": {"scan_log": scan_entry}},
         projection={"_id": 0}, return_document=ReturnDocument.AFTER)
+    if not updated:
+        await db.inventory_rolls.delete_one({"id": roll_doc["id"]})   # kompensasi saga
+        raise HTTPException(status_code=409, detail="Tugas penerimaan sudah selesai/berubah — pindaian dibatalkan. Muat ulang.")
+    if updated.get("status") == "qc_check" and float(updated.get("quantity") or 0) != float(updated.get("received_qty") or 0):
+        await db.wms_tasks.update_one({"id": task_id}, {"$set": {"quantity": updated.get("received_qty")}})
     await audit(actor["name"], "inbound_scan_label", "wms_task", task_id, {
         "roll_no": roll_doc["roll_no"], "supplier_roll_no": supplier_roll_no, "supplier_lot": supplier_lot,
         "task_qty": task_qty, "format": roll_doc["scan_source"], "manual": bool(manual)})
@@ -389,14 +398,20 @@ async def confirm_measure(roll_id: str, payload: ConfirmMeasureIn, request: Requ
            "grade": payload.grade or roll.get("grade") or "A", "defects": list(payload.defects or []),
            "measure_confirmed": True, "label_variance": variance, "needs_qc": flagged,
            "actual_task_qty": new_task_qty, "updated_at": now_iso()}
+    # INV-ATOMIC-01 — CAS: roll wajib masih 'receiving' & ukuran aktual seperti yang dibaca;
+    # selisih ke tugas ditulis $inc (bukan $set hasil baca) supaya konfirmasi paralel tak saling timpa.
     updated = await db.inventory_rolls.find_one_and_update(
-        {"id": roll_id}, {"$set": upd}, projection={"_id": 0}, return_document=ReturnDocument.AFTER)
+        {"id": roll_id, "status": "receiving", "actual_task_qty": roll.get("actual_task_qty")},
+        {"$set": upd}, projection={"_id": 0}, return_document=ReturnDocument.AFTER)
+    if not updated:
+        raise HTTPException(status_code=409, detail="Roll sudah dikonfirmasi/berubah oleh proses lain. Muat ulang.")
     await _attach_epc([updated])
     delta = round(new_task_qty - prev_task_qty, 2)
     t_upd: Dict[str, Any] = {"updated_at": now_iso()}
+    t_inc: Dict[str, Any] = {}
     if delta:
         new_recv = round(float(task.get("received_qty") or 0) + delta, 2)
-        t_upd["received_qty"] = new_recv
+        t_inc["received_qty"] = delta
         from services.config_service import get_effective_settings
         _s = await get_effective_settings(roll.get("owner_entity_id") or None)
         _tol_recv = float((_s.get("purchasing", {}) or {}).get("receive_tolerance_percent", 2.0) or 0)
@@ -408,8 +423,12 @@ async def confirm_measure(roll_id: str, payload: ConfirmMeasureIn, request: Requ
     if flagged:
         t_upd["needs_review"] = True
         t_upd["label_variance_flagged"] = int(task.get("label_variance_flagged") or 0) + 1
+    _t_ops: Dict[str, Any] = {"$set": t_upd}
+    if t_inc:
+        _t_ops["$inc"] = t_inc
     task_after = await db.wms_tasks.find_one_and_update(
-        {"id": task["id"]}, {"$set": t_upd}, projection={"_id": 0}, return_document=ReturnDocument.AFTER)
+        {"id": task["id"], "status": {"$in": ["waiting_goods", "receiving", "qc_check"]}}, _t_ops,
+        projection={"_id": 0}, return_document=ReturnDocument.AFTER)
     await audit(actor["name"], "inbound_confirm_measure", "inventory_roll", roll_id, variance,
                 "FASE SL — konfirmasi ukuran aktual vs label supplier")
     return {"roll": _roll_view(updated), "task": safe_doc(task_after)}
@@ -436,11 +455,14 @@ async def putaway_scanned_roll(roll_id: str, payload: PutawayIn, request: Reques
             f"Bin '{payload.bin_code or payload.bin_id}' tidak ada di master gudang {wh.get('name', task['warehouse_id'])}. "
             f"Scan label bin yang terpasang di rak."))
     updated = await db.inventory_rolls.find_one_and_update(
-        {"id": roll_id}, {"$set": {"bin_id": found["id"], "bin_code": found.get("code", ""),
+        {"id": roll_id, "status": "receiving"},   # INV-ATOMIC-01 — CAS: roll masih tahap terima
+        {"$set": {"bin_id": found["id"], "bin_code": found.get("code", ""),
                                    "journey.stage": "putaway", "journey.updated_at": now_iso(),
                                    "updated_at": now_iso()}},
         projection={"_id": 0}, return_document=ReturnDocument.AFTER)
     await _attach_epc([updated])
+    if not updated:
+        raise HTTPException(status_code=409, detail="Roll sudah bukan tahap penerimaan — tidak bisa dialokasikan bin.")
     await db.wms_tasks.update_one({"id": task["id"]}, {"$set": {"bin_id": found["id"], "updated_at": now_iso()}})
     await audit(actor["name"], "inbound_putaway_bin", "inventory_roll", roll_id,
                 {"bin_id": found["id"], "bin_code": found.get("code", "")})
@@ -473,14 +495,23 @@ async def undo_scan(roll_id: str, request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="Hanya roll yang masih 'receiving' yang bisa dibatalkan.")
     task = await _load_task(roll["grn_task_id"], request)
     qty = float(roll.get("actual_task_qty") if roll.get("actual_task_qty") is not None else roll.get("declared_task_qty") or 0)
-    await db.inventory_rolls.delete_one({"id": roll_id})
+    # INV-ATOMIC-01 — hapus berprasyarat status (dua "batalkan" bersamaan → satu yang menang
+    # dan hanya satu yang mengurangi received_qty lewat $inc).
+    _del = await db.inventory_rolls.delete_one({"id": roll_id, "status": "receiving"})
+    if _del.deleted_count == 0:
+        raise HTTPException(status_code=409, detail="Roll sudah dibatalkan/berubah oleh proses lain.")
     new_recv = max(0.0, round(float(task.get("received_qty") or 0) - qty, 2))
-    upd = {"received_qty": new_recv, "qty_rolls_scanned": max(0, int(task.get("qty_rolls_scanned") or 1) - 1),
-           "updated_at": now_iso()}
+    upd = {"updated_at": now_iso()}
     if task.get("status") == "qc_check" and new_recv < float(task.get("expected_qty") or 0):
         upd["status"] = "receiving"
-    t = await db.wms_tasks.find_one_and_update({"id": task["id"]}, {"$set": upd}, projection={"_id": 0},
-                                               return_document=ReturnDocument.AFTER)
+    t = await db.wms_tasks.find_one_and_update(
+        {"status": {"$in": ["waiting_goods", "receiving", "qc_check"]}, "id": task["id"]},
+        {"$set": upd, "$inc": {"received_qty": -qty, "qty_rolls_scanned": -1}},
+        projection={"_id": 0}, return_document=ReturnDocument.AFTER)
+    if t and (float(t.get("received_qty") or 0) < 0 or int(t.get("qty_rolls_scanned") or 0) < 0):
+        await db.wms_tasks.update_one({"id": task["id"]}, {"$set": {
+            "received_qty": max(0.0, float(t.get("received_qty") or 0)),
+            "qty_rolls_scanned": max(0, int(t.get("qty_rolls_scanned") or 0))}})
     await audit(actor["name"], "inbound_scan_undone", "wms_task", task["id"],
                 {"roll_no": roll.get("roll_no"), "supplier_roll_no": roll.get("supplier_roll_no")})
     return {"task": safe_doc(t)}

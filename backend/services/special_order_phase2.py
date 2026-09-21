@@ -226,12 +226,19 @@ async def lock_price(od: Dict[str, Any], payload: Dict[str, Any], actor: Dict[st
     pricing = {**{k: pv[k] for k in ("cost_price", "margin_pct", "final_unit_price", "quantity", "unit", "total",
                                      "supplier_id", "supplier_name", "contract_number", "sample_number", "product_id", "product_sku")},
                "locked": True, "locked_by": actor.get("name", ""), "locked_at": now_iso(), "note": (payload.get("note") or "").strip()}
-    await db.special_orders.update_one({"id": od["id"]}, {
-        "$set": {"pricing": pricing, "final_price": pricing["final_unit_price"], "total_amount": pricing["total"],
+    # INV-ATOMIC-01 — klaim atomik OD (harga BELUM terkunci) sebelum produk/spec disentuh;
+    # tulisan akhir finish_set mencabut kunci; dua kunci paralel → satu 409.
+    from services import atomic_claim as _saga
+    await _saga.claim("special_orders", od["id"], "lock_price",
+                      precondition={"price_locked": {"$ne": True}}, actor=actor.get("name", ""))
+    _res = await db.special_orders.update_one({"id": od["id"], "price_locked": {"$ne": True}}, {
+        **_saga.finish_set({"pricing": pricing, "final_price": pricing["final_unit_price"], "total_amount": pricing["total"],
                  "price_locked": True, "updated_at": now_iso(),
-                 **({"linked_product_id": pv["product_id"], "linked_product_sku": pv["product_sku"]} if pv["product_id"] else {})},
+                 **({"linked_product_id": pv["product_id"], "linked_product_sku": pv["product_sku"]} if pv["product_id"] else {})}),
         "$push": {"status_history": {"status": od.get("status"), "timestamp": now_iso(), "user": actor.get("email", ""),
                                      "note": f"Harga final dikunci: Rp {pricing['final_unit_price']:,.0f}/{pricing['unit']} (kontrak {pricing['cost_price']:,.0f} + margin {pricing['margin_pct']:g}%)"}}})
+    if _res.matched_count == 0:
+        raise ODError("Harga OD ini baru saja dikunci oleh pihak lain. Muat ulang.")
     pid_final = pv["product_id"] or od.get("linked_product_id") or ""
     if pid_final:
         await db.products.update_one({"id": pid_final}, {"$set": {

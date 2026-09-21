@@ -30,6 +30,23 @@ BASELINE_UNREVIEWED = 0
 
 # (berkas router, potongan path) → (mekanisme, alasan). mekanisme ∈ {claim, cas, service, log}
 REVIEWED: dict[tuple[str, str], tuple[str, str]] = {
+    # ── Audit 2026-09-21 (sesi 3) — 16 endpoint ditinjau; alasan per baris ─────────────
+    ("inbound_scan_label.py", "/inbound/tasks/{task_id}/scan-label"): ("cas", "find_one_and_update wms_tasks berprasyarat status hidup + $inc received_qty/qty_rolls_scanned (bukan $set hasil baca); kalah → roll baru dihapus (kompensasi) + 409"),
+    ("inbound_scan_label.py", "/inbound/rolls/{roll_id}/confirm-measure"): ("cas", "find_one_and_update inventory_rolls berprasyarat status receiving + actual_task_qty seperti dibaca → 409; selisih ke wms_tasks via $inc berprasyarat status hidup"),
+    ("inbound_scan_label.py", "/inbound/rolls/{roll_id}/putaway"): ("cas", "find_one_and_update inventory_rolls berprasyarat status receiving → 409 bila kalah; bin_id tugas idempoten ($set nilai sama)"),
+    ("inbound_scan_label.py", "/inbound/rolls/{roll_id}/tag"): ("none", "satu koleksi: encode_tag menulis rfid_tags + rfid_tag_id roll; tag ganda ditolak oleh rfid_service (EPC unik) — tak ada saldo bersama"),
+    ("inbound_scan_label.py", "/inbound/rolls/{roll_id}/scan"): ("cas", "DELETE: delete_one inventory_rolls berprasyarat status receiving (deleted_count 0 → 409); received_qty/qty_rolls_scanned tugas dikurangi $inc lalu dijepit ≥ 0"),
+    ("sample_sales.py", "/outbound/tasks/{task_id}/cut-sample"): ("service", "klaim wms_tasks (status created|picking) sebelum roll induk dipotong; CAS roll induk length_remaining ≥ take; finish_set status packing", "sample_sale_service.cut_sample_task"),
+    ("special_orders.py", "/special-orders/{order_id}/procure"): ("none", "auto_procure idempoten: menolak bila linked_po_id/linked_pr_id sudah ada (ODError 400); PR/PO lahir lewat generator nomor atomik; pemanggilan ganda → yang kedua 400"),
+    ("special_orders.py", "/special-orders/{order_id}/route"): ("none", "route_on_approve idempoten per jenis (design_request_id/sample_ids sudah ada → dilewati); dokumen turunan tidak digandakan"),
+    ("special_orders.py", "/special-orders/{order_id}/approve"): ("cas", "tingkat menengah: update_one berprasyarat status pending_approval + approval_level_current seperti dibaca → 409; tingkat akhir lewat transition_status CAS status saat ini (KN-B10)"),
+    ("special_orders.py", "/special-orders/{order_id}/lock-price"): ("service", "update_one special_orders berprasyarat price_locked != True (matched_count 0 → ODError) sebelum produk/spec disentuh; kunci harga = satu penulis", "special_order_phase2.lock_price"),
+    ("special_orders.py", "/special-orders/{order_id}/prepare-shipment"): ("none", "membuat SO turunan hanya bila linked_sales_order_id kosong (cek + tulis satu dokumen); pemanggilan ganda → 400 sudah ada"),
+    ("rnd.py", "/rnd/samples/{sample_id}/decide"): ("service", "decide_sample memakai so-style transition berprasyarat status (md_samples) sebelum keputusan pelanggan/keputusan OD disalin; amx.record idempoten per (stage, doc)", "rnd_sample_service.decide_sample"),
+    ("data_hygiene.py", "/data-hygiene/location/{collection}/{doc_id}"): ("none", "satu update_one field lokasi (kota/provinsi) pada master + satu baris log append-only; tidak ada saldo/status bersama, ulangan menulis nilai sama"),
+    ("marketing.py", "/marketing/campaigns/{cid}"): ("none", "PATCH satu dokumen mkt_campaigns ($set field yang dikirim) — tidak ada koleksi kedua ber-saldo"),
+    ("marketing.py", "/marketing/accounts/{aid}"): ("none", "PATCH satu dokumen mkt_accounts ($set) — tidak ada koleksi kedua ber-saldo"),
+    ("sample_orders.py", "/sample-orders/{order_id}/confirm"): ("cas", "so_transition CAS status $in [approved] → confirmed; create_outbound_tasks_for_order dedupe per order+product; recompute_so_status idempoten"),
     ("outbound_picking.py", "/resolve-escalation"): ("cas", "T-01 Langkah 1: find_one_and_update berprasyarat escalation.status $nin [resolved,resolving] → resolving (2026-09-05)"),
     ("inbound_receiving.py", "/inbound/tasks/{task_id}/complete"): ("claim", "klaim wms_tasks sebelum roll/mutasi/PO ditulis; tulisan akhir $unset saga_lock"),
     ("sales_orders_extra.py", "/sales-orders/{order_id}/cancel"): ("claim", "klaim sales_orders sebelum roll dilepas; so_transition CAS + $unset"),

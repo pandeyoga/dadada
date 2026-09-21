@@ -6,6 +6,7 @@
 // utama tidak lagi memuat SELURUH view sekaligus (dulu main.js ~3.0 MB). Hanya chunk
 // view aktif yang di-fetch saat dibutuhkan. Semua render dibungkus <Suspense> tunggal.
 import { lazy, Suspense, useEffect, useState } from "react";
+import { can } from "./config/roles";   // INV-ROLE-01 — wewenang dari izin, bukan literal peran
 import { Loader2 } from "lucide-react";
 import HubTabs from "./components/HubTabs";
 import ComingSoon from "./features/ComingSoon";
@@ -345,7 +346,7 @@ export default function AppViewRouter(props) {
       {activeView === "return-policies" && <ReturnPoliciesView currentUser={user} />}
       {activeView === "amendments" && <AmendmentCenterView currentUser={user} selectedEntity={selectedEntity} />}
       {activeView === "special-orders" && <SpecialOrders currentUser={user} focusDoc={focusDoc?.focus_type === "special_order" ? focusDoc : null} onClearFocus={() => setFocusDoc(null)} />}
-      {activeView === "pricelist" && <><PricelistView entities={entities} selectedEntity={selectedEntity} currentUser={user} /><div className="mt-4"><SamplePriceMaster canEdit={["admin", "manager"].includes(user?.role)} /></div></>}
+      {activeView === "pricelist" && <><PricelistView entities={entities} selectedEntity={selectedEntity} currentUser={user} /><div className="mt-4"><SamplePriceMaster canEdit={can(user?.permissions || {}, "product", "update")} /></div></>}
       {/* F1b — Daftar Harga per Pelanggan: harga langganan (pelanggan → PT → umum) */}
       {activeView === "cs-price-list" && (
         <CustomerPricelistView entities={entities} selectedEntity={selectedEntity} currentUser={user}
