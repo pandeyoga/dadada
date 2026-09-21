@@ -227,6 +227,31 @@ async def h_addons(ctx, v, warn):
     return act, code
 
 
+async def h_leads(ctx, v, warn):
+    from engine import compute_lead_score, auto_assign_lead
+    phone = normalize_phone_e164(v["phone"])
+    ex = await ctx.lookup("leads", {"phone": phone}, ("phone", phone))
+    assignee = (v.get("assigned_to") or "").lower() or None
+    if assignee and not await ctx.lookup("users", {"email": assignee}, ("email", assignee)):
+        warn.append(f"Sales '{assignee}' bukan pengguna terdaftar — dibagi otomatis.")
+        assignee = None
+    body = _pick(v, "name", "email", "source", "campaign", "interest_unit_type", "notes")
+    body["phone"] = phone
+    if ex:
+        if assignee:
+            body["assigned_to"] = assignee
+        act = await ctx.write("leads", ex, None, body)
+        return act, phone
+    if not assignee:
+        assignee = ctx.actor if ctx.dry_run else (await auto_assign_lead(ctx.org) or ctx.actor)
+    doc = _base(ctx, **body, stage="acquisition", assigned_to=assignee,
+                first_contact_at=None, response_time_minutes=None)
+    doc.update(compute_lead_score(doc))
+    act = await ctx.write("leads", None, doc, {})
+    ctx.remember("leads", doc, ("phone", phone))
+    return act, phone
+
+
 async def h_customers(ctx, v, warn):
     nik = normalize_nik(v.get("nik")) or None
     phone = normalize_phone_e164(v.get("phone")) if v.get("phone") else None
@@ -352,7 +377,8 @@ async def h_bank_accounts(ctx, v, warn):
 
 HANDLERS = {"users": h_users, "projects": h_projects, "clusters": h_clusters, "blocks": h_blocks,
             "unit_types": h_unit_types, "units": h_units, "addon_items": h_addons,
-            "customers": h_customers, "vendors": h_vendors, "subcontractors": h_subcons,
+            "leads": h_leads, "customers": h_customers, "vendors": h_vendors,
+            "subcontractors": h_subcons,
             "agents": h_agents, "materials": h_materials, "workers": h_workers,
             "accounts": h_accounts, "bank_accounts": h_bank_accounts}
 

@@ -142,6 +142,23 @@ ENTITIES = [
         ],
     },
     {
+        "key": "leads", "sheet": "Leads", "collection": "leads", "icon": "user-plus",
+        "desc": "Calon pembeli (prospek) yang belum bertransaksi. Kunci: No. HP. Masuk tahap Akuisisi.",
+        "key_fields": ["phone"],
+        "fields": [
+            _f("name", "Nama", required=True, example="Nurmareta"),
+            _f("phone", "No. HP", "phone", required=True, example="085722181772",
+               desc="Kunci unik antar lead."),
+            _f("email", "Email", "email", example=""),
+            _f("source", "Sumber", "enum", enum="lead_source", default="import", example="walk_in"),
+            _f("campaign", "Kampanye", example=""),
+            _f("interest_unit_type", "Minat tipe unit", example="Tipe 45/90"),
+            _f("assigned_to", "Sales (email)", "email", ref_to="users",
+               desc="Kosong = dibagi otomatis ke sales aktif", example="sales@perusahaan.co.id"),
+            _f("notes", "Catatan", example=""),
+        ],
+    },
+    {
         "key": "customers", "sheet": "Pelanggan", "collection": "customers", "icon": "contact",
         "desc": "Pembeli yang sudah ada. Kunci: NIK, bila kosong No. HP.",
         "key_fields": ["nik", "phone"],

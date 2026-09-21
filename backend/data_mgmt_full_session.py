@@ -19,6 +19,22 @@ _REPORTS = {}  # sid → laporan validasi (cache; kadaluarsa saat sesi disunting
 MASTERPLAN_COLLS = {"projects", "clusters", "blocks", "units"}
 
 
+async def _lead_defaults(doc: dict, org: str, actor: str):
+    """Lead baru dari sheet mentah minimal (nama+HP) tetap sah: tahap, sales, skor, HP +62."""
+    from core_utils import normalize_phone_e164
+    from engine import auto_assign_lead, compute_lead_score
+    if doc.get("phone"):
+        doc["phone"] = normalize_phone_e164(str(doc["phone"]))
+    doc.setdefault("stage", "acquisition")
+    doc.setdefault("source", "import")
+    doc.setdefault("updated_at", doc["created_at"])
+    doc.setdefault("created_by", actor)
+    if not doc.get("assigned_to"):
+        doc["assigned_to"] = await auto_assign_lead(org) or actor
+    if doc.get("score") is None:
+        doc.update(compute_lead_score(doc))
+
+
 def _path(org: str, sid: str) -> Path:
     d = backup_dir(org) / "import_sessions"
     d.mkdir(parents=True, exist_ok=True)
@@ -188,6 +204,8 @@ async def commit(org: str, sid: str, actor: str, mode: str, sheets: list, skip_e
                 if coll not in ("orgs", "permission_settings"):
                     doc["org_id"] = org
                 doc.setdefault("created_at", now_iso())
+                if coll == "leads":
+                    await _lead_defaults(doc, org, actor)
                 await db[coll].insert_one(doc)
                 r["inserted"] += 1
         if mode == "replace":
