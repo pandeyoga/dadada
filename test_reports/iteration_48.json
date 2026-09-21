@@ -1,0 +1,28 @@
+{
+  "summary": "Iter 48 retest FASE 3 auto-PO winning-contract bug (iter47 HIGH). Bug FIXED: after lock-price auto_po, PO items[0].price == pricing.cost_price AND items[0].contract_number == decision.contract_number. 10/10 backend tests passed. Baseline existing PO po_bb6ee82dee6b also verified (price 41000, contract KSC/SCT-00029).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "backend_verified": [
+    "GET /api/purchase-orders/po_bb6ee82dee6b → items[0].price=41000, contract_number='KSC/SCT-00029'.",
+    "Full new OD retest flow (labdip): create+submit → pending_approval → manager approve → confirmed + sample_ids[0]. send({sup_343fce6af69e, [labdip]}) → attach PNG → submit{delta_e:0.5,wash:4,rub:4} → assess acc/90. decide by admin price=43000, approve_spec, product_sku=OD-RT-* → decision.product_id + decision.contract_number populated. customer-decision acc. lock-price {margin_pct:20, warehouse_id, auto_po:true} → procurement.po_number set, no procurement_error.",
+    "GET PO → items[0].price=43000 == pricing.cost_price, items[0].contract_number == decision.contract_number, quantity=80, product_id matches decision.product_id.",
+    "convert-to-so → sales_order.items[0].price=51600 (43000*1.20), cost_price=43000, margin_pct=20, special_order_price=true, product_id matches."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter48_special_orders_phase3_retest.py",
+    "/app/test_reports/pytest/iter48.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "special_order_phase2.py::auto_procure L316-336 now overrides PO item price/contract_id/contract_number post-conversion to match pricing.cost_price / pricing.contract_number and re-runs compute_order_pricing — correct fix; iter47 HIGH bug resolved.",
+    "rnd_sample_service.py::decide_sample L1119-1122 also binds the just-created supplier_contract to the winning product_id (updating contract with empty product_id → set product_id=pid) so sourcing prefers the correct contract on subsequent PRs. Good defense-in-depth."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter48_special_orders_phase3_retest.py"],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "not tested (skip per request)"},
+  "test_credentials": "admin@kainnusantara.id / demo12345 · manager@kainnusantara.id / demo12345 — X-Entity-Id: ent_ksc",
+  "seed_data_creation": "Created 1 new OD (Retest F3) with labdip sample, decided at price=43000, locked at margin=20%, converted to SO. New supplier_contract auto-created by decide (bound to product_id).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "iter47 HIGH bug (PO uses stale supplier contract instead of winning contract) is FIXED via post-conversion override in special_order_phase2.auto_procure. Test file /app/backend/tests/test_iter48_special_orders_phase3_retest.py can be re-run any time as regression.",
+  "rca of the issue": "Iter47 root cause: auto_procure called pr_svc.convert_to_po without contract_id; sourcing picked first active supplier contract (KSC/SCT-00025 no product_id) instead of winner (KSC/SCT-00027). Fix: (1) decide_sample now sets product_id on newly-created winner contract so sourcing prefers it; (2) auto_procure post-conversion overrides items[].price = pricing.cost_price and sets contract_id/contract_number = pricing.contract_number, then recomputes order_pricing totals. Verified: iter48 test_08 passes with price=43000 and contract_number matching decision."
+}

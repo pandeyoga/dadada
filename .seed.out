@@ -1,0 +1,235 @@
+
+🚀 Starting Kain Nusantara Realistic Seed...
+
+✅ Cleared all collections
+✅ Users seeded (with entity assignment) — 13 akun · 7 peran (admin · manager×3 · sales_admin · finance · sales×4 · warehouse×2 · designer) · 2 akun berpagar lini printing (FASE L: sales · FASE P: manajer papan PO)
+✅ UOMs seeded (8 satuan, ber-alias)
+✅ Warehouses seeded (2 bersama · 2 khusus badan usaha)
+✅ Color Library seeded (28 warna Pantone-style)
+✅ Product Lines seeded (3 lini GLOBAL: woven · knit · printing) — FASE L
+✅ Process Stages seeded (10 tahap GLOBAL: benang · tenun · rajut · pfp · pfd · celup · screen · printing · proofing · inspect) — FASE T · termasuk `screen` (kasa) yang TIDAK mengubah kain
+✅ Sample Types seeded (4 jenis GLOBAL — aktif: labdip · handfeel · proofing · nonaktif: bulk_sample) — FASE S
+✅ Complaint Reasons seeded (7 alasan GLOBAL — wajib diperiksa fisik: warna_beda · kotor_stain · sobek_lubang · kurang_yard · handfeel) — FASE I
+✅ Products seeded (11 products incl. variants) + reorder points + 1 produk eksklusif (PS-20) + lini FASE L {'woven': 9, 'knit': 0, 'printing': 4}
+✅ Customers seeded (5 customers, CRM-lite enriched)
+✅ CRM seeded (sales_targets + incentives for 2026-09)
+✅ Inventory balances seeded (18 records)
+✅ Initial inventory movements seeded (13)
+✅ Purchase Orders seeded (PO-00001 to PO-00006 with inbound tasks)
+✅ Sales Orders seeded (SO-0001 to SO-0008 with outbound tasks)
+✅ Order snapshots backfilled (sales_name/shipping_city) → 10 order
+✅ Document templates seeded
+✅ Permissions seeded
+✅ Audit logs seeded (6 entries)
+✅ Entities seeded (2) · entity_id tagged → 21 dok · 40 notifikasi
+✅ Inventory rolls generated (42 rolls · 18 segmen)
+✅ Config defaults seeded (settings 1 · payment_terms 9 · approval_rules 7)
+✅ Price approvals seeded (2)
+✅ Entity prices seeded (6 harga per badan usaha)
+✅ Harga per pelanggan (F1b): 3 record demo (Toko Kain Sejahtera · 2 berlaku + 1 menunggu persetujuan)
+✅ Pegging examples seeded (2 roll di-earmark)
+✅ Order pricing backfilled (diskon+PPN+approval, engine create_order) → 10 order
+✅ Shipment examples seeded (4 shipment, 3 SO dinormalisasi)
+✅ Tax invoice examples seeded (2 Faktur Pajak)
+✅ Sales return examples seeded (2 dokumen: retur + BS)
+✅ Special order examples seeded (2 dokumen: draft + confirmed)
+✅ Purchase approval examples seeded (PO-00007 waiting, PO-00008 rejected, PO-00009 approved, PO-00010/00011 multi-level)
+✅ Suppliers seeded (6) + PO supplier_id & entitas PO = entitas supplier
+✅ Supplier price-lists seeded (22)
+   · KSC/SCT-00001 — Solo Weave · kg @ Rp 50,000
+   · KSC/SCT-00002 — Solo Weave · yard @ Rp 56,000
+   · KSC/SCT-00003 — Cirebon Craft · yard @ Rp 117,000
+✅ Sourcing supplier seeded (3 kontrak pembelian · 7 barang supplier)
+✅ Makloon masters seeded (7 makloon, 2 resep, +1 produk Grey)
+   · KSC/SCT-00004 — PT Tenun Nusantara Jaya · tenun · kg @ Rp 13,500
+   · KSC/SCT-00005 — CV Celup Warna Abadi · celup · yard @ Rp 2,600
+   · KSC/SCT-00006 — UD Finishing Prima · finishing · lumpsum @ Rp 1,850,000
+   · KSC/SCT-00007 — PT Bleaching Pratama · pre_treatment · kg @ Rp 4,500
+   · KSC/SCT-00008 — UD Kasa Mandiri Screen · screen · lumpsum @ Rp 750,000
+   · KSC/SCT-00009 — PT Rotary Print Indah · printing · yard @ Rp 4,200
+✅ Kontrak mitra makloon seeded (6 kontrak · tarif/susut/toleransi terkunci per dokumen)
+✅ Cash transactions seeded (7)
+✅ Bank accounts seeded (5) + 7 cash txns ditautkan
+✅ Purchase returns seeded (2)
+✅ PO financial fields backfilled (pembayaran via Vendor Bill / SSOT)
+✅ Purchase requisitions seeded (5)
+✅ QC demo: 1 task qc_pending + roll quarantine 75.0m (Batik Mega Mendung Premium)
+   · KSC/PO-00011 · 120 kg benang — coba terima dalam satuan 'cone' di layar Inbound
+   · KSC/PO-00012 · 5 roll = 200 yard diterima (faktor 40 · sumber supplier_item) — jejak tersimpan
+✅ Demo penerimaan satuan supplier (Fase F-1) seeded (2 task inbound)
+✅ Product categories seeded → 12 kategori
+✅ SO line category snapshot → 9 order
+✅ EPIC3 costing → harga_pokok set, 43 roll cost backfilled
+✅ EPIC3 costing → unit_cost snapshot ke 9 SO (P2-3)
+✅ EPIC3 AR receipt → 6 receipt (lintas 3 sales) + cash posting + deposit (P0-1/P1-2/P2-5)
+✅ EPIC4 incentive rates → 12 kategori
+✅ Amandemen (Fase G-1): 4 dokumen amandemen · 1 nota koreksi · 1 menunggu persetujuan
+✅ PO pricing backfilled (subtotal/line_total + net/dpp/ppn/grand, engine _create_po_core) → 13 PO
+   [EPIC7-C] Journal posted: {'sales_orders': 4, 'cash_transactions': 13, 'vendor_bills': 0, 'sales_cogs': 4, 'total': 21, 'skipped_closed': [], 'errors': []}
+✅ Budgets seeded (18: 8 akun + 10 kategori) + rules 2 entitas
+   [P-0] SO-0007 → PR-00006 → KSC/PO-00013 · Nama Sales dirunut: Ayu Permatasari · lini printing · 3 tahap ditandai
+   [P-0] SO-0008 → PR-00007 → KSC/PO-00014 · Nama Sales dirunut: Bima Saputra · lini printing · 1 tahap ditandai
+   [P-0] SO-0005 → PR-00008 → KSC/PO-00015 · Nama Sales dirunut: Ayu Permatasari · lini woven · 2 tahap ditandai
+✅ P-0 — rantai SO→PR(so_repeat)→PO dibuat (3 rantai, lewat layanan nyata)
+✅ FASE P — field papan `stage_progress` ada di 16 PO (13 diisi migrasi · 3 sudah berprogres)
+   [F0-A] entity enrich: 2 | user entity ensured: 0
+============================================================
+F0-C migrate_entity_scoping  (dry_run=False)  primary=ent_ksc
+============================================================
+[wms_tasks] stamped 20 doc → entity_id  breakdown={'ent_ksc': 16, 'ent_kanda': 4}
+[shipments] stamped 4 doc → entity_id  breakdown={'ent_ksc': 2, 'ent_kanda': 2}
+[audit_logs] stamped 9 doc → scope_entity_id  breakdown={'ent_ksc': 9}
+[notifications] (catch-all) stamped 36 doc → entity_id=ent_ksc
+------------------------------------------------------------
+Total updated: 69
+
+============================================================
+VALIDASI: 0 dokumen SCOPED tanpa field entitas
+============================================================
+  [OK] approval_rules           missing=0
+  [OK] ar_receipts              missing=0
+  [OK] audit_logs               missing=0
+  [OK] bank_accounts            missing=0
+  [OK] budgets                  missing=0
+  [OK] cash_transactions        missing=0
+  [OK] complaint_reasons        missing=0
+  [OK] credit_notes             missing=0
+  [OK] customer_prices          missing=0
+  [OK] customers                missing=0
+  [OK] cycle_count_sessions     missing=0
+  [OK] design_gallery           missing=0
+  [OK] design_requests          missing=0
+  [OK] doc_amendments           missing=0
+  [OK] document_templates       missing=0
+  [OK] entity_prices            missing=0
+  [OK] expense_categories       missing=0
+  [OK] fin_budget_rules         missing=0
+  [OK] hr_attendance            missing=0
+  [OK] hr_devices               missing=0
+  [OK] hr_employees             missing=0
+  [OK] hr_field_tracks          missing=0
+  [OK] hr_geofences             missing=0
+  [OK] hr_kpi                   missing=0
+  [OK] hr_leave_balances        missing=0
+  [OK] hr_leave_requests        missing=0
+  [OK] hr_org_units             missing=0
+  [OK] hr_overtime              missing=0
+  [OK] hr_payroll_runs          missing=0
+  [OK] hr_payslips              missing=0
+  [OK] hr_shifts                missing=0
+  [OK] hr_visits                missing=0
+  [OK] incentive_rates          missing=0
+  [OK] inspections              missing=0
+  [OK] inventory_balances       missing=0
+  [OK] inventory_lots           missing=0
+  [OK] inventory_movements      missing=0
+  [OK] inventory_rolls          missing=0
+  [OK] journal_entries          missing=0
+  [OK] makloon_orders           missing=0
+  [OK] makloons                 missing=0
+  [OK] md_samples               missing=0
+  [OK] md_specs                 missing=0
+  [OK] notifications            missing=0
+  [OK] payment_terms            missing=0
+  [OK] price_approvals          missing=0
+  [OK] process_recipes          missing=0
+  [OK] process_stages           missing=0
+  [OK] product_lines            missing=0
+  [OK] purchase_orders          missing=0
+  [OK] purchase_requisitions    missing=0
+  [OK] purchase_returns         missing=0
+  [OK] sales_incentives         missing=0
+  [OK] sales_orders             missing=0
+  [OK] sales_returns            missing=0
+  [OK] sales_targets            missing=0
+  [OK] sample_types             missing=0
+  [OK] shipments                missing=0
+  [OK] special_orders           missing=0
+  [OK] supplier_contracts       missing=0
+  [OK] supplier_items           missing=0
+  [OK] supplier_price_lists     missing=0
+  [OK] suppliers                missing=0
+  [OK] tax_invoices             missing=0
+  [OK] vendor_bills             missing=0
+  [OK] warehouse_transfers      missing=0
+  [OK] wms_tasks                missing=0
+------------------------------------------------------------
+HASIL: ✅ LULUS — semua koleksi SCOPED ter-stamp
+   [F0-C] entity scoping backfill: ✅ LULUS
+   [F2-UoM] roll_count backfilled ke 18 balance
+   [F4-Status] stage/sub_status backfilled ke 10/10 SO (invalid=0)
+   [F5-Approval] pending_approvals disinkronkan ke 10/10 SO (re-derive 10)
+✅ RFID demo: 12 device, 43 tag, 43 read (sweep) + gate demo
+✅ Warehouse transfers seeded (3 surat jalan transfer · yard)
+✅ Cycle count sessions seeded (2 sesi stock opname)
+✅ Konversi satuan (Fase B): 0 aturan baru · 14 sudah ada · faktor per produk contoh siap
+✅ Lot kelas satu (Fase C): kebijakan lot dibuat · 0 lot dibentuk · 0 roll ditaut
+  [warn] seed desain R&D dilewati: Desain ini belum diajukan. Desainer perlu menekan “Ajukan” dulu supaya draf yang masih dikerjakan tidak bercampur dengan yang siap disahkan.
+   · rating demo desain: 8 nilai pada 4 desain
+   · KSC/SPEC-00001 ACC → produk RND-KTN-150 lahir (tahap 'disetujui' — belum boleh dijual)
+   · KSC/SPEC-00002 diajukan (menunggu ACC manager)
+   · ambil 3 yard dari roll RL-00037 — stok gudang berkurang (mutasi sample_issue)
+   · KSC/SMP-00001 diputus → pemenang Cirebon Craft · kontrak KSC/SCT-00010
+   · KSC/SMP-00001 ditandai JADI lalu DIKIRIM ke pelanggan Tekstil Medan Jaya (FASE S)
+   · KSC/SMP-00002 dikirim (round 1 berjalan — menunggu hasil supplier)
+   · KSC/SMP-00003 (Rina Kartika) — 3 round tepat waktu: 2 ACC, 1 revisi
+   · KSC/SMP-00004 (Rina Kartika) — round menggantung TERLAMBAT 1 hari (eskalasi ke manager)
+   · KSC/SMP-00005 (Bagas Nugroho) — 2 round disetor TERLAMBAT: 1 tolak, 1 revisi
+   · KSC/SMP-00006 (Bagas Nugroho) — round menggantung TERLAMBAT 4 hari (eskalasi manager + admin)
+OK Data demo KPI desainer & eskalasi SLA: 4 permintaan · 2 desainer baru · 5 round dinilai · 2 round terlambat menggantung
+   · KSC/SMP-00007 + KSC/SMP-00008 (Dewi Rahayu) — 2 round dinilai admin + 1 round menggantung 2 hari → kartu 'KPI Saya' terisi
+   · 6 round demo lama digeser tanggal kirimnya (agar 'rata hari' tidak nol)
+OK Riwayat tren KPI: 20 sample historis (5 bulan) untuk 4 desainer → grafik tren punya bentuk
+OK Divisi R&D (PS-17): 5 orang ditempatkan ke divisi
+OK Data demo R&D (Fase F) seeded: 2 spesifikasi · 2 permintaan sample · 3 round dinilai · 1 keputusan → kontrak · 1 pengambilan bahan
+
+✅ All realistic seed data inserted successfully!
+✅ Notifikasi persetujuan PO: 3 permintaan menunggu (aksi inline di lonceng)
+   · MKO-00004 — pre-treatment → SCREEN → printing · kasa Rp 1,500,000 (qty 39.2 → 39.2 yard, kain utuh) → terserap ke HPP printing Rp 1,500,000
+   · MKO-00005 — pre-treatment saja → 24.5 yard PFP TERSEDIA di gudang (bahan untuk mencoba Screen & Printing dari layar)
+✅ Makloon orders seeded (5 order: 1 selesai + 1 diproses + 1 rantai 2-langkah dgn klaim menunggu persetujuan + 1 jalur printing ber-SCREEN (FASE T))
+OK Produksi in-house seeded (2 BOM, 3 Work Order · 1 selesai)
+✅ Rencana pembayaran (Fase G-2): 3 rencana · 3 nota denda (usulan + terbit) · sebaran per badan usaha: ent_kanda=2 ent_ksc=1
+✅ Kontrabon (Fase G-7): 3 kontrabon demo dari 6 faktur supplier · 3 jadwal tukar faktur (1 LUNAS berpotongan denda · 1 dijadwalkan bayar · 1 diajukan dengan selisih 3-way menunggu keputusan · 1 faktur bebas + 1 uang muka supplier agar wizard & potongan otomatis bisa dicoba)
+  [warn] seed_interco dilewati: settlement gagal: 400 {"detail":"Netting Rp 1.887.888 melebihi piutang balik ent_kanda→ent_ksc yang terbuka (Rp 0). Pilih metode transfer/kas, atau batasi netting sebesar piutang balik."}
+✅ Aset tetap seeded (3 aset · penyusutan 9 periode) — jalur pindah aset antar-PT (E7g) siap dicoba
+✅ Permintaan internal (E-7): KSC/PIN-00002 → KSC/IC-00005 ⇄ KANDA/IC-00005
+✅ Permintaan Internal seeded (2 dokumen: antrean + hasil konversi)
+✅ Permintaan desain seeded (4 dokumen · 1 menunggu keputusan · 1 sudah ACC lewat revisi) — papan kanban & rapor desainer terisi
+✅ SPK Inspeksi seeded (2 dokumen · 2 ber-baris DITAHAN menunggu keputusan manajer) — FASE I
+✅ Mutasi bank (Fase G-8): 6 baris statement di BCA Operasional KSC · 7 template parser bank (1 siap cocok otomatis · 1 usulan · 1 manual · 1 dana tak dikenal · 1 biaya bank · 1 dana keluar untuk kontrabon)
+✅ Kasus keuangan (Fase G-9): 3 kasus demo (1 terbuka/terlambat dari titipan dana · 1 selesai berjurnal · 1 dua-langkah sedang ditangani)
+✅ Landed cost vouchers seeded (3: 1 applied · 1 menunggu ACC · 1 draf)
+✅ RFQ seeded (3: 1 terbuka dengan 3 penawaran · 1 draf · 1 dimenangkan)
+✅ Relasi dokumen (Fase G-4): 89 tautan dua arah dari 71 kandidat
+✅ Pemasok 'Entitas grup' (Fase E-7): 2 dibuat · 0 disegarkan · 0 diarsipkan
+✅ Jejak akun warisan (utang migrasi ii): 6 baris untuk Rudi Hartono — `manager` yang pekerjaannya Admin Sales
+✅ FASE L — lini distempel pada 87 dokumen demo (baris + turunan `line_codes[]`)
+✅ Rantai retur demo (FASE E-9) dibuat lewat alur nyata:
+   [92m  Rantai demo siap dilihat di layar:[0m
+       · Pesanan pelanggan      : KSC/SO-00010 (dipenuhi dari PT lain)
+       · Pembelian internal     : KANDA/IC-00006 ↔ KSC/IC-00006
+       · Retur pelanggan        : SRET-00003
+       · Retur antar-PT         : KSC/ICR-00001
+       · Retur ke supplier      : PRET-00003
+       · Buka salah satu dokumen retur → panel “Jejak Retur”.
+✅ FASE L (penutup) — 6 produk demo diberi lini (knit 1 · woven 5) · 35 dokumen distempel ulang
+✅ FASE U (penutup) — dua satuan diisi: interco_transactions 12 · internal_requests 2 · inventory_movements 31 · makloon_orders 8 · purchase_orders 21 · purchase_requisitions 11 · rfqs 4 · sales_orders 15 · shipments 4 · warehouse_transfers 3
+  - Induk produk: 19 varian ditautkan, yatim 0
+[bootstrap] FASE F lifecycle backfill: 19 produk distempel 'produksi'
+[bootstrap] kebersihan data: 34 record dirapikan {'customers': 5, 'suppliers': 6, 'users': 14, 'hr_employees': 2, 'makloons': 7}
+✅ Fondasi bootstrap ditanam ulang (akun md@/wh.admin@: 2/2)
+
+📋 Summary:
+  - 14 Users (admin, sales, manager, warehouse×2)
+  - 18 Products (Batik, Tenun, Lurik, Songket, Ulos, Jumputan, Endek)
+  - 5 Customers
+  - 4 Warehouses (Jakarta, Bandung, Surabaya)
+  - 16 Purchase Orders (PO-00001 → PO-00006)
+  - 10 Sales Orders (SO-0001 → SO-0009)
+  - 17 Inbound tasks · 8 Outbound tasks
+  - 18 inventory balances · 26 movements
+  - 43 inventory rolls (Roll-as-SSOT)
+  - 9 audit logs
+  - 3 Work Order produksi in-house (BOM + HPP)
+SEEDDONE

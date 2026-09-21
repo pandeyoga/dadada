@@ -1,0 +1,54 @@
+=== [1/7] pip install (skip emergentintegrations & litellm: sudah di base image) Mon Sep 21 03:38:31 UTC 2026
+PIP_EXIT=0
+=== [2/7] yarn install Mon Sep 21 03:39:08 UTC 2026
+warning Resolution field "nth-check@2.0.1" is incompatible with requested version "nth-check@^1.0.2"
+warning Resolution field "@tootallnate/once@2.0.1" is incompatible with requested version "@tootallnate/once@1"
+warning Resolution field "@eslint/plugin-kit@0.3.4" is incompatible with requested version "@eslint/plugin-kit@^0.2.7"
+warning " > @babel/plugin-transform-modules-systemjs@7.29.4" has unmet peer dependency "@babel/core@^7.0.0-0".
+warning "@babel/plugin-transform-modules-systemjs > @babel/helper-module-transforms@7.29.7" has unmet peer dependency "@babel/core@^7.0.0".
+warning "webpack-dev-server > webpack-dev-middleware > memfs@4.57.7" has unmet peer dependency "tslib@2".
+warning " > react-day-picker@8.10.1" has incorrect peer dependency "date-fns@^2.28.0 || ^3.0.0".
+warning " > react-day-picker@8.10.1" has incorrect peer dependency "react@^16.8.0 || ^17.0.0 || ^18.0.0".
+warning " > @babel/plugin-proposal-private-property-in-object@7.21.11" has unmet peer dependency "@babel/core@^7.0.0-0".
+warning "react-scripts > eslint-config-react-app > eslint-plugin-flowtype@8.0.3" has unmet peer dependency "@babel/plugin-syntax-flow@^7.14.5".
+warning "react-scripts > eslint-config-react-app > eslint-plugin-flowtype@8.0.3" has unmet peer dependency "@babel/plugin-transform-react-jsx@^7.14.9".
+warning "react-scripts > react-dev-utils > fork-ts-checker-webpack-plugin@6.5.3" has unmet peer dependency "typescript@>= 2.7".
+warning "react-scripts > eslint-config-react-app > @typescript-eslint/eslint-plugin > tsutils@3.21.0" has unmet peer dependency "typescript@>=2.8.0 || >= 3.2.0-dev || >= 3.3.0-dev || >= 3.4.0-dev || >= 3.5.0-dev || >= 3.6.0-dev || >= 3.6.0-beta || >= 3.7.0-dev || >= 3.7.0-beta".
+warning " > recharts@3.6.0" has unmet peer dependency "react-is@^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0".
+warning "@craco/craco > cosmiconfig-typescript-loader@1.0.9" has unmet peer dependency "@types/node@*".
+warning "@craco/craco > cosmiconfig-typescript-loader@1.0.9" has unmet peer dependency "typescript@>=3".
+warning "@craco/craco > cosmiconfig-typescript-loader > ts-node@10.9.2" has unmet peer dependency "@types/node@*".
+warning "@craco/craco > cosmiconfig-typescript-loader > ts-node@10.9.2" has unmet peer dependency "typescript@>=2.7".
+warning Workspaces can only be enabled in private projects.
+warning Workspaces can only be enabled in private projects.
+YARN_EXIT=0
+=== [3/7] pastikan MongoDB HIDUP (prasyarat bootstrap & seed) Mon Sep 21 03:40:39 UTC 2026
+mongodb: ERROR (already started)
+mongodb SIAP setelah 1x percobaan.
+=== [3b/7] backend/.env: CORS_ORIGINS wajib eksplisit (T-02 gagal-berisik) Mon Sep 21 03:40:41 UTC 2026
+CORS_ORIGINS ok: https://knhost-chartype-bug.preview.emergentagent.com,http://localhost:3000
+=== [4/7] restart backend — bootstrap fondasi menulis ke DB yang HIDUP Mon Sep 21 03:40:41 UTC 2026
+backend: stopped
+backend: started
+backend /api/ -> 000
+!! backend tidak menjawab 200 — log terakhir:
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1204, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1176, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1147, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 690, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 940, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/app/backend/server.py", line 17, in <module>
+    from routers import (
+  File "/app/backend/routers/hr_payroll.py", line 18, in <module>
+    from services.hr_payroll_pdf import payslip_pdf_bytes
+  File "/app/backend/services/hr_payroll_pdf.py", line 5, in <module>
+    from reportlab.lib import colors
+ModuleNotFoundError: No module named 'reportlab'
+INFO:     Stopping reloader process [282]
+INFO:     Will watch for changes in these directories: ['/app/backend']
+INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)
+INFO:     Started reloader process [1135] using WatchFiles
+INFO:     Started server process [1137]
+INFO:     Waiting for application startup.

@@ -1,0 +1,23 @@
+{
+  "summary": "Iter36 verifikasi ulang peran KUSTOM acuan manager (cr_wakil_manajer) LULUS di backend & frontend. Backend pytest 3/3 (test_role_editor_iter36.py): GET /api/home/manager?entity_id=ent_ksc → 200 untuk wakilmanajer@ (cr_wakil_manajer) dan manager@; 403 untuk sales@. Regresi iter35 tetap 8/8. Frontend E2E (Playwright): (1) Login wakilmanajer@ mendarat di ?view=manager-home tanpa banner 'tidak memiliki izin' — Dasbor Manajer render lengkap (Persetujuan, Terlambat Hari Ini, Papan PO Custom). (2) Deep-link ?view=design-requests&entity=ent_ksc TETAP di URL design-requests (tidak redirect) dan tombol dsr-create-button TAMPIL (chip 'Wakil Manajer' pada header). (3) Deep-link ?view=designer-kpi&entity=ent_ksc menampilkan design-score-trend + peringkat kinerja desainer tanpa 403 dan tanpa banner error. (4) Regresi penagihan@ (cr_staf_penagihan): login mendarat di ?view=finance-desk (beranda perannya) tanpa error, dan deep-link ?view=ar-aging&entity=ent_ksc terbuka penuh (Tidak ada piutang terbuka; KPI Rp0) — tidak ada redirect. Semua tujuan iterasi 36 terpenuhi.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_role_editor_iter36.py",
+    "/app/backend/tests/test_role_editor_iter35.py",
+    "/app/test_reports/pytest/iter36.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Backend require_role sudah konsisten mengenali peran kustom via role_in/base_role untuk home_manager, internal_requests, rnd, design_requests — pastikan pola yang sama diterapkan ke endpoint home lain (home/sales, home/finance) jika ada peran kustom acuan sales/finance yang perlu dukungan serupa (contoh saat ini penagihan@ mendarat di finance-desk dengan benar).",
+    "Frontend useViewDeepLink berhasil menahan redirect sampai rolesVersion tersedia — regresi peran kustom acuan finance (penagihan@) juga tidak lagi diredirect ke home saat deep-link (?view=ar-aging tetap terbuka)."
+  ],
+  "updated_files": ["/app/backend/tests/test_role_editor_iter36.py"],
+  "success_rate": {"backend": "100% (3/3 iter36 + 8/8 iter35 regresi)", "frontend": "100% (4/4 skenario)"},
+  "test_credentials": "wakilmanajer@ / penagihan@ / manager@ / sales@ kainnusantara.id · demo12345",
+  "seed_data_creation": "Tidak ada.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regresi peran kustom: pytest backend/tests/test_role_editor_iter36.py + test_role_editor_iter35.py (butuh export REACT_APP_BACKEND_URL sebelum pytest karena pytest.ini tidak memuat env). Screenshot bukti frontend disimpan iter36_wakil_home.jpeg / iter36_wakil_dsr.jpeg / iter36_wakil_kpi.jpeg / iter36_penagihan_ar.jpeg.",
+  "rca of the issue": "Iter35 melaporkan cr_wakil_manajer 403 di /api/home/manager dan deep-link di-redirect ke manager-home. Iter36: main agent telah menambatkan require_role membaca role_in (base role) sehingga cr_wakil_manajer diterima seperti manager di home_manager; frontend useViewDeepLink kini menunggu rolesVersion sebelum evaluasi view, sehingga deep-link ke design-requests/designer-kpi/ar-aging tidak lagi ditulis-ulang ke home peran. Verifikasi ulang menemukan semua alur berjalan sesuai target."
+}

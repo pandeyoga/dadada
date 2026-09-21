@@ -1,0 +1,37 @@
+{
+  "summary": "Iter 25 — Verified new RevisionFilter chip group on Permintaan Desain (MD) and R&D Sample. Backend: 5/5 pytest passed (min_revision N=0/absent→4, N=1→only KSC/DSR-00004 with revision_count=1 and summary.total=1, N=2→0, N=-1→422). Frontend: DSR chip group dsr-revision-filter with all/1/2/3 works on Papan (4→1→empty for ≥2→back to 4) and on Daftar tab (4 rows→1 row dsr_a623af63e8e1). KPI dsr-kpi-total follows filter (=1). dsr-empty message correct ('Tidak ada permintaan dengan revisi ≥ 2'). R&D Sample rnd-samples-revision-filter chips work (default 28 rows, ≥1→22 rows all with 'Revisi ke-N' badge and no 'Pengajuan awal', KSC/SMP-00003 present; ≥3→rnd-samples-empty with correct copy; combination with search text works — search='KSC/SMP-00003' + ≥1 → 1 row). Regression: opening dsr-card-dsr_a623af63e8e1 after filter shows dsr-detail-revision='Revisi ke-1'; no console errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verified_scenarios": [
+    "GET /api/design-requests?entity_id=ent_ksc → total=4, summary.total=4",
+    "GET /api/design-requests?...&min_revision=0 → total=4",
+    "GET /api/design-requests?...&min_revision=1 → total=1, item.number=KSC/DSR-00004, revision_count>=1",
+    "GET /api/design-requests?...&min_revision=2 → total=0, items=[]",
+    "GET /api/design-requests?...&min_revision=-1 → 422",
+    "UI DSR Papan default 4 kartu; klik ≥1 → 1 kartu (dsr-card-dsr_a623af63e8e1); ≥2 → dsr-empty; klik all → 4 kartu",
+    "UI DSR KPI dsr-kpi-total mengikuti filter (1 saat ≥1)",
+    "UI DSR Daftar (dsr-tab-list) default 4 baris; klik ≥1 → 1 baris (dsr-row-dsr_a623af63e8e1)",
+    "UI DSR Detail dari kartu setelah filter → dsr-detail-revision='Revisi ke-1'",
+    "UI RND default 28 baris; klik ≥1 → 22 baris semua ber-'Revisi ke-N', KSC/SMP-00003 hadir, 'Pengajuan awal' tidak ada",
+    "UI RND klik ≥3 → rnd-samples-empty ('Tidak ada sample dengan revisi ≥ 3')",
+    "UI RND klik all → 28 baris kembali",
+    "UI RND kombinasi filter revisi + pencarian teks berfungsi (KSC/SMP-00003 + ≥1 → 1 baris)"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter25_revision_filter.py",
+    "/app/test_reports/pytest/iter25_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Backend design_requests.list_requests uses q['revision_count'] = {'$gte': N} — clean and integrates with pagination + summary, good.",
+    "Consider exposing similar server-side min_revision filter on /api/rnd/samples (client-side filter today via sampleRevisionCount) for consistency & to avoid client-side counting drift when pagination/large datasets arrive."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter25_revision_filter.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@kainnusantara.id / demo12345 (used)",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "RevisionFilter feature testids stable: dsr-revision-filter, dsr-revision-filter-{all,1,2,3}, dsr-empty; rnd-samples-revision-filter, rnd-samples-revision-filter-{all,1,2,3}, rnd-samples-empty. Backend query param min_revision (>=0) on /api/design-requests only; R&D Sample filter is client-side.",
+  "rca of the issue": "N/A"
+}

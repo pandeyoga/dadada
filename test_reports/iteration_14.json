@@ -1,0 +1,39 @@
+{
+  "summary": "Iter-14 — Uji regresi Transfer Gudang (roll-based) + Picker Roll dua satuan + Supplier refs + RFID Devices lokasi KNSelect. Semua acceptance criteria LULUS. Backend: 9/9 pytest baru (test_iter14_wh_transfer_rolls.py) LULUS + F2 stock buckets 20/20 LULUS. Frontend: form Transfer Baru TIDAK memiliki input manual qty/unit; roll-picker menampilkan dua satuan (123,44 m ≈ 135 yd) + chip supplier-refs (Cirebon Craft · CBN-MEGA-PREM); label produk transfer memuat nama versi supplier; RFID Devices `rfid-form-loc` sudah KNSelect (opsi: Dock Terima/Kirim, Gate Utama, Zona Zone A, Zone A › Rack A1 › A1-01/02).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "test_m3_coa_per_pt_and_ic_transfer / test_g6_poc / test_g6b_poc", "issue": "Pre-existing failures 10 tes (IC transfer JE, netting, invarian retur antar-PT). TIDAK terkait perubahan roll_ids/base_unit iterasi ini — sudah gagal sebelum patch."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter14_wh_transfer_rolls.py",
+    "/app/test_reports/pytest/iter14_transfer.xml"
+  ],
+  "action_items": [
+    "(opsional) Selidiki 10 kegagalan pre-existing pada test_m3_coa_per_pt_and_ic_transfer.py / test_g6_poc.py / test_g6b_poc.py — unrelated dengan scope iter-14.",
+    "(opsional) Uji Outbound scan pick UI perlu tugas picking aktif; belum diverifikasi UI-nya karena tidak ada tugas outbound siap dalam sesi (memerlukan alur SO + confirm end-to-end). Backend perilaku sudah tercakup lewat contract test."
+  ],
+  "critical_code_review_comments": [
+    "routers/transfers.py:201 — validasi 'Pilih roll' hanya dipicu bila qty<=0 DAN roll_ids kosong (compatibility utk klien lama qty>0 tanpa roll_ids). OK, terverifikasi lewat test_legacy_qty_only_still_works.",
+    "roll_service.reserve_rolls_for_wh_transfer: pesan 400 saat roll salah gudang menyebut 'tidak berada di gudang asal' (verified). Pesan 409 untuk roll dobel-klaim menyebut 'sudah tidak tersedia' (verified).",
+    "list_available_rolls: field `supplier_refs` selalu dikembalikan meski produk tak punya supplier item (array kosong) — bagus untuk kontrak stabil.",
+    "TransferItem.qty=0 dengan roll_ids: backend menimpa qty dari panjang roll (item.qty = sum length_remaining) dan unit dari master (prod.base_unit), input klien 'pcs' benar-benar diabaikan (verified).",
+    "RfidDevicesView.rfid-form-loc KNSelect: opsi mencakup area (Dock Terima/Kirim, Gate Utama) + hirarki Zone › Rack › Bin dari master gudang terpilih (verified untuk wh_bandung)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter14_wh_transfer_rolls.py (baru)"
+  ],
+  "success_rate": {"backend": "100% (9/9 iter14 + 20/20 F2)", "frontend": "100% (Transfer form + Roll picker + Supplier refs + RFID loc verified)"},
+  "test_credentials": "admin@kainnusantara.id/demo12345, warehouse@/demo12345 dari /app/memory/test_credentials.md. Header X-Entity-Id=ent_ksc.",
+  "seed_data_creation": "Transfer QA dibuat lalu di-reject di setiap tes utk cleanup roll kembali available. Tidak ada perubahan seed permanen.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Roll uji: RL-00004 (135 yd) di wh_jakarta / prod_batik_mega. Base_unit prod_batik_mega = 'yard'. Test file iter14 aman dijalankan berulang (cleanup lewat reject). Untuk uji Outbound scan pick UI, buat SO confirmed dulu supaya ada task picking (di luar scope iter-14).",
+  "rca of the issue": "N/A — tidak ada bug ditemukan pada scope Transfer/RollPicker/RFID-loc iter-14."
+}

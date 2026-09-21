@@ -1,0 +1,29 @@
+# Kain Nusantara frontend — build CRA/craco lalu sajikan statis lewat nginx
+# (SPA fallback ke index.html, /api diteruskan ke backend).
+FROM node:20-alpine AS build
+WORKDIR /app/frontend
+ARG REACT_APP_BACKEND_URL
+ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL \
+    GENERATE_SOURCEMAP=false \
+    DISABLE_ESLINT_PLUGIN=true \
+    ENABLE_HEALTH_CHECK=false \
+    NODE_OPTIONS=--max-old-space-size=3072
+
+COPY frontend/package.json ./
+# Lockfile disalin dari deploy/frontend.yarn.lock (platform tidak selalu mem-push berkas bernama yarn.lock).
+COPY deploy/frontend.yarn.lock ./yarn.lock
+# @emergentbase/visual-edits = paket privat Emergent (hanya untuk dev-server preview; craco.config.js
+# sudah menanganinya bila tidak terpasang). Dibuang supaya yarn tidak mengunduh dari assets.emergent.sh.
+RUN node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));for(const k of ['dependencies','devDependencies']){if(p[k])delete p[k]['@emergentbase/visual-edits'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2));" \
+    && sed -i '/^"@emergentbase\/visual-edits@/,/^$/d' yarn.lock \
+    && yarn install --production=false --network-timeout 600000 --non-interactive
+
+COPY frontend/ .
+# NODE_ENV=production hanya saat build (bila diset sebelum `yarn install`, devDependencies
+# seperti @craco/craco tidak terpasang → "craco: not found").
+RUN rm -f .env && rm -rf build && NODE_ENV=production yarn build
+
+FROM nginx:1.27-alpine
+COPY deploy/nginx-web.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/frontend/build /usr/share/nginx/html
+EXPOSE 80

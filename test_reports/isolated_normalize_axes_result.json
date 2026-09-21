@@ -1,0 +1,74 @@
+{
+  "source": "/tmp/kn-audit/backend/services/product_template_service.py",
+  "probe_type": "isolated-pure-function",
+  "cases": {
+    "ensure_parent_default_axes_values_shape": {
+      "input": [
+        {
+          "key": "color",
+          "label": "Warna",
+          "values": []
+        },
+        {
+          "key": "grade",
+          "label": "Grade",
+          "values": [
+            "A",
+            "B",
+            "C"
+          ]
+        }
+      ],
+      "output": [],
+      "output_is_empty": true,
+      "finding": "values-based default axes are discarded by _normalize_axes"
+    },
+    "ui_color_hex_preservation": {
+      "input": [
+        {
+          "key": "color",
+          "label": "Warna",
+          "options": [
+            {
+              "label": "Merah",
+              "code": "MRH",
+              "value": "MRH",
+              "hex": "#FF0000"
+            },
+            {
+              "label": "Biru",
+              "code": "BRU",
+              "value": "BRU",
+              "hex": "#0000FF"
+            }
+          ]
+        }
+      ],
+      "output": [
+        {
+          "key": "color",
+          "label": "Warna",
+          "options": [
+            {
+              "code": "MRH",
+              "label": "Merah",
+              "value": "MRH"
+            },
+            {
+              "code": "BRU",
+              "label": "Biru",
+              "value": "BRU"
+            }
+          ]
+        }
+      ],
+      "output_first_option_keys": [
+        "code",
+        "label",
+        "value"
+      ],
+      "hex_present_after_normalize": false,
+      "finding": "hex metadata is dropped by _normalize_axes"
+    }
+  }
+}

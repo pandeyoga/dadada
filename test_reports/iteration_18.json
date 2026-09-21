@@ -1,0 +1,22 @@
+{
+  "summary": "FASE SL P2 'Pola Label per Barang Supplier' frontend testing complete. All FE-1..FE-4 scenarios passed. FE-1: badge 'pola label: gs1' rendered on supplier-item-row-sit_b5ed6c7e1bc9, absent on sit_36c246a473b4 (CBN-MEGA-PREM). FE-2: edit modal shows supplier-item-own-pattern checked, supplier-item-label-pattern block visible, KNSelect format = 'GS1-128 / GS1 DataMatrix (AI 01·10·21·240·3230·3103)'; sample scan of GS1 label decoded to UI-R1, panjang 30, format gs1; result banner used emerald-50/200 (green). Modal closed via supplier-item-form-close without save. FE-3: create form initially had checkbox unchecked and no label-pattern block; ticking exposed the block; closed without save. FE-4: warehouse login → operations → wms-tab-inbound → inbound-task-wms_f808e668a2e7; scan-label-panel visible, scan-label-item-patterns text = 'pola barang: NTT-IKAT-GRD (gs1)'. GS1 label '(240)NTT-IKAT-GRD(10)DL-G1(21)UI-R2(3231)000300' produced RL-00066 (supplier UI-R2, lot DL-G1, 30 yard) with no scan-label-error. Delimited fallback label 'NTT-IKAT-GRD|DL-G1|UI-R3|30|5|BLU' produced RL-00067 (UI-R3, warna BLU, 30 yard). Both test rolls undone via scanned-roll-undo-*; final task state 0 scanned rolls, progress reset back to receiving. No console errors and no ErrorNotice on either screen.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Undo interaction shows a confirm dialog after the trash button; automation had to click 'Ya/Hapus/Konfirmasi'. Consider giving the confirm button a data-testid (e.g. scanned-roll-undo-confirm) for deterministic testing.",
+    "'Bantuan & Panduan' floating widget at bottom-right can intercept clicks on nearby buttons; keep force=True/dispatch_event workaround in mind or add pointer-events:none until opened."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100%"},
+  "test_credentials": "admin@kainnusantara.id/demo12345, warehouse@kainnusantara.id/demo12345",
+  "seed_data_creation": "None (test rolls UI-R2/UI-R3 were created and then undone; supplier item form changes were not saved).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Task wms_f808e668a2e7 (KSC/PO-00015, TNI-GRGD-001, 180 yard) is back to 0-of-180 receiving after cleanup. Supplier-item sit_b5ed6c7e1bc9 (NTT-IKAT-GRD) retains its gs1 label_pattern. Scan panel accepts both GS1 (item pattern) and delimited (supplier fallback) formats correctly."
+}

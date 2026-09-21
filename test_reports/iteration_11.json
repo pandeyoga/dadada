@@ -1,0 +1,38 @@
+{
+  "summary": "Fokus iterasi 11: fitur lokasi tervalidasi (Kemendagri 2025). Backend + UI keduanya lulus semua skenario yang diminta. smoke_wilayah.py, smoke_feedback_klien_2026_09.py, smoke_audit_2026_09_07.py = ALL PASS. Tambahan coverage /api/wilayah/countries (ID pertama), POST /api/wilayah/validate (valid + inkonsisten 400 dengan pesan menuntun), PATCH supplier ganti kode pos lintas kota (400), POST /api/makloons dengan lokasi lengkap (200 + location_status=verified + kota/kecamatan/provinsi terisi otomatis) — via /app/backend/tests/test_wilayah_extra.py = ALL PASS. Regresi pytest test_f0b_entity_scoping.py = 88 passed, 2 known drift (list_view_all[/suppliers] & test_cash_kas_besar) sudah didokumentasikan di iter10. UI: CustomerFormModal (?view=customers-crm → customer-create-button) menampilkan LocationFields dengan customer-loc-country default 'Indonesia', quick-postal '40115' → customer-loc-postal-quick-msg 'Bandung Wetan, Kota Bandung, Jawa Barat' + dropdown province/city/district/postal terisi otomatis (Jawa Barat/Kota Bandung/Bandung Wetan/40115). Mengganti provinsi ke Jawa Tengah (option customer-loc-province-option-33) me-reset city='Pilih kota/kabupaten', district & postal 'Pilih kota dahulu', dan customer-loc-error 'Pilih kota/kabupaten.' muncul persis sesuai spec. Submit tanpa lokasi/sales menampilkan notice 'Pilih salesperson penanggung jawab.' dan 'Pilih provinsi.' dan modal tetap terbuka (tidak tersimpan). Supplier form (Buat Supplier): supplier-loc-* muncul (13 testid) — ganti negara ke Tiongkok (option supplier-loc-country-option-CN) memicu render input asing supplier-loc-postal-foreign/-province-foreign/-city-foreign, dan error 'Kode pos wajib diisi.' tampil. Data uji dengan prefix TEST_ dibersihkan (customers=4, suppliers=3, makloons=1).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/smoke_wilayah.py",
+    "/app/backend/tests/smoke_feedback_klien_2026_09.py",
+    "/app/backend/tests/smoke_audit_2026_09_07.py",
+    "/app/backend/tests/test_wilayah_extra.py",
+    "/app/backend/tests/test_f0b_entity_scoping.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "wilayah_service.normalize_location dipakai konsisten oleh routers/customers.py, routers/suppliers.py, routers/makloons.py, dan entity_provisioning_service.apply_location — SSOT satu-pintu. Bagus.",
+    "Pesan error validasi berbahasa Indonesia jelas dan menuntun ('Kode pos 10110 bukan kode pos wilayah Kota Bandung.', 'Kode pos Indonesia harus 5 angka.', 'Kota tidak dikenal', 'tidak berada di provinsi', 'bukan kode pos kecamatan'). Sesuai kaidah UX.",
+    "Mode LENIENT bekerja: klien lama kirim city='Solo' → dipetakan ke 'Kota Surakarta' (partial), city asing 'QA City' → unverified (tidak ditolak). Backward compatibility terjaga.",
+    "LocationFields.jsx (CRM & suppliers) menerapkan reset kaskade dan pesan error yang tepat saat parent-selection berubah. Testid pattern <prefix>-loc-* konsisten di CustomerFormModal & SuppliersView.",
+    "MakloonCreate menyertakan seluruh field lokasi (country/province/city/district/postal + code) — POST /api/makloons mengembalikan location_status='verified' dan mengisi label kota/kecamatan/provinsi berdasar kode. Konsisten.",
+    "test drift di iter10 (test_list_view_all_via_query_admin[/suppliers] & test_cash_kas_besar_visible_in_all_contexts) masih ada namun sudah didokumentasikan sebelumnya sebagai bukan bug aplikasi."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_wilayah_extra.py (baru; regression coverage untuk countries/validate/PATCH supplier/makloon)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@kainnusantara.id / demo12345 (dipakai). sales@kainnusantara.id / demo12345 tidak dipakai karena flow POS sales tidak diperlukan setelah admin CRM sudah menutup skenario location; disarankan main_agent verifikasi via self-test bila ingin double-cek POS.",
+  "seed_data_creation": "Hanya data uji prefix TEST_ yang dibuat oleh smoke_wilayah + test_wilayah_extra + skenario UI; semua sudah dibersihkan (customers=4, suppliers=3, makloons=1) via db.delete_many({'name':{'$regex':'^TEST_'}}) di akhir sesi.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Fitur lokasi tervalidasi (2026-09) sudah stabil di backend & UI (admin CRM + Supplier form). Regresi smoke_* semua PASS. Bila diperlukan pengecekan POS (?view=sales) & MakloonFormModal & EntityWizard, gunakan pola testid <prefix>-loc-* (new-customer-loc-*, makloon-loc-*, entity-wizard-loc-*). KNSelect: klik trigger, isi <testid>-search bila searchable, lalu klik <testid>-option-<code>. Data uji tanpa prefix TEST_ boleh langsung didaftarkan; pembersihan via MongoDB delete_many name regex ^TEST_.",
+  "rca of the issue": "Tidak ditemukan bug baru di iterasi ini."
+}

@@ -1,0 +1,32 @@
+{
+  "summary": "Iter 52 retest — Bug 'mkt-detail-entity tidak tampil' TERSELESAIKAN. Router marketing.py sekarang memanggil _with_entity() pada get_post, create_post, update_post, transition, dan post_metrics. Backend pytest 2/2 lulus: GET /api/marketing/posts/mkp_75d2888905d9 → entity_name 'Sukacita'; POST /api/marketing/posts {title,platforms:[instagram]} → entity_name 'Sukacita'; POST /transition {to:draft} → entity_name tetap 'Sukacita'. Frontend Playwright (admin@, X-Entity-Id ent_ksc): buka post lama via chip → mkt-detail-entity 'Sukacita' terlihat; buat post baru mkt-new-post → mkt-post-detail otomatis terbuka menampilkan mkt-detail-entity 'Sukacita'.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "backend_verified": [
+    "GET /api/marketing/posts/mkp_75d2888905d9 (admin, X-Entity-Id ent_ksc) → 200, entity_name='Sukacita'.",
+    "POST /api/marketing/posts {title:'TEST_Retest entity iter52', platforms:['instagram']} → 200, entity_id='ent_ksc', entity_name='Sukacita'.",
+    "GET /api/marketing/posts/{new} → entity_name='Sukacita'.",
+    "POST /api/marketing/posts/{new}/transition {to:'draft'} → 200, entity_name='Sukacita'."
+  ],
+  "frontend_verified": [
+    "?view=mkt-calendar & kn_entity=ent_ksc: klik mkt-post-chip pertama → mkt-post-detail terbuka dengan badge mkt-detail-entity 'Sukacita'.",
+    "mkt-new-post → mkt-f-title + mkt-f-platform-instagram → mkt-post-submit → mkt-post-detail otomatis terbuka & badge mkt-detail-entity 'Sukacita' tampil (screenshot terlampir)."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter52_mkt_entity_name.py",
+    "/app/test_reports/pytest/iter52.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "_with_entity() konsisten dipakai di GET/POST/PATCH/transition/metrics — bagus, tetapi list_posts masih mengulang logika enrichment inline. Bisa disederhanakan dengan memakai helper yang sama untuk konsistensi.",
+    "DELETE /api/marketing/posts/{id} menolak admin dengan 403 (permission 'marketing.delete' tidak dimiliki admin default). Tidak menghalangi bug ini, tapi menyebabkan seed post uji sulit dibersihkan; pertimbangkan izin default atau helper cleanup."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter52_mkt_entity_name.py"],
+  "success_rate": {"backend": "100% (2/2)", "frontend": "100%"},
+  "test_credentials": "admin@kainnusantara.id / demo12345, X-Entity-Id ent_ksc",
+  "seed_data_creation": "1 post uji 'TEST_Iter52 UI entity' (status ide→draft) di ent_ksc — tidak dapat dihapus (admin tanpa marketing.delete); dapat dibiarkan sebagai arsip uji.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iter 51 bug (mkt-detail-entity absent pada create/get) sudah diperbaiki dan diverifikasi backend+frontend pada iter 52. Backend regresi: pytest backend/tests/test_iter52_mkt_entity_name.py. Perlu env REACT_APP_BACKEND_URL diekspor sebelum menjalankan pytest.",
+  "rca of the issue": "Sebelumnya list_posts menambahkan entity_name via loop, sedangkan get_post/create_post/update_post/transition/metrics langsung mengembalikan dokumen tanpa enrichment sehingga field kosong dan PostDetailModal.jsx (kondisi {post.entity_name && ...}) tidak me-render mkt-detail-entity. Perbaikan: helper _with_entity() memanggil ext.entity_names() dan mengisi doc['entity_name'] sebelum return; helper ini dipakai konsisten di semua endpoint single-post."
+}

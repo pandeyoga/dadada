@@ -1,0 +1,66 @@
+{
+  "summary": "Completed backend + targeted UI regression on live preview URL. Backend coverage for LinkExistingVariant, exclusivity security, media lifecycle/CAS, initial stock, sales order create-cancel, and saga registry passed (10/10). Frontend mobile routing fix validated (desktop->390->768->desktop keeps catalog), alias ?view=product-templates validated, and MobileOps Produk tab routing validated. Full R&D modal family-axis E2E remained blocked by unstable/untestable combobox option targeting in SpecFormModal.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "SpecFormModal family selector",
+        "issue": "R&D create-spec modal cannot be completed deterministically in E2E due unstable combobox interaction and missing stable option-level test selectors for family options/axes.",
+        "selector": "[data-testid='spec-family-select']",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "R&D create/select family+all axes -> submit -> manager approve/release -> deep-link",
+        "issue": "Flow could not be fully completed in browser automation because family option selection is not reliably targetable; backend APIs for same lifecycle passed separately.",
+        "affected_selectors": [
+          "[data-testid='spec-family-select']",
+          "[data-testid^='spec-axis-']"
+        ]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "R&D specs page in 'Semua Badan Usaha' mode",
+        "issues": [
+          "Read-only banner is shown while create-spec modal is still openable, creating UX ambiguity about whether writes are allowed in current scope."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter316_catalog_rnd_security.py",
+    "/app/backend/tests/test_iter317_completion_targets.py",
+    "/app/test_reports/pytest/pytest_results_iter316_rerun.xml",
+    "/app/test_reports/pytest/pytest_results_iter317.xml"
+  ],
+  "action_items": [
+    "Add deterministic option-level data-testid hooks in KNSelect dropdown items for spec-family and spec-axis selectors to unblock full R&D UI E2E.",
+    "Clarify/align read-only behavior for 'Semua Badan Usaha' scope on R&D create actions (disable create or remove conflicting warning).",
+    "After selector/read-only fixes, rerun full R&D UI lifecycle (create->submit->approve->release->spec-open-catalog deep-link).",
+    "Rerun sales mobile multi-axis invalid-combination Add-disable assertion after stable deterministic test data is exposed in catalog UI."
+  ],
+  "critical_code_review_comments": [
+    "Spec form depends on dynamic combobox rendering without stable option selectors; this blocks robust regression automation for critical R&D lifecycle.",
+    "The new backend constraints are strong: LinkExistingVariant preserves SKU/ID and rejects mismatched unit/duplicate combinations; media lifecycle and exclusivity gates passed under live API tests."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter317_completion_targets.py",
+    "/app/test_reports/iteration_3.json",
+    "/app/test_reports/pytest/pytest_results_iter317.xml",
+    "/app/test_reports/pytest/pytest_results_iter316_rerun.xml"
+  ],
+  "success_rate": {
+    "backend": "100% (22/22 across iter316 rerun + iter317)",
+    "frontend": "65% (mobile routing/alias/mobile-ops links passed; full R&D and sales invalid-combo UI completion blocked)"
+  },
+  "seed_data_creation": "Created TEST_iter317_* templates/products/media/stock/customers/orders/users in live DB for validation; test order was canceled via API. Temporary records are TEST_-prefixed for safe follow-up cleanup.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Do not repeat selector retries on spec-family-select without UI testability fix. Mobile routing fix is validated. Backend hardening around link-existing/exclusivity/media/CAS/order path is validated by /app/backend/tests/test_iter317_completion_targets.py.",
+  "rca of the issue": "RCA (UI testing blocker): SpecFormModal uses custom KNSelect/radix-style dynamic dropdown where trigger has data-testid but option rows do not expose deterministic testids. During modal rendering updates, locator attachment/visibility changed between actions, causing flaky automation and preventing guaranteed family+axis selection in E2E. Mitigation: add stable testids for dropdown content + options and optionally freeze render state while modal open. Also reconcile read-only entity-scope messaging with create affordance to reduce ambiguity."
+}

@@ -1,0 +1,31 @@
+{
+  "summary": "Iter33 notification audience/relevance sync + turn map testing. Backend 9/10 pytest PASS. Confirmed: penagihan (cr_staf_penagihan, base=finance, accounting=view) sees B/C/D/E and NOT A; sales sees only D; role change gating works (accounting=none hides GL notif, restoring accounting=view shows it again); turn_alerts on finance / warehouse / cr_staf_penagihan return expected titles; turn_roles(TURN_MAP['sales_orders']['shipped']) yields ('cr_staf_penagihan','finance') with no admin/manager; turn_roles(waiting_approval) == ('manager',); /unread-count, /read-all, /{id}/read regression 200 on visible notifs and /read 404 on non-relevant. FAIL: admin does NOT see A (manager reorder) & B (finance ar-aging) — spec says admin melihat semua kecuali recipient_user milik orang lain (E). Frontend admin flow verified: role-editor-turn-alerts details visible on role-card-finance & role-card-cr_staf_penagihan; both list 'Terbitkan faktur & tagih'; info panel di editor menyebut 'notifikasi ... mengikuti pengaturan'. Penagihan login → notif-bell → NotificationCenter panel terbuka tanpa error (kosong).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/notifications (admin)", "issue": "services/notification_scope.relevance_filter: untuk admin hanya mengembalikan klausa `audience` (recipient_role in [admin,'all'] atau recipient_user==admin_id). Akibatnya admin TIDAK melihat notifikasi yang beralamat ke peran lain seperti 'manager' (A) atau 'finance' (B) — melanggar spek iter33 'admin melihat semua'. Fix: untuk admin kembalikan filter yang meloloskan segala recipient_role, hanya menyaring recipient_user (harus null/kosong/exists:false atau == admin.id). Contoh: `return {'$or':[{'recipient_user':{'$in':[None,'',uid]}},{'recipient_user':{'$exists':False}}]}`.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_notifications_iter33.py",
+    "/app/test_reports/pytest/iter33.xml"
+  ],
+  "action_items": [
+    "Perbaiki services/notification_scope.py relevance_filter cabang admin agar admin melihat semua notifikasi yang tidak ditujukan langsung ke user lain (recipient_user milik orang lain tetap tersembunyi). Terapkan test_admin_sees_ABCD_not_E untuk validasi."
+  ],
+  "critical_code_review_comments": [
+    "notification_scope.relevance_filter cabang admin sudah bermaksud 'bypass relevansi' tapi tidak bypass audiens — perlu semantik 'admin lihat semua kecuali directed ke user lain'.",
+    "turn_notification_service.turn_roles benar mengecualikan admin/manager kecuali rule menyebutnya (approval); peran kustom yang memegang izin `tax_invoice.create` melalui `ar=Kelola` (cr_staf_penagihan) dengan tepat masuk sebagai penerima giliran."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_notifications_iter33.py"
+  ],
+  "success_rate": {"backend": "90% (9/10)", "frontend": "100%"},
+  "test_credentials": "admin@kainnusantara.id / sales@kainnusantara.id / penagihan@kainnusantara.id (semua demo12345)",
+  "seed_data_creation": "5 notifikasi type='qa' + 1 type='qa_gl' disisipkan langsung via pymongo lalu dibersihkan pada teardown fixture. Level accounting cr_staf_penagihan sempat diubah none↔view namun dikembalikan ke 'view' di finally block; diverifikasi tidak ada residu qa* di koleksi notifications.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Test file: /app/backend/tests/test_notifications_iter33.py. Butuh export REACT_APP_BACKEND_URL dan jalan pakai `-o addopts=''` untuk menonaktifkan xdist parallel (fixture module-scoped tidak aman paralel). Setelah fix cabang admin di notification_scope, jalankan hanya test_admin_sees_ABCD_not_E. Peran cr_staf_penagihan levels.accounting HARUS 'view' (uji ini sudah memastikan). Tidak ada perubahan frontend yang perlu dites ulang — role-editor-turn-alerts, info sinkronisasi, dan bell penagihan sudah lulus.",
+  "rca of the issue": "Root cause di services/notification_scope.py:relevance_filter — cabang `if user.get('role')=='admin': return audience`. Klausa `audience` masih dibangun via audience_roles(admin) = ['admin','all'] + base(=None), sehingga notifikasi dengan recipient_role='manager' / 'finance' tidak lolos untuk admin. Repro: seed notif recipient_role='manager' link='reorder' → GET /api/notifications sebagai admin tidak menampilkannya (test_admin_sees_ABCD_not_E gagal). Mitigasi: ganti cabang admin agar seluruh audiens dilewati kecuali penyaringan recipient_user (dilewati bila null/empty/exists:false atau sama dengan admin.id)."
+}

@@ -1,0 +1,57 @@
+{
+  "summary": "Iter 51 — Marketing lanjutan (akun sosmed per PT, dashboard, PDF, multi-entitas). Backend: 16/16 pytest passed. Frontend Playwright verified: kalender entity=all → 'semua badan usaha' + badge PT di list mode + PDF download (kalender-konten-2026-09.pdf, byte awal %PDF, teks 'Kalender Konten September 2026', 'Badan usaha' hanya saat all); ganti header ke Sukacita → badge hilang; Akun Sosmed → buat mkt-a-platform-facebook + mkt-a-handle → mkt-account-submit OK; Kalender → mkt-new-post → mkt-f-platform-facebook memunculkan mkt-f-accounts + chip; simpan → mkt-post-detail terbuka dg mkt-detail-account-* @kainnusantara.fb; Dashboard (?view=mkt-analytics) menampilkan 7 KPI dengan 'vs bulan lalu', 6 batang tren (2026-04 … 2026-09), mkt-by-platform, mkt-by-account (@kainnusantara.id), mkt-by-entity (Sukacita + Kanda Fabric), mkt-upcoming, mkt-an-top. ISSUE: mkt-detail-entity tidak render pada post baru — response create_post/get_post tidak mengisi entity_name (hanya list_posts yang isi).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "PostDetailModal", "issue": "Badge mkt-detail-entity tidak muncul di detail post karena backend get_post/create_post tidak mem-populasi 'entity_name' (hanya list_posts loop yang menambahkan). Frontend rendering di PostDetailModal.jsx:67 bergantung pada post.entity_name.", "selector": "mkt-detail-entity", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "backend_verified": [
+    "POST /api/marketing/accounts (X-Entity-Id ent_ksc) {tiktok, @kn.official, followers 300} → 200, handle 'kn.official' (strip @), entity_id ent_ksc.",
+    "Duplikat handle case-insensitive (KN.Official) → 400; platform 'xx' → 400.",
+    "PATCH /accounts/{id} {label:'TikTok utama', followers:350} → 200 + tersimpan.",
+    "GET /accounts → entity_name terisi & posts_total present; GET /accounts?entity_id=all admin mencakup >1 PT.",
+    "POST /posts {platforms:[tiktok], account_ids:[<tt>]} → 200, accounts[0].handle 'kn.official'.",
+    "POST /posts {platforms:[tiktok], account_ids:[<ig>]} → 400 'tidak sesuai platform'.",
+    "POST /posts (ent_ksc) dengan account_ids akun ent_kanda → 400 'milik badan usaha lain'.",
+    "POST /posts X-Entity-Id ent_kanda → entity_id ent_kanda.",
+    "GET /posts?month=2026-09 (ent_ksc, tanpa entity_id) → hanya ent_ksc (tidak ada Kanda).",
+    "GET /posts?month=2026-09&entity_id=all → memuat entity_name Sukacita & Kanda Fabric.",
+    "GET /posts?entity_id=ent_kanda header ent_ksc admin → hanya Kanda.",
+    "GET /posts?entity_id=ent_kanda sales@ (bukan lintas PT) → 403 (RBAC).",
+    "GET /marketing/dashboard?month=2026-09&entity_id=all → kpi{posts,published,reach,engagement,clicks,leads,on_time_rate_pct}, kpi_prev, trend len=6 dg trend[5].month=='2026-09', by_platform, by_account, by_entity ≥2 PT, upcoming, overdue, pipeline; month=2026-08 → kpi.posts=0 no error.",
+    "GET /marketing/calendar.pdf?month=2026-09&entity_id=all → 200 application/pdf, %PDF, Content-Disposition kalender-konten-2026-09.pdf; teks pymupdf berisi 'Kalender Konten September 2026' dan kolom 'Badan usaha'. Tanpa entity_id (single) → 200 %PDF (tanpa kolom Badan usaha)."
+  ],
+  "frontend_verified": [
+    "?view=mkt-calendar&entity=all: mkt-post-count '6 konten · semua badan usaha'; mkt-mode-list → 6 mkt-entity-badge-*; mkt-export-pdf memicu unduhan kalender-konten-2026-09.pdf.",
+    "Ganti header ke Sukacita (localStorage kn_entity=ent_ksc) → mkt-entity-badge-* hilang.",
+    "?view=mkt-accounts&entity=ent_ksc: mkt-new-account → mkt-a-platform-facebook + mkt-a-handle → mkt-account-submit → kartu baru muncul di grup PT aktif.",
+    "?view=mkt-calendar → mkt-new-post → pilih mkt-f-platform-facebook → mkt-f-accounts muncul dg chip @<handle> → klik → simpan → mkt-post-detail terbuka dg mkt-detail-account-<id>.",
+    "?view=mkt-analytics: mkt-dashboard render, 7 KPI (mkt-kpi-total/published/reach/engagement/clicks/leads/ontime) berisi teks 'vs bulan lalu'; mkt-trend punya 6 batang (mkt-trend-2026-04 … 2026-09); mkt-by-platform, mkt-by-account (berisi @kainnusantara.id), mkt-by-entity (Sukacita + Kanda Fabric), mkt-upcoming, mkt-an-top."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter51_marketing_ext.py",
+    "/app/test_reports/pytest/iter51_marketing_ext.xml"
+  ],
+  "action_items": [
+    "Fix mkt-detail-entity rendering: populate 'entity_name' pada respons /api/marketing/posts (POST create_post, GET /{pid}) di router marketing.py — panggil ext.entity_names() dan set doc['entity_name'] sebelum return. Selaras dengan list_posts yang sudah melakukannya."
+  ],
+  "critical_code_review_comments": [
+    "ext.snapshot_accounts memvalidasi entity_id + platform match — konsisten & memberi pesan 'milik badan usaha lain' & 'tidak sesuai platform' sesuai spesifikasi.",
+    "ext.create_account normalisasi handle strip '@' + regex dup case-insensitive per (entity_id, platform, handle) — solid.",
+    "ext.dashboard menghitung tren 6 bulan menyertakan bulan terpilih di posisi terakhir; _kpi safe-div-zero untuk on_time_rate_pct & engagement_rate_pct.",
+    "calendar_pdf_html menambahkan kolom 'Badan usaha' hanya saat multi-entity — sesuai spesifikasi (scope_label 'Semua badan usaha' atau posts.entity_id unik>1); branding grup 'Grup Kain Nusantara' dipakai saat >1 PT.",
+    "MINOR: get_post & create_post di routers/marketing.py TIDAK menambahkan entity_name — menyebabkan mkt-detail-entity kosong di UI meski data tersedia (bug rendering).",
+    "MINOR: list_posts query untuk 'month' memakai $or {publish_at ''} + created_at, tetapi bila di-override oleh 'from_date/to_date' yang di-set 'publish_at' langsung (bukan $and) — sudah aman karena mutually exclusive di UI, tetapi pertimbangkan konsolidasi query builder."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter51_marketing_ext.py"],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "95% (mkt-detail-entity absent)"},
+  "test_credentials": "admin@ / manager@ / sales@ / warehouse@ / designer@kainnusantara.id — demo12345; X-Entity-Id ent_ksc atau ent_kanda; localStorage kn_entity='all' untuk header 'Semua'.",
+  "seed_data_creation": "Akun uji: TT @kn.official (ent_ksc), FB @kainnusantara.fb<rand> (ent_ksc), TT kanda.iter51.tt (ent_kanda), IG kn.iter51.ig (ent_ksc bila belum ada). Post Kanda 'Iter51 Kanda Sep' (ent_kanda, 2026-09-15). Post UI 'Iter51 Post akun kainnusantara.fb<rand>' (ent_ksc, 2026-10-15).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Bug tunggal: populate entity_name di respons POST /api/marketing/posts dan GET /api/marketing/posts/{pid}. Setelah fix, kompresi rendering PostDetailModal (data-testid='mkt-detail-entity') otomatis muncul. Backend akun/dashboard/PDF sepenuhnya lulus (16/16 test_iter51_marketing_ext.py). Frontend static bundle sudah dipakai — jangan ubah src untuk pengujian.",
+  "rca of the issue": "Router marketing.list_posts loop memanggil ext.entity_names() lalu memasukkan r['entity_name']. Namun get_post (single) dan create_post response TIDAK melakukan enrichment yang sama, sehingga field entity_name undefined. Frontend PostDetailModal.jsx line 67 kondisional {post.entity_name && …} sehingga badge mkt-detail-entity tidak render. Mitigasi: tambahkan enrichment entity_name di kedua handler tersebut (atau di service layer)."
+}

@@ -1,0 +1,23 @@
+{
+  "summary": "Iter 53 — Verifikasi UI Pesanan Khusus (OD) sesudah penyeragaman (section-card !p-3, label kicker, grid rapi, reject via FormModal). Semua kriteria terpenuhi di viewport 1920x1080: daftar OD rapi tanpa overflow horizontal (scrollWidth == innerWidth 1920), rincian SORD-260919-0021 menampilkan od-item-panel + 4 sel (qty/target/total/eta), od-customer-panel & od-status-timeline sejajar dengan padding memadai (teks pertama 29px dari tepi kiri kartu, >=10px ambang), panel Fase 2-4 (od-chain, od-customer-approval, od-pricing, od-shipping) hadir dan tidak overflow (0 elemen dengan right > innerWidth). Reject FormModal pada SORD-260919-0010 (pending_approval) tampil dengan judul 'Tolak pesanan khusus SORD-260919-0010?', textarea reject-reason-input, confirm-reject-btn disabled saat kosong, enabled setelah diisi; tombol Batal menutup modal. Popup Buat Pesanan Khusus menampilkan langkah 1-4 dan tombol Simpan disabled saat kosong; Batal menutup modal.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "frontend_verified": [
+    "Daftar OD (?view=special-orders&entity=ent_ksc, admin@) — header, KPI, tab status, tabel (kolom Perkiraan kirim) tampil rapi. document.documentElement.scrollWidth == innerWidth (1920), 0 elemen overflow.",
+    "Rincian SORD-260919-0021 (sord_ea3ce1b8387d, Selesai): special-order-info-panels grid 2 kolom rapi; od-item-panel berisi Deskripsi + 4 sel od-item-qty/-target/-total/-eta; od-customer-panel & od-status-timeline sejajar di kolom kanan; padding od-item-panel leftGap=29px topGap=13px (>=10px OK); od-chain, od-customer-approval, od-pricing, od-shipping konsisten; overflow scan seluruh dokumen: 0 elemen dengan right > innerWidth.",
+    "Reject FormModal pada SORD-260919-0010 (pending_approval): title 'Tolak pesanan khusus SORD-260919-0010?', reject-reason-input textarea hadir, confirm-reject-btn disabled saat kosong, enabled setelah 'TEST_reject reason'; klik Batal menutup modal tanpa aksi.",
+    "Popup Buat Pesanan Khusus (create-special-order-btn): special-order-form tampil, langkah 1 Pelanggan & permintaan, 2 Referensi pelanggan, 3 Spesifikasi produk, 4 Jumlah/harga/tenggat terlihat; special-order-save disabled saat kosong; tombol Batal menutup modal."
+  ],
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Klik tab 'Menunggu Persetujuan' di header tidak memfilter tabel di sesi uji ini (tabel tetap menampilkan Semua). Bukan bagian ruang lingkup iter ini tapi layak dicek terpisah — pastikan tab-status memfilter baris sesuai jumlah badge (mis. Menunggu Persetujuan 2)."
+  ],
+  "updated_files": [],
+  "success_rate": {"frontend": "100%"},
+  "test_credentials": "admin@kainnusantara.id / demo12345, X-Entity-Id ent_ksc",
+  "seed_data_creation": "Tidak ada — hanya mengetik reason lalu Batal (tidak submit). Modal Buat OD juga ditutup via Batal tanpa simpan.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "UI OD sesudah penyeragaman panel & reject FormModal sudah terverifikasi. Bila ingin uji lebih jauh: klik tab status header (Draf/Menunggu Persetujuan/Terkonfirmasi/Produksi/Siap/Shipped/Selesai) — perlu konfirmasi bahwa tab benar-benar memfilter tabel; iter ini tidak melihat perubahan filter setelah klik 'Menunggu Persetujuan'."
+}

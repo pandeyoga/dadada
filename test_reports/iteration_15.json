@@ -1,0 +1,43 @@
+{
+  "summary": "FASE SL (Scan Label Supplier) backend + UI smoke tested. 17/18 backend tests pass (94%). One failure at final task completion due to weight-vs-conversion variance blocker on task wms_e2e3d9059660 (product prod_batik_mega). Frontend inbound-scan flow, error surface, unreadable modal, mode toggle all render correctly on task wms_45386a91c6f1.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/inbound/tasks/{task}/complete",
+        "issue": "Complete blocks with 400 'berat hasil konversi (~31 kg) vs aktual (~50 kg), melebihi batas blokir 5%' after scanning labels TA-R1 (yd=120.5, kg=25.1) and TA-R2 (yd=100, kg=20.8) on prod_batik_mega. Review scenario expects 200. Either (a) product weight-conversion factor for prod_batik_mega is inconsistent with test kg values in the scenario, or (b) complete_inbound_receiving must skip the GSM-vs-actual-kg block when weight came from scan-label rolls and is not part of PO measurement. Blocks the entire FASE SL happy-path completion.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "GET /api/inbound/tasks/{task_id}",
+        "issue": "Individual task GET returns 404 (no such route). Not required by scenario but useful for tests; had to use scan-label response payload instead."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_fase_sl_scan_label.py",
+    "/app/test_reports/pytest/fase_sl_results.xml"
+  ],
+  "action_items": [
+    "Investigate weight/length variance block in complete_inbound_receiving (backend/routers/inbound_receiving.py:430-447) for scan_label mode: either bypass GSM-vs-scanned-kg check when scan_source is label/manual, or fix prod_batik_mega weight conversion so scan-label test kg (25.1/120.5yd, 20.8/100yd) does not trip 5% blocker.",
+    "Verify that received_qty + completion flow retains supplier alias fields and reuses scan-created roll_no (already verified up to complete step)."
+  ],
+  "critical_code_review_comments": [
+    "inbound_receiving.py complete flow blocks receipt on weight vs GSM×width discrepancy even when receive_mode='scan_label' and weight came from scanned label — likely too strict for FASE SL (label kg values are supplier-declared and may not track internal GSM conversion).",
+    "Confirm-measure delta (line ~355) only updates task.received_qty when task.status is qc_check; when status is receiving it just increments — inconsistent semantics may make downstream threshold flip flaky (observed status oscillate around 245 threshold during test)."
+  ],
+  "updated_files": ["/app/backend/tests/test_fase_sl_scan_label.py"],
+  "success_rate": {"backend": "94% (17/18)", "frontend": "UI smoke passed (login → inbound tab → task 45386 → scan panel, error box, escalate, unreadable modal, mode toggle all visible)"},
+  "test_credentials": "warehouse@kainnusantara.id / demo12345, admin@kainnusantara.id / demo12345, X-Entity-Id: ent_ksc",
+  "seed_data_creation": "None. Test uses prefix TA-/UI- and cleans up existing receiving rolls before run.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Task wms_e2e3d9059660 is consumed once complete succeeds (moves to qc_pending). Backend test file at /app/backend/tests/test_fase_sl_scan_label.py; run with `-n 0` to keep sequential ordering (tests are state-dependent). Frontend test used wms_45386a91c6f1 (JMP-PLB-001, 300 yard). Scan-label error payload is object {code, message, decoded}.",
+  "rca of the issue": "complete_inbound_receiving sums roll weight_kg (user-scanned label kg) and compares to weight derived from length×conversion (GSM×width). For prod_batik_mega with test-scenario kg (25.1/120.5yd, 20.8/100yd → density ~0.21 kg/yd) vs product conversion producing ~0.126 kg/yd, difference is >60% and hits the 5% block threshold. Fix: either bypass this GSM-consistency check for scan_label rolls, or align prod_batik_mega weight conversion factor with the scenario kg values."
+}

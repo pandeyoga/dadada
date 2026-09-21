@@ -1,0 +1,45 @@
+{
+  "summary": "Iterasi tester Jual Sampel POS: backend 6/6 kasus lulus (1 skip untuk master_sampel karena tidak ada template harga sampel untuk produk uji `prod_batik_mega`), frontend end-to-end UI POS + WMS + Orders + Pricelist tervalidasi memakai testid yang diminta. Fitur legacy /api/sample-requests benar-benar 404. Menu 'Jual Sampel' tidak lagi ada di sidebar. Sample cut panel warehouse lengkap.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/sample-prices", "issue": "Belum ada template harga sampel untuk produk `prod_batik_mega` sehingga uji verifikasi source=master_sampel di-skip. Jika seed diharapkan menyediakannya, lengkapi. Bukan bug — hanya kekurangan seed data."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "POS Checkout submit oleh sales@ untuk Toko Kain Sejahtera (SAMPEL)", "issue": "Tombol checkout-submit menampilkan 'Terblokir Kredit' karena pelanggan default memiliki tunggakan jatuh tempo (bukan bug fitur sampel — gate kredit legit). Alur dapat diselesaikan dengan pelanggan lain atau via admin API sebagaimana pytest.", "affected_selectors": ["checkout-submit"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sample_pos_flow.py",
+    "/app/backend/tests/test_iter_sample_pos_extra.py",
+    "/app/test_reports/pytest/iter_sample_pos.xml"
+  ],
+  "action_items": [
+    "(Opsional) Seed template harga sampel utk produk yang punya roll available (mis. prod_batik_mega) supaya uji source=master_sampel tidak di-skip.",
+    "Tidak ada action item wajib — fitur Jual Sampel via POS berfungsi end-to-end (backend + UI)."
+  ],
+  "critical_code_review_comments": [
+    "sample-quote mengembalikan `source` in {master_sampel|harga_daftar|harga_daftar_default|manual_sampel} dan `suggested_roll` FIFO — dikonfirmasi.",
+    "SO create menandai baris `is_sample=true` dengan fulfillment_mode=sample_cut, reserved_qty=0, dan has_sample=true di header — dikonfirmasi.",
+    "Legacy endpoint `/api/sample-requests` (GET/POST) dihapus dan mengembalikan 404 sesuai spec.",
+    "Cut-sample error codes ROLL_WRONG_PRODUCT, TAG_UNKNOWN, REASON_REQUIRED, 409 pada cut kedua, semuanya sesuai spec.",
+    "UI POS: quickview-sample-button, toggle-sample-*, sample-price-input-*, sample-subtotal-*, sample-quote-*, sample-fields-*, checkout-review-sample-*, checkout-sample-fulfillment-note, order-sample-chip-*, order-item-sample-*, order-item-sample-status-* semua ada.",
+    "UI WMS: outbound-task-sample-*, sample-cut-panel-*, sample-cut-length-*, sample-cut-code-*, sample-cut-reason-*, sample-cut-other-*, sample-cut-use-suggested-* semua ada. `sample-cut-done-*` muncul setelah pemotongan (tidak ditest di UI karena butuh RFID handheld — sudah divalidasi via backend cut-sample).",
+    "Pricelist admin menampilkan section 'Master Harga Sampel' di bagian bawah — dikonfirmasi.",
+    "Menu 'Jual Sampel' tidak lagi ada di hub Penjualan — dikonfirmasi via inspeksi teks body & sidebar."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter_sample_pos_extra.py (baru — cakupan tambahan)"
+  ],
+  "success_rate": {"backend": "100% (5 pass / 1 skip / 0 fail)", "frontend": "100% (semua testid & alur diverifikasi)"},
+  "test_credentials": "admin@kainnusantara.id / manager@ / sales@ / warehouse@ semua demo12345; header X-Entity-Id: ent_ksc",
+  "seed_data_creation": "Beberapa SO uji baru dibuat dgn `sample_price=12345` dan `sample_price=9999` serta reason='uji' oleh pytest — semuanya jalur alur legit (tidak menyentuh data seed). Roll RL-00002 (prod_batik_mega) berkurang panjangnya beberapa kali oleh cut-sample uji (sisa ~120 yard, masih memadai).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Test file utama pytest berada di /app/backend/tests/test_sample_pos_flow.py dan tambahan /app/backend/tests/test_iter_sample_pos_extra.py. Jalankan berurutan (tanpa xdist) untuk menghindari race pada `length_remaining` roll induk: `python -m pytest tests/test_iter_sample_pos_extra.py tests/test_sample_pos_flow.py -q -o addopts=`. Frontend static build — tidak perlu rebuild.",
+  "rca of the issue": "Tidak ada bug baru ditemukan. Race saat pytest paralel (xdist di pytest.ini) muncul karena dua test class mengasumsikan `length_remaining` roll sama sebelum-sesudah cut — solusi: jalankan sequential atau isolasi roll per test. Tester hanya mengeksekusi sequential untuk laporan resmi."
+}

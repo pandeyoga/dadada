@@ -1,0 +1,23 @@
+{
+  "summary": "Frontend visual/functional test for Master Data Produk & Varian detail page (Endek Bali Rangrang, ptpl_c3546aeb9702d12ec9fb). All specified behaviors verified: hero image + facts (4 SKU, Rp 320.000 – Rp 345.000, 12 disetujui), 4 hero swatches, 4 variant cards with images and prices, selecting Merah Marun updates SKU/name correctly, media filter (mockup=1, all=4) works, media preview visible, Info tab shows description/spec (Bali Weave Studio, ENK-BALI-003) and 4 color chips + R&D policy button, R&D tab shows relations, sample count, and artwork image after switching to Ungu-Emas variant. Back navigation returns to product list with card showing '4 varian'. Mobile 390x844: no horizontal overflow, tabs clickable, variants stacked in single column.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Master Data > Produk & Varian list page", "issues": ["Wrapper element for product cards does not carry data-testid='catalog-grid' (individual catalog-card-* cards are correctly rendered). Spec expected a catalog-grid testid; if strictly required, add it to the cards container."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional: add data-testid='catalog-grid' to the product list container in CatalogWorkspace list view to satisfy the spec exactly (all card testids present, functionally fine)."
+  ],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "~98% (7/7 primary checks passed; 1 minor testid naming deviation)"},
+  "test_credentials": "admin@kainnusantara.id / demo12345 (from request)",
+  "seed_data_creation": "None — used existing seeded showcase data",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Detail page for Endek Bali Rangrang is fully functional: 4 variants (Ungu-Emas prod_endek_bali_ungu, Merah Marun, Kuning Emas, Hitam Pekat), hero uses first variant image via /api/products/{id}/media/{mid}/content, media filters and gallery work, R&D relations + artworks image present for Ungu-Emas. Only cosmetic missing: catalog-grid testid on list wrapper."
+}

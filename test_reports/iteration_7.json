@@ -1,0 +1,26 @@
+{
+  "summary": "Regresi ringan sesi restore (tanpa fitur baru). Backend: login 4 akun (md/admin/manager/sales) HTTP 200; GET /api/product-motifs (X-Entity-Id: ent_ksc, MD) → items=14, first='Polos' (source=baku), sources={baku,desain,induk}, contains 'Mega Mendung', tanpa duplikat value. GET /api/product-catalog/meta → variant_axes.default == ['color','grade','origin']. UI: (a) MD ?view=md-products&entity=ent_ksc — catalog-create membuka FamilyForm; family-category/family-motif/family-base_unit adalah KNSelect; klik Simpan tanpa memilih kategori menghasilkan error 'Pilih kategori dari Master Kategori.' (FIX iter6 terverifikasi); pilih Batik + gramasi 180 + lebar 1.5 + 1 warna 'Hitam Pekat' (axis-color-pick-*) + nama TEST_UI_<acak> → tersimpan (form tertutup, kartu induk baru tampil di daftar). (b) Regresi edit induk lama TEST_BF_print_74DBCE (kategori='Kain' legacy, sudah punya 2 SKU) → dibuka via kartu, klik 'Ubah induk', Simpan tanpa perubahan → sukses tanpa error, banner 'Induk produk tersimpan.' muncul (kategori tampil sebagai 'Kain (nilai lama)' seperti dilaporkan iter6). (c) R&D manager ?view=rnd-specs — 'Spesifikasi Baru' membuka SpecFormModal; spec-category-input & spec-unit-input KNSelect; spec-gramasi-input type=number; simpan draft (title TEST_UI_<acak>_spec, kategori Batik) sukses (modal tertutup). (d) Sales portal ?view=sales — katalog tampil (23 SKU dari 22 induk, kartu produk data-testid ada), tidak ada console error fatal. Catatan: ?view=sales-catalog/sales-products/sales-price di-redirect ke ?view=sales-home (bukan bug; sales katalog memang di route 'sales').",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "MD FamilyForm (induk produk baru, stage=finished)", "issues": ["Alur minimal yang tertulis di review request ('nama + kategori Batik + 1 warna') sebenarnya tetap ditolak dengan pesan 'Lengkapi Gramasi/GSM (gram per m²), Lebar kain (meter).' karena fieldRules mensyaratkan gramasi & lebar untuk stage=finished. Bukan bug — validasi konsisten dengan fieldRules — tetapi review request perlu mencantumkan pengisian gramasi & lebar agar penguji lain tidak salah menandai sebagai regresi."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/smoke_variant_axes_base_fabric.py"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "FamilyForm.jsx (baris 14, 23, 36): perbaikan yang diminta iter6 SUDAH diterapkan — default `category: ''`, opsi placeholder '— pilih kategori —' di-prepend, dan validasi submit `if (!f.category) setError('Pilih kategori dari Master Kategori.')` sudah ada. Terverifikasi berjalan.",
+    "KNSelect (cmdk `CommandItem`): pemilihan opsi via Playwright `.click()` pada `[data-testid=<field>-option-<value>]` kadang tidak memicu `onSelect` (cmdk bergantung pada event khusus). Rekomendasi tetap didokumentasikan untuk automator berikutnya: pakai jalur `[data-testid=<field>-search]` + isi teks + tekan Enter agar seleksi konsisten. Ini masalah harness testing, bukan bug produk.",
+    "Induk lama dengan kategori 'Kain' (di luar Master Kategori) lolos validasi karena f.category truthy; hanya ditampilkan sebagai '(nilai lama)'. Ini sesuai desain iter6 (backward-compat)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "md@ · admin@ · manager@ · sales@kainnusantara.id — password demo12345 · entity uji ent_ksc",
+  "seed_data_creation": "1 induk baru TEST_UI_1196 (kategori Batik, gramasi 180, lebar 1.5, 1 warna Hitam Pekat, 0 varian karena hanya 1 opsi color tanpa kombinasi lain). 1 spec draft TEST_UI_<suffix>_spec (Batik). Tidak ada perubahan pada TEST_BF_print_74DBCE (regresi PUT no-change).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Untuk memilih opsi KNSelect via Playwright, jangan klik `[data-testid=<field>-option-<value>]` langsung — cmdk CommandItem sering menolak sintetis click. Gunakan `[data-testid=<field>-search]` → fill(teks) → keyboard.press('Enter'). Sales katalog ada di ?view=sales (bukan sales-catalog). Kartu induk berupa card-grid (bukan tabel) di md-products; klik teks nama membuka detail lalu tombol 'Ubah induk' membuka FamilyForm. Induk TEST_BF_print_74DBCE tetap ada dan bisa disimpan tanpa perubahan meski category='Kain' (legacy) berkat truthy check.",
+  "rca of the issue": "N/A — tidak ada regresi. Perbaikan iter6 pada FamilyForm.jsx (default category='' + placeholder option + validasi wajib) sudah terpasang dan berfungsi; alur MD/R&D/Sales berjalan; backend product-motifs & catalog meta sesuai kontrak."
+}

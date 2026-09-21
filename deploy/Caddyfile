@@ -1,0 +1,36 @@
+{
+    email {$ACME_EMAIL}
+}
+
+# Dipakai HANYA bila VPS belum punya proxy di port 80/443 (edge mode = caddy).
+# Caddy menerbitkan sertifikat Let's Encrypt dan memperbaruinya otomatis (tanpa cron).
+{$DOMAIN} {$EXTRA_HOSTS} {
+    encode zstd gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options nosniff
+        X-Frame-Options SAMEORIGIN
+        Referrer-Policy strict-origin-when-cross-origin
+        -Server
+    }
+
+    request_body {
+        max_size 50MB
+    }
+
+    # kn-web (nginx) melayani SPA dan meneruskan /api → kn-backend
+    reverse_proxy web:80 {
+        header_up X-Forwarded-Proto {scheme}
+        transport http {
+            read_timeout 300s
+        }
+    }
+
+    log {
+        output file /data/access.log {
+            roll_size 50mb
+            roll_keep 5
+        }
+    }
+}

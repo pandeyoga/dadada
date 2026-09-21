@@ -1,0 +1,89 @@
+name: kn
+
+# Kain Nusantara ERP — produksi di VPS.
+# Semua container memakai awalan `kn-` dan jaringan `kn` supaya tidak bentrok dengan
+# proyek lain di VPS yang sama. Mongo TIDAK dipublikasikan ke host. Hanya `web` yang
+# dipublikasikan, itu pun ke 127.0.0.1 (dipakai bila edge = nginx host).
+# Edge HTTPS (port 80/443) opsional lewat profil `edge` — lihat deploy/edge.sh.
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: kn-mongo
+    restart: unless-stopped
+    command: ["mongod", "--bind_ip_all", "--quiet", "--wiredTigerCacheSizeGB", "0.5"]
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    container_name: kn-backend
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Jakarta
+      MONGO_URL: mongodb://mongo:27017
+      DB_NAME: ${DB_NAME}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      SESSION_COOKIE_SECURE: "true"
+      SESSION_COOKIE_SAMESITE: lax
+      PUBLIC_APP_URL: https://${DOMAIN}
+      REACT_APP_BACKEND_URL: https://${DOMAIN}
+      LOCAL_STORAGE_DIR: /data/uploads
+      SEED_DEMO_ENABLED: "false"
+    volumes:
+      - uploads:/data/uploads
+    expose:
+      - "8001"
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+      args:
+        REACT_APP_BACKEND_URL: https://${DOMAIN}
+    container_name: kn-web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:${KN_WEB_PORT:-18080}:80"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: kn-caddy
+    restart: unless-stopped
+    profiles: ["edge"]
+    depends_on:
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN}
+      EXTRA_HOSTS: ${EXTRA_HOSTS:-}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+networks:
+  default:
+    name: kn
+
+volumes:
+  mongo_data:
+  uploads:
+  caddy_data:
+  caddy_config:

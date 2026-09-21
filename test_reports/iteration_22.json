@@ -1,0 +1,25 @@
+{
+  "summary": "Verified fix for blank-page bug caused by stale service worker cache. Simulated poisoning kn-sw-v2-shell with an index.html referencing /static/js/main.deadbeef.js; after reload the login page rendered correctly (network-first navigation). Header/404 checks pass. Login and both target views render without pageerrors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Designer KPI charts", "issues": ["Recharts warning: container width(-1)/height(-1) briefly logged before layout stabilises. Not blocking, chart still renders."]}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iter22-final.jpeg"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "sw.js correctly uses VERSION 'kn-sw-v2', network-first for navigate/index.html and cache-first for /static/*; activate cleans up old cache versions (verified: only kn-sw-v2-* caches remain).",
+    "static_server.js returns 404 text/plain for missing /static/* (verified with /static/js/main.deadbeef.js) and Cache-Control: no-store for html/sw (verified via curl).",
+    "Consider setting explicit min height on chart wrappers to silence Recharts width(-1) warnings on Designer KPI page."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "100%"},
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Bug fix validated end-to-end: (1) sw.js kn-sw-v2 network-first for navigations; (2) static_server 404s missing /static/* instead of SPA-fallback; (3) headers no-store on / and /sw.js; (4) poisoning kn-sw-v2-shell with stale index -> reload still shows login screen (network-first); (5) admin login + md-products (catalog-grid) + designer-kpi (design-score-trend) all render with no pageerrors. Cache list after full flow: ['kn-sw-v2-shell','kn-sw-v2-data'] — no legacy kn-sw-v1-*.",
+  "rca of the issue": "Previous sw.js used cache-first for navigations, so index.html cached before rebuild referenced hashed chunks that no longer existed. static_server SPA fallback served index.html for missing /static/js/* → served as JS, causing parse error and blank page. Fix: sw.js kn-sw-v2 uses network-first for navigate/index.html; static_server returns 404 for missing hashed assets; both / and /sw.js served with Cache-Control: no-store so browsers/CDN never freeze on stale HTML. Verified by poisoning shell cache and reloading — real bundle is fetched."
+}

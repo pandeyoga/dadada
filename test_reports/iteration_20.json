@@ -1,0 +1,32 @@
+{
+  "summary": "ITER-316 KPI Desainer — 'Tren Nilai Desain' + Bobot Nilai Desain: seluruh flow backend (9/9 pytest) & UI utama LULUS. Backend: weights.design default 20; Dewi Lestari design_avg_score=1.31, grade_design_pts=65.5, grade numerik; Desainer Demo grade numerik saat bobot>0 dan null saat bobot=0; trend metric=design_score months=6 scale_max=2 dengan points Dewi 4 bulan terakhir=[0.75,1.25,1.5,1.75] tepat; metric=grade & avg_score 200; PUT rnd.kpi_weight_design=50 → grade Dewi TURUN, =0 → NAIK & Demo null; kembali 20 di teardown; ekspor CSV/PDF & report PDF individu & /my-kpi (weights.design ada) 200. Frontend: login admin, halaman ?view=designer-kpi memuat `designer-kpi-trend-row` dengan `designer-kpi-trend` (kiri, x=290,w=774) & `design-score-trend` (kanan, x=1076,w=774) berdampingan pada 1920px; chart tampil (bukan empty); legend memuat Dewi Lestari, Desainer Demo, Bagas Nugroho; ganti months ke 3 → chart tetap tampil; panel `designer-kpi-how` memuat teks 'nilai versi desain 20%' dan tombol `designer-kpi-design-weight-link` ada; testid `designer-kpi-design-score-Dewi Lestari` dan `designer-kpi-grade-Dewi Lestari` ada; mobile 390x844 dua chart di-stack vertikal tanpa horizontal overflow.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Designer KPI (initial render)", "issues": ["Recharts console warning 'The width(-1) and height(-1) of chart should be greater than 0' saat mount awal (chart tetap tampil setelah resize) — kosmetik, tidak menghambat fungsi. Kemungkinan ResponsiveContainer render sebelum parent flex mendapat lebar."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter316_designer_kpi_design_weight.py",
+    "/app/test_reports/pytest/iter316.xml"
+  ],
+  "action_items": [
+    "(Opsional) Periksa initial render Recharts warning width/height -1 pada `design-score-trend`/`designer-kpi-trend` (kemungkinan butuh minWidth:0 pada wrapper flex, atau aspect ratio). Tidak menghambat fitur, tapi enak dibersihkan.",
+    "(Klarifikasi) Nilai kolom 'Nilai desain' pada UI bergantung pada periode yang dipilih (default 30 hari) — di periode 'Semua waktu' Dewi=1,31/2, di 30 hari terakhir=1,75/2. Bila catatan review request '1,31/2' dimaksud untuk default view, pertimbangkan mengunci fallback all-time atau menambahkan tooltip periode pada kolom desain."
+  ],
+  "critical_code_review_comments": [
+    "rnd_kpi_service.py: DESIGN_SCORE_SCALE (50) di-referensi di compute_grade sebelum didefinisikan (didefinisikan di bawah). Karena Python me-resolve saat runtime + fungsi dipanggil setelah modul selesai di-load, tidak crash — tapi ordering sebaiknya dirapikan (letakkan konstanta di dekat impor untuk keterbacaan).",
+    "rnd_kpi_service.py sekitar 740 baris — mendekati batas 700 baris. Pertimbangkan pecah submodul design_trend/design_stats."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter316_designer_kpi_design_weight.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@kainnusantara.id / demo12345 (X-Entity-Id: ent_ksc)",
+  "seed_data_creation": "Tidak ada. Data uji sudah di-seed oleh main agent (scripts/seed_design_scores_demo.py). Bobot rnd.kpi_weight_design dikembalikan ke 20 di teardown pytest.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Test file regressi: /app/backend/tests/test_iter316_designer_kpi_design_weight.py — jalankan dengan `pytest backend/tests/test_iter316_designer_kpi_design_weight.py -o addopts='' -v`. Pastikan bobot rnd.kpi_weight_design=20 sebelum menjalankan tes lain. Frontend UI KPI Desainer: URL ?view=designer-kpi&entity=ent_ksc, role admin/manager. Testid utama: designer-kpi-trend-row, designer-kpi-trend, design-score-trend, design-score-trend-chart, design-score-trend-avg-legend, design-score-trend-months, designer-kpi-how-toggle, designer-kpi-how, designer-kpi-design-weight-link, designer-kpi-design-score-<Nama>, designer-kpi-grade-<Nama>."
+}

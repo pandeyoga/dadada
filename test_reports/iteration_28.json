@@ -1,0 +1,30 @@
+{
+  "summary": "Iter319 — Permintaan Desain ↔ Design Studio sync: 9/9 backend tests passed (1 skipped, non-critical) covering /design-requests/meta categories, POST create with new pattern+design categories (invalid → 400), designer create-design (in_progress, code SRI-SLR-AO-###), studio submit → request delivered, admin approve/reject on studio-linked request → 400, studio request-revision (revision_count++, reject_reason), studio approve → approved, link-design happy path + already-linked guard, list envelope contains designs[] & studio_linked. Frontend admin+designer flows verified: 7 columns render, create modal (3 numbered sections) fills via KNSelect (SLR/AO), assignee user_designer_01, brief validation works, new card appears; designer detail shows dsr-stepper + dsr-linked-designs (empty), dsr-new-design-title prefilled from brief, dsr-create-design-button navigates to design-detail-page with chip 'Dari permintaan KSC/DSR-00016 — status permintaan mengikuti desain ini' and code SRI-SLR-AO-005; designer upload+submit moves request to Menunggu Keputusan; admin detail shows dsr-decide-in-studio + dsr-open-studio-button (no dsr-approve-button) — opening it navigates to design detail with Setujui (ACC) modal + score picker. Regressions OK: rnd-designs cards+create button, logistics dashboard.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter319_dsr_studio_sync.py",
+    "/app/test_reports/pytest/iter319.xml"
+  ],
+  "action_items": [
+    "(minor/optional) Score buttons in Design Studio ACC modal are individual buttons (0, 0.25, ... 2). Consider standardising data-testid per value like design-action-score-1.75 for easier automation; currently the container has data-testid=design-action-score but children lack values-in-testid."
+  ],
+  "critical_code_review_comments": [
+    "design_request_service.attach_designs is called on each list request; consider caching or batching if list volume grows. For now performance is fine."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter319_dsr_studio_sync.py",
+    "/app/test_reports/iteration_28.json"
+  ],
+  "success_rate": {"backend": "100% (9/9 executed, 1 skipped)", "frontend": "100% of covered flows"},
+  "test_credentials": "admin@kainnusantara.id / demo12345; designer@kainnusantara.id / demo12345; X-Entity-Id: ent_ksc",
+  "seed_data_creation": "Created several TEST_QA design requests (KSC/DSR-000xx) and one design SRI-SLR-AO-005 titled 'TEST_QA Desain UI' during E2E validation. All prefixed TEST_QA. No seed data mutated.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Regression file /app/backend/tests/test_iter319_dsr_studio_sync.py is idempotent (uses uuid tags). Covers meta, create-request, create-design authz, upload+submit sync (delivered), admin approve/reject blocked when studio-linked, request-revision (revision_count/reject_reason) then re-submit then approve (approved), link-design happy path + duplicate → 400, list has designs[]/studio_linked. Skipped case (forbidden create-design for foreign designer) requires seeding a request assigned to another designer id — current seed only has user_designer_01. To exercise, create a second designer via seed and re-enable test.",
+  "rca of the issue": "N/A — feature works end-to-end."
+}

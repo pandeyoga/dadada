@@ -1,0 +1,18 @@
+[bootstrap] kebersihan data: 34 record dirapikan {'customers': 5, 'suppliers': 6, 'users': 14, 'hr_employees': 2, 'makloons': 7}
+✅ Fondasi bootstrap ditanam ulang (akun md@/wh.admin@: 2/2)
+
+📋 Summary:
+  - 14 Users (admin, sales, manager, warehouse×2)
+  - 18 Products (Batik, Tenun, Lurik, Songket, Ulos, Jumputan, Endek)
+  - 5 Customers
+  - 4 Warehouses (Jakarta, Bandung, Surabaya)
+  - 16 Purchase Orders (PO-00001 → PO-00006)
+  - 10 Sales Orders (SO-0001 → SO-0009)
+  - 17 Inbound tasks · 8 Outbound tasks
+  - 18 inventory balances · 26 movements
+  - 43 inventory rolls (Roll-as-SSOT)
+  - 9 audit logs
+  - 3 Work Order produksi in-house (BOM + HPP)
+SEED_EXIT=0
+backend: stopped
+backend: started

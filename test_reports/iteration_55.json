@@ -1,0 +1,38 @@
+{
+  "summary": "Frontend-only regression on 'Pusat Pengaturan' hub (8 tab) sesudah perbaikan konsistensi. Semua tab bisa dibuka; label & pil biru konsisten; wizard/modal FormModal per tab tampil dengan footer standar; R&D input regression tetap terjaga (fokus tidak lepas). Ditemukan 1 bug fungsional pada Buat Pelanggan (Master Data & Audit) dan beberapa minor label/text.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/customers", "issue": "Return 400 'Alamat toko wajib diisi' padahal field Alamat di modal FE tidak ditandai wajib; validasi FE vs BE tidak sinkron."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AdminView > Buat Pelanggan modal (admin-create-form)", "issue": "Isi hanya Nama + Kota → klik 'Simpan Pelanggan' → API 400 'Alamat toko wajib diisi.' Modal tidak menampilkan pesan galat di dalam modal; hanya muncul singkat di banner header (mudah terlewat). Modal tetap terbuka dan tidak ada indikator error. Field 'Alamat' seharusnya ditandai wajib (*), atau backend jangan mewajibkan, atau tampilkan error inline di modal (mirip em-create-form-error).", "selector": "[data-testid='admin-create-form'] input[placeholder='Alamat'] / [data-testid='admin-create-customer-button']", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "Buat Pelanggan → simpan → tutup modal → muncul di daftar", "issue": "Alur gagal (lihat ui_bugs). Tidak ada rekaman customer 'Uji Konsistensi QA' setelah save; siklus Nonaktifkan/Aktifkan tidak dapat diuji karena data belum terbuat.", "affected_selectors": ["admin-create-customer-button", "admin-delete-customers-<id>-button", "admin-update-customers-<id>-button"]}
+    ],
+    "design_issues": [
+      {"screen": "PDF Templates (pdf-templates)", "issues": ["Tab id di DOM: pdf-tab-naskah, layout, kop, typografi, tabel, field, ttd, footer — di brief testing ada penyebutan 'letterhead/font' yang tidak sesuai actual (informational; tidak ada bug, pil sudah rapi, tidak overlap bahkan pada viewport 900px)."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "AdminView: tandai field 'Alamat' sebagai wajib (label 'Alamat *') dan/atau tambahkan validasi FE agar tombol 'Simpan Pelanggan' disabled sampai Alamat diisi.",
+    "Tampilkan pesan galat API di dalam modal admin-create-form (mirip pola em-create-form-error) supaya user tidak kehilangan pesan setelah klik Simpan.",
+    "Sinkronkan required-fields antara backend (customers) dan modal FE (saat ini backend mewajibkan Alamat, FE hanya Nama)."
+  ],
+  "critical_code_review_comments": [
+    "AdminView customer create modal: kurang inline error handling untuk response 400 dari POST /api/customers. Ikuti pola FormModal yang sudah dipakai di em-create-form.",
+    "Konsistensi 'required marker (*)' antar modal setting hub belum seragam (mis. entity wizard menggunakan sub-teks, admin-create-form pakai '*', em-create-form pakai daftar error setelah submit)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "~92% (11/12 flow lulus; 1 flow customer create gagal)"},
+  "test_credentials": "admin@kainnusantara.id / demo12345 (entity ent_ksc)",
+  "seed_data_creation": "Master 'Syarat Pembayaran' baris QA01 'QA Uji' dibuat via em-create-form (aman untuk regresi berikutnya). Pelanggan 'Uji Konsistensi QA' TIDAK berhasil dibuat karena bug validasi Alamat.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Semua tab settings hub sudah pil biru & label kecil kapital konsisten. FormModal footer standar (Batal + primary) tampil di em-create-form, admin-create-form, template dokumen, filter audit. Regresi input R&D (rnd-sample-create-button → sample-title-input / sample-spec-gramasi) tetap fokus saat keyboard.type. Fokus perbaikan berikutnya: alignment required-fields customer + inline error di admin-create-form.",
+  "rca of the issue": "Backend endpoint POST /api/customers memvalidasi field 'alamat_toko' (Alamat) sebagai wajib. Frontend AdminView admin-create-form hanya men-disable tombol Simpan Pelanggan sampai Nama diisi. Ketika user mengisi Nama tanpa Alamat, request lolos FE dan gagal di BE dengan {detail:'Alamat toko wajib diisi.'}. Modal tidak menampilkan error tersebut secara inline sehingga UX terasa 'button tidak berfungsi'. Reproduksi: view=admin → Pelanggan → Buat Pelanggan → isi Nama='Uji Konsistensi QA', Kota='Jakarta' → Simpan Pelanggan. Mitigasi: tambahkan required Alamat di FE (label '*' + kontrol disable), tampilkan error API di dalam modal, atau longgarkan wajib Alamat di BE."
+}

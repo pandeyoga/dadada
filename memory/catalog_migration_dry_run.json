@@ -1,0 +1,9 @@
+{
+  "products_linked": 5,
+  "dry_run": true,
+  "conflicts": [],
+  "orphans_left": 5,
+  "immutable_field_drift": [],
+  "product_count_before": 5,
+  "product_count_after": 5
+}

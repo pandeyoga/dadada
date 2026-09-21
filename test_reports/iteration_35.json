@@ -1,0 +1,40 @@
+{
+  "summary": "Iter35 — Peran & Hak Akses (3 penyempurnaan) + pengenalan peran KUSTOM. Backend 8/8 pytest LULUS di /app/backend/tests/test_role_editor_iter35.py: GET /api/access/roles/cr_staf_penagihan mengembalikan accounts[] lengkap (id,name,email,status,home_entity_id,entity_name) berisi penagihan@kainnusantara.id · Sukacita; wakilmanajer@ (cr_wakil_manajer, acuan manager) mendapat 200 di /api/internal-requests/meta (can_decide+can_pick_source true), /api/rnd/reports/designer-kpi, /api/rnd/divisions, /api/design-requests; regresi manager@ can_decide true, sales@ can_decide false, sales@ tetap 403 di designer-kpi. Frontend admin: role editor menampilkan `role-editor-accounts` (summary '1 akun memakai peran ini' dengan role-editor-account-<id> berisi 'Rina Penagihan · penagihan@kainnusantara.id · Sukacita') dan tombol role-editor-delete DISABLED (masih ada akun). Dialog in-app HAPUS peran kustom (TEST_Peran Hapus dibuat lalu dihapus): role-editor-danger tampil dengan title 'Hapus peran “TEST_Peran Hapus”?', tombol cancel menutup tanpa menghapus, confirm menghapus peran dari daftar (tidak ada window.confirm bawaan). Dialog in-app RESET pada peran bawaan warehouse: role-editor-danger title 'Kembalikan “Gudang” ke bawaan?', confirm menghapus badge role-card-modified-warehouse (peran dikembalikan ke bawaan). NAMUN pengenalan peran KUSTOM di frontend GAGAL: login wakilmanajer@ lalu buka `?view=design-requests&entity=ent_ksc` maupun `?view=designer-kpi&entity=ent_ksc` selalu di-redirect ke `?view=manager-home` sehingga dsr-create-button dan design-score-trend tidak tampil. Bersamaan itu, GET /api/home/manager?entity_id=ent_ksc mengembalikan 403 untuk cr_wakil_manajer (banner 'Role Anda tidak memiliki izin untuk aksi ini' di Beranda). Backend permit sudah terhubung untuk internal-requests/rnd/design-requests, tetapi endpoint home/manager dan bundle frontend (nav guard `roleCanSee`/`ROLE_HOME_REGISTRY`) belum memperlakukan cr_wakil_manajer seperti manager.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/home/manager", "issue": "403 untuk cr_wakil_manajer (peran kustom acuan manager). Regresi terhadap tujuan sesi 35 — home Beranda gagal dimuat dan memicu banner global 'Role Anda tidak memiliki izin untuk aksi ini'.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Deep-link cr_wakil_manajer → design-requests / designer-kpi", "issue": "URL di-rewrite ke ?view=manager-home; dsr-create-button dan design-score-trend tidak pernah tampil. Diduga (a) navigation guard/`roleCanSee` mengevaluasi cr_wakil_manajer SEBELUM /api/roles memanggil registerDynamicRoles (jadi ROLE_NAV[cr_wakil_manajer]=undefined ⇒ inherit manager tidak dipakai), atau (b) redirect ke home peran dipaksakan tanpa menunggu registry siap. Bundle terbaru masih memperlihatkan perilaku ini pada URL preview.", "affected_selectors": ["dsr-create-button", "design-score-trend"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_role_editor_iter35.py",
+    "/app/test_reports/pytest/iter35.xml"
+  ],
+  "action_items": [
+    "Perbaiki backend /api/home/manager agar mengenali peran kustom acuan manager (gunakan role_in/roleIs base_role, seperti internal-requests/rnd/design-requests).",
+    "Perbaiki frontend nav guard: tunda evaluasi view/home-redirect sampai registerDynamicRoles selesai, atau tambahkan resolusi baseRole di `roleCanSee` walau ROLE_NAV[role] belum terdaftar (mis. baca `ROLE_REGISTRY[role]?.baseRole` sebagai fallback inherit).",
+    "Setelah dua fix di atas, rebuild frontend (`bash /app/scripts/rebuild_frontend.sh`) lalu ulangi verifikasi: login wakilmanajer@ → ?view=design-requests (dsr-create-button muncul) & ?view=designer-kpi (design-score-trend muncul, tanpa 403)."
+  ],
+  "critical_code_review_comments": [
+    "custom_role_service.get_role sekarang menyisipkan accounts[] dengan entity_name — pastikan pembersihan _id tetap dilakukan (belum ada bocornya dalam test, oke).",
+    "Registrasi peran kustom di frontend bersifat asinkron; ada race pada muat pertama saat deep-link → perlu memicu re-evaluate view setelah registerDynamicRoles.",
+    "Backend cakupan role_in/base_role: internal_requests, rnd, rnd_org, design_requests SUDAH mengenali cr_wakil_manajer; tapi home/manager tampak masih memakai daftar peran keras. Verifikasi endpoint home_* lain (home/sales, home/finance, dsb.) untuk konsistensi."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_role_editor_iter35.py"
+  ],
+  "success_rate": {"backend": "100% (8/8 pytest utama; 1 regresi baru ditemukan di /api/home/manager)", "frontend": "60% (2 dari 3 alur admin lulus; alur peran kustom acuan manager GAGAL di deep-link)"},
+  "test_credentials": "admin@ / wakilmanajer@ / penagihan@ / manager@ / sales@ kainnusantara.id · demo12345 (designer@ TIDAK ADA di DB — pakai sales@ untuk regresi 403 designer-kpi).",
+  "seed_data_creation": "Peran kustom TEST_Peran Hapus (cr_test_peran_hapus) dibuat lalu dihapus via UI dialog role-editor-danger; peran warehouse dimodifikasi lalu di-reset ke bawaan via UI dialog. Tidak ada data sisa.",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "Backend regresi baru: /api/home/manager 403 untuk cr_wakil_manajer — reproduksi dengan curl + Authorization Bearer + X-Entity-Id: ent_ksc. Frontend deep-link untuk peran kustom masih memaksa manager-home; setelah rebuild bundle, ulangi Playwright test iter35_wakil_dsr / iter35_wakil_kpi. Backend suite regresi: pytest tests/test_role_editor_iter35.py -o addopts=''.",
+  "rca of the issue": "Frontend deep-link redirect: roleCanSee(t.roles, 'cr_wakil_manajer', 'design-requests') return false karena (i) ROLE_NAV['cr_wakil_manajer'] belum dibuat saat pertama kali route dievaluasi (registerDynamicRoles baru dipanggil sesudah /api/roles selesai) sehingga cabang `rule.inherit` tidak dipakai; (ii) fallback tidak membaca ROLE_REGISTRY[role]?.baseRole. Akibatnya redirect ke ROLE_HOME_REGISTRY yang untuk cr_wakil_manajer memang mewarisi 'manager-home', tapi kemudian /api/home/manager balas 403 karena router home_manager di backend belum ditambal untuk peran kustom acuan manager."
+}

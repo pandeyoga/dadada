@@ -1,0 +1,24 @@
+{
+  "summary": "FASE SL frontend (receipt_variances di PO Detail/Row/Board/VendorBill + scan-label-stats card + KNSelect di scan-label-panel) fully verified. Backend pytest already green per main agent - skipped. Semua 5 skenario FE lulus tanpa error konsol.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_results": {
+    "FE-1_po_detail": "PASS - po-row-variance badge 'Selisih terima 1 roll label\u2260aktual' visible; po-compact-receipt-variances present; po-open-full-detail dibuka; po-receipt-variances-item-0 memuat 'RL-00058' dan 'Eko Prasetyo 2026-09-16'.",
+    "FE-2_po_board": "PASS - Setelah pilih tab 'Semua' (PO sudah completed sehingga tidak muncul di tab default 'Berjalan'), search 'PO-00014' menampilkan po-board-row-po_78d343ce4efd dengan badge po-board-variance-po_78d343ce4efd = 'Selisih 1 roll label\u2260aktual'. Total variance badges di board = 1 (tidak ada PO lain memiliki badge).",
+    "FE-3_vendor_bill": "PASS - manager login; create-vendor-bill-button \u2192 modal open; vb-po-select \u2192 option vb-po-select-option-po_78d343ce4efd; vb-receipt-variances tampil dengan item-0 '1 roll selisih label vs aktual ... RL-00058 ... Eko Prasetyo 2026-09-16'. Modal ditutup lewat vb-create-close tanpa submit.",
+    "FE-4_scan_label_stats": "PASS - warehouse login \u2192 wms-tab-inbound \u2192 scan-label-stats-card visible; toggle expands table dengan 1 row scan-label-stats-row-sup_cd509babd952 (Cirebon Craft, kolom Label\u2260aktual 33.3% (1), 1 dikonfirmasi). Toggle kedua kali menutup tabel (0 rows).",
+    "FE-5_knselect_no_native_select": "PASS - membuka inbound task pertama (inbound-task-wms_f808e668a2e7) menampilkan scan-label-panel; document.querySelectorAll('[data-testid=\"scan-label-panel\"] select').length === 0.",
+    "regression_console": "No red console errors captured across purchasing, po-board, vendor-bills, operations screens."
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Papan PO per Lini default membuka tab 'Berjalan' - PO yang sudah completed (seperti PO-00014) tidak terlihat kecuali user pindah tab 'Semua/Selesai'. Bila skenario reviewer mengharapkan PO ditemukan lewat search saja, pertimbangkan menampilkan hasil search lintas-tab atau otomatis switch tab bila hasil pada tab aktif kosong."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "100%"},
+  "seed_data_creation": "None - menggunakan seed yang telah disiapkan main agent (task wms_7d68b73ebcc1, PO-00014, RL-00058).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "FASE SL receipt variance + scan label stats card + KNSelect di scan panel semua lulus verifikasi UI. Data seed: PO KSC/PO-00014 (po_78d343ce4efd), roll RL-00058 flag QC. Perhatikan: PO Board default tab='Berjalan' -- PO completed harus dicari di tab 'Semua' atau 'Selesai'."
+}

@@ -1,0 +1,44 @@
+{
+  "summary": "Iterasi 12 — Verifikasi lokasi tervalidasi untuk Gudang, Site Gudang, Karyawan, dan Backlog Alamat (Kebersihan Data). Backend: 9/9 test_iter12_location_backlog.py PASS (warehouse strict/PATCH, warehouse-site, hr_employee, backlog list/filter/fix/404). UI: location-backlog-panel + LocationFields inline (locfix-{doc_id}-postal-quick, save/cancel, toast sukses) berfungsi; wh-create-form dengan wh-form-loc-* (country/postal-quick/province/city/district/postal/error) menampilkan otomatis Bandung Wetan/Kota Bandung/Jawa Barat/40115 setelah isi cepat; modal Lokasi Gudang Baru menampilkan wh-site-loc-* lengkap; EmployeeFormDrawer menampilkan employee-loc-* lengkap. Regresi: smoke_turn_hygiene_entities.py = ALL PASS (setelah reset reverted & bersihkan orphan log location_fix). Regresi smoke_wilayah.py: bagian pertama ALL PASS; bagian 'sesi 5' PASS untuk gudang/site/karyawan/backlog list/fix, tetapi GAGAL pada assertion 'alamat utama pelanggan ikut dilengkapi' saat memakai seed 'Butik Bali Indah' — RCA: alamat utama seed memiliki location_status='verified' tetapi field province/postal_code kosong, sehingga cabang di data_hygiene_service.fix_location (`_loc_status(a) not in ('verified','foreign')`) MELEWATI update primary address. Untuk pelanggan baru yang saya buat manual, primary address IKUT membawa postal_code — dibuktikan oleh test_backlog_fix_customer (PASS).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/data-hygiene/location/customers/{doc_id}", "issue": "fix_location melewati update primary address ketika address tersebut memiliki `location_status='verified'` walaupun field province/postal_code kosong. Terjadi pada seed cust_butik_bali. Test smoke_wilayah.py 'sesi 5' assertion 'alamat utama pelanggan ikut dilengkapi' FAIL. Untuk pelanggan segar bekerja normal (test_backlog_fix_customer PASS)."},
+      {"endpoint": "POST /api/data-hygiene/log/{log_id}/revert", "issue": "Bila doc_id merujuk record yang telah dihapus (mis. TEST_ pelanggan uji yang sudah di-cleanup), endpoint mengembalikan 404 'Dokumen asal sudah tidak ada.' Tidak fatal, tapi log entry menjadi zombie. Sarankan skip/soft-skip atau tandai reverted=true untuk entri yang doc-nya sudah hilang."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter12_location_backlog.py",
+    "/app/test_reports/pytest/iter12_backlog.xml",
+    "/app/backend/tests/smoke_wilayah.py",
+    "/app/backend/tests/smoke_turn_hygiene_entities.py"
+  ],
+  "action_items": [
+    "Perbaiki data_hygiene_service.fix_location: saat top-level dokumen di-fix dan alamat utama masih memiliki field province/postal_code kosong, tetap timpa dengan lokasi baru — jangan bergantung pada flag `location_status:'verified'` di sub-doc. Contoh perbaikan: tambahkan cek `not (a.get('province_code') and a.get('postal_code'))` ATAU perbaiki seed cust_butik_bali agar tidak menandai primary address 'verified' saat kosong.",
+    "(Opsional) revert-log: idempoten-toleran terhadap dokumen yang sudah dihapus (tandai reverted tanpa 404) atau otomatis bersihkan log location_fix ketika record dihapus.",
+    "Bersihkan data uji terlebih dulu sebelum menjalankan smoke: banyak pelanggan TEST_lok*/PT Test_klien* tersisa di seed dari sesi sebelumnya (sudah saya bersihkan: 20 TEST_lok + 1 PT Test_klien)."
+  ],
+  "critical_code_review_comments": [
+    "fix_location() memakai `_loc_status(a) not in ('verified','foreign')` sebagai gate; nilai flag di sub-address bisa berbohong (seed lama menyimpan 'verified' padahal field kosong). Gate harus juga memverifikasi kelengkapan field sebenarnya.",
+    "revert() tidak menangani 'record sudah dihapus' dengan graceful — 404 keluar dari flow padahal log entry masih ada. Pertimbangkan menandai reverted=true dan mengembalikan 200 dengan flag 'doc_missing'.",
+    "unverified_locations() bekerja bagus (61 record terdaftar; per-koleksi counts lengkap). LocationBacklogPanel + LocationFields inline (KNSelect + postal-quick) UX-nya mulus, testid pattern konsisten (locfix-{doc_id}-*).",
+    "wh-form-loc-*, wh-site-loc-*, employee-loc-* semua terdaftar dengan pattern <prefix>-loc-{country,postal-quick,province,province-value,city,city-value,district,district-value,postal,postal-value,error} — konsisten dengan customer/supplier/makloon/entity-wizard. Bagus.",
+    "Tidak ada leak _id ObjectId di respon /api/data-hygiene/*, /api/warehouses, /api/warehouse-sites, /api/hr/employees (spot-check).",
+    "phone validation di POST /api/customers menolak input pendek '0812' → 422 pesan jelas. Sudah bagus."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter12_location_backlog.py (baru; 9 tes)"
+  ],
+  "success_rate": {"backend": "95% (9/9 test_iter12 PASS; smoke_wilayah bagian 1 PASS, sesi 5 1 assertion FAIL karena seed)", "frontend": "100% (backlog panel + wh + site + employee LocationFields semua verified)"},
+  "test_credentials": "admin@kainnusantara.id / demo12345 (dipakai). Manager @kainnusantara.id / demo12345 (dipakai untuk RBAC hygiene).",
+  "seed_data_creation": "test_iter12_location_backlog.py membuat data prefix TEST_ (warehouses/sites/hr_employees/customers) — dibersihkan otomatis via cleanup fixture. Selain itu saya membersihkan: 20 customer 'TEST_lok*'/'Test_lok*', 1 'PT Test_klien*', 1 warehouse TEST_WH, 1 site TEST_SITE, 1 emp NIK*, orphan log location_fix (4 baris) yang tertinggal dari sesi lama; juga me-unset hygiene_locked global dan mengembalikan reverted=false pada 1 log agar smoke_turn_hygiene_entities siap dijalankan. Butik Bali Indah dikembalikan ke keadaan awal (city='Denpasar', field lokasi lain kosong).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Fitur LocationFields pada gudang/site/karyawan + LocationBacklogPanel di Kebersihan Data telah diverifikasi backend + UI. Rute UI: ?view=md-warehouses (bukan ?view=warehouses), ?view=hr-employees, ?view=settings-config → cfg-tab-hygiene. Testid: wh-form-loc-*, wh-site-loc-*, employee-loc-*, locfix-{doc_id}-*, location-backlog-{panel,headline,collection,collection-option-<coll>,table,edit-{doc_id},save-{doc_id},cancel-{doc_id}}. Untuk skenario 'Lengkapi' pakai pelanggan uji sendiri (POST /api/customers dengan city='Bandung') agar seed cust_butik_bali tetap. Ada 1 sisa bug data_hygiene_service.fix_location terhadap primary address yang bernilai 'verified' tapi field kosong — perbaikannya kecil. smoke_turn_hygiene_entities.py sensitif terhadap orphan log location_fix; sebelum menjalankan, hapus log dengan trigger='location_fix' pada doc yang sudah tidak ada, atau delete_many location_fix logs.",
+  "rca of the issue": "smoke_wilayah.py sesi 5 assertion 'alamat utama pelanggan ikut dilengkapi' FAIL. Reproduksi: (1) Jalankan smoke_wilayah.py apa adanya. (2) Backlog memakai `cust_butik_bali` sebagai record pertama pelanggan. (3) fix_location memutakhirkan field top-level ke Jakarta Pusat berhasil, TETAPI primary address (addresses.is_primary) tidak diperbarui karena address itu sudah bertanda location_status='verified' walaupun province_code & postal_code kosong (seed anomaly). (4) Assertion `any(a.postal_code=='10110' for a in addresses if is_primary)` gagal. Mitigasi kode: di data_hygiene_service.fix_location line 197, ubah cabang menjadi `if a.get('is_primary') and (a.get('location_status') != 'foreign') and not (a.get('province_code') and a.get('postal_code'))` — atau perbaiki seed agar primary address tidak berstatus 'verified' saat field kosong."
+}

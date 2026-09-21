@@ -1,0 +1,20 @@
+{
+  "summary": "Frontend-only testing of the new R&D per-type hub tabs (Labdip/Handfeel/Proofing) in Kain Nusantara ERP. All 5 requested scenarios PASSED end-to-end: (1) MD user sees rnd-labdip page with gallery, KPI (excluding cancelled - total=27), grid of 27 cards, cover blob images on SMP-00006 and SMP-00008, and no cancelled TEST_QA3 samples visible by default. (2) Filters work: search 'SMP-00007' -> 1 card; status=Dibatalkan reveals cancelled TEST_QA3 numbers (SMP-00029/30/35 confirmed); reset restores; result=acc -> 23 cards; proof=yes -> 6 cards. (3) Create from Handfeel tab: sample-form-modal opens with handfeel chip pre-selected/locked (chip cannot be deselected, summary retains Handfeel), created TEST_QA4 -> detail modal opens with handfeel tab-panel active, ok notice 'Sampel Handfeel KSC/SMP-00036 tersimpan', KPI total went 1 -> 2, new card visible in grid. (4) Card click on rnd-proofing KSC/SMP-00002 opens detail with sample-tab-panel-proofing active and sample-send-button visible for MD. (5) Admin regression: rnd-labdip renders with create button visible; rnd-samples-board still renders; rnd-designs-view still renders. Cleanup: TEST_QA4 (KSC/SMP-00036) cancelled via UI sample-cancel-button + confirm-modal.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped)", "frontend": "100%"},
+  "test_credentials": "md@kainnusantara.id / demo12345, admin@kainnusantara.id / demo12345",
+  "seed_data_creation": "Created TEST_QA4 Handfeel sample KSC/SMP-00036 during test, cancelled at end via UI with reason 'TEST cleanup'. No residual test data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New per-type gallery tabs (rnd-labdip/rnd-handfeel/rnd-proofing) work end-to-end. Testids all match /app/memory/test_credentials.md doc. Cover images use blob: URLs via axios. Sample cancel API auth uses HTTP-only session cookie (Bearer token in Authorization header returns 401 'Login diperlukan') - use UI or curl with cookie jar for cleanup via API.",
+  "rca of the issue": "N/A - no issues found."
+}

@@ -1,0 +1,23 @@
+{
+  "summary": "Iter 43 verified 'Spesifikasi produk WAJIB' merged into sample creation form (labdip/handfeel/proofing). Backend pytest 8/8 passed: 4 validation-error cases (no spec 400 'Spesifikasi produk WAJIB', labdip missing color_target 400 'warna target', proofing missing design_id 400 'desain', spec missing fabric_type 400 'jenis kain'), 2 happy paths (handfeel valid → spec_id+spec_number+persist+list.spec_summary; labdip valid), attach-spec twice → 400 'sudah punya spesifikasi', legacy attach POST /rnd/samples/{id}/spec → 200. Frontend admin flows verified: labdip gallery cards show sample-type-spec-<id> chips (e.g. 'woven · 200 gsm'); create-labdip modal opens with sample-section-source, sample-section-spec (badge 'wajib'), sample-spec-fields (sample-color, sample-spec-fabric, sample-spec-gramasi, sample-spec-lebar, sample-spec-sku), sample-section-what & sample-section-when; save disabled + sample-spec-problems shows 'warna target (labdip)'; after filling with KN-BLU-01 + 240 gsm + 150 cm + SKU + title, save enabled and new card KSC/SMP-00037 chip 'woven · 240 gsm · lebar 150 cm' appears. Adding sample-type-handfeel reveals sample-spec-handfeel with sample-spec-yarn/epi/ppi/composition; modal closes via sample-form-modal-close. Proofing form shows sample-design (label wajib '* (ACC)') + sample-spec-problems 'Belum lengkap: desain/pattern (proofing).'. General rnd-samples form: picking existing sample-spec acuan shows sample-spec-linked and hides sample-spec-fields. Legacy sample SMP-00007 already had spec (completed by legacy-attach test in this same iteration - TST-LEG-AC0D08); sample-spec-panel showed sample-spec-summary + sample-spec-number KSC/SPEC-00012 + sample-spec-edit-button. Edit modal: changed spec-edit-lebar to 160 → summary now shows 'Lebar 160 cm'. All key testids present.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter43_sample_spec_required.py",
+    "/app/test_reports/pytest/iter43.xml",
+    "/app/test_reports/iter43-labdip-after-save.jpeg",
+    "/app/test_reports/iter43-edit-summary.jpeg"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "SampleSpecFields.jsx renders <KNSelect data-testid=\"sample-color\"> twice (lines 84 & 91); only one is visible at a time depending on state, but duplicate testid values can trip strict selectors. Consider suffixing (sample-color-labdip vs sample-color-proofing) or wrapping with visible-only helper."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter43_sample_spec_required.py"],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100%"},
+  "test_credentials": "admin@kainnusantara.id / demo12345",
+  "seed_data_creation": "Created via backend tests: 4 new samples (TST-HF-*, TST-LB-*, TST-DUP-*, plus legacy attach on smp_efd9648809d4 with SKU TST-LEG-AC0D08). One frontend-created sample: KSC/SMP-00037 (TSTUI2-...). No seed data removed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "sample-color / sample-design are KNCombobox (searchable). Click the trigger WITHOUT force=True (force bypasses actionability and breaks Radix Popover open). Options are '[data-testid^=sample-color-option-]' including a leading 'sample-color-option-empty' placeholder — skip it. Legacy sample SMP-00007 (smp_efd9648809d4) has been completed with a spec now (KSC/SPEC-00012, SKU TST-LEG-AC0D08); to re-run the 'legacy attach' UI flow, seed a new legacy sample (or re-seed) — the backend test skips gracefully when no legacy sample without spec_id exists.",
+  "rca of the issue": "n/a - all backend + frontend flows for spec-required feature pass"
+}

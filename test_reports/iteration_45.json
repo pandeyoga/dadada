@@ -1,0 +1,43 @@
+{
+  "summary": "Iter 45 — Special Order Fase 1 (intake terstruktur + routing otomatis + referensi) verified. Backend pytest 5/5 pass (test_iter45_special_orders.py): (1) POST /api/special-orders labdip → status pending_approval, request_types=['labdip'], spec.gramasi=200. (2) POST /references (PNG) → 200 odref_* id; GET /references/{fid} → 200 image/png. (3) approve manager → sample_ids=1, sample_numbers KSC/SMP-*, routing_errors empty; chain.samples[0].status=draft, chain.phase='sampling', chain.phases does NOT contain 'design'. Sample doc: special_order_id set, spec.target.gramasi=200, spec.color_target.color_id=col_kn_blu_01. (4) Second OD ['printing'] + 1 reference → approve → design_request_id set; GET design-request shows special_order_id, source='customer', chain.phase='design', chain.phases contains 'design'. (5) POST /route on already-routed OD → 200 and idempotent (still 1 sample_id); /route on pending_approval OD → 400. Frontend verified: sidebar PENJUALAN order Kasir & Portal → Pesanan Khusus (nav-special-orders, testid confirmed) → Pesanan → Pesanan Sampel → Pelanggan → Produk & Harga. Page title 'Pesanan Khusus (Special Order) · Produk Custom Pelanggan'. Pesanan hub no longer has 'Pesanan Khusus (OD)' tab (only sidebar nav link). Buat Pesanan Khusus opens special-order-form modal with all requested testids (od-customer, od-title, od-type-printing/labdip/handfeel, od-detail-level, od-reference-notes, od-color, od-color-new, od-qty, od-unit, od-price, od-delivery, od-submit-approval, od-problems, special-order-save). Save disabled initially with od-problems visible. Selecting detail-level='Spesifikasi lengkap' reveals od-template, od-fabric, od-gramasi, od-lebar, od-sku. Fill flow works; save enabled after all required fields. On save, navigates to OD detail page (SORD-260919-0010 created) with od-chain-panel, od-phases (all 11 phases), od-references + od-reference-upload. PNG upload → 'od-reference-msg: 1 referensi terunggah.' and od-reference-odref_* item appears. Manager approve on SORD-260919-0009 (labdip, pending_approval): dialog Setujui → confirmed → status becomes Terkonfirmasi + SKU MTO-260919-0009. Backend correctly creates sample KSC/SMP-00045 (smp_2e93c58b39eb). After page reload, chain shows od-sample-smp_2e93c58b39eb 'KSC/SMP-00045 · Draf · labdip' and active phase 'Sampling berjalan'. Clicking sample navigates to ?view=rnd-samples&entity=ent_ksc and sample-detail-modal (KSC/SMP-00045 labdip) opens. Visual layout at 1920x1080 clean; timeline, 4-card chain, references section render tidy.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/special-orders/{id}/references/{fid}", "issue": "reference_bytes returned raw tuple from storage_service.get_object causing 500 when serving PNG. Fixed by unpacking tuple in services/special_order_routing.py (reference_bytes + route_on_approve loop)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SpecialOrderDetail (refreshFull after approve)", "issue": "After manager Setujui/Approve, chain 'Sample R&D' card and od-sample-<id> did NOT refresh in-place (status/SKU chip did update). A full page reload (or reopening detail) surfaces the routed sample correctly. Suggests refreshFull() is not re-fetching chain payload after the /approve call, or is racing before backend routing finishes.", "selector": "od-node-samples / od-sample-<id>", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter45_special_orders.py",
+    "/app/test_reports/pytest/iter45.xml",
+    "/app/test_reports/iter45-so-list.jpeg",
+    "/app/test_reports/iter45-form-full.jpeg",
+    "/app/test_reports/iter45-detail.jpeg",
+    "/app/test_reports/iter45-0009-detail.jpeg",
+    "/app/test_reports/iter45-rnd-sample.jpeg"
+  ],
+  "action_items": [
+    "SpecialOrderDetail.refreshFull(): after successful POST /approve, re-fetch GET /api/special-orders/{id} (which returns chain) and merge into state, or add small delay + refetch chain so od-node-samples/od-sample-* appear without manual reload."
+  ],
+  "critical_code_review_comments": [
+    "services/special_order_routing.py — reference_bytes previously returned the storage tuple as the payload. Wrapped/unpacked now; consider making storage_service.get_object return only bytes (with a separate helper for content_type) to avoid similar bugs elsewhere.",
+    "routers/special_orders.py approve endpoint calls routing.route_on_approve() and then returns doc, but frontend refreshFull relies on subsequent GET to expose 'chain'. Ensure GET runs post-approve; consider returning the full doc-with-chain from /approve to simplify UI state sync (also fixes the observed UI staleness)."
+  ],
+  "updated_files": [
+    "/app/backend/services/special_order_routing.py",
+    "/app/backend/tests/test_iter45_special_orders.py"
+  ],
+  "success_rate": {"backend": "100% (5/5)", "frontend": "95% (all flows verified; one minor refresh gap)"},
+  "test_credentials": "admin@kainnusantara.id / demo12345 · manager@kainnusantara.id / demo12345",
+  "seed_data_creation": "Backend test creates 2-3 new SpecialOrder docs per run (prefixed 'Uji OD'/'Pending OD') with 1-2 references. Frontend flow created SORD-260919-0010 (Draft) and approved SORD-260919-0009 (routed to KSC/SMP-00045). No seed data modified.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Manager approve action uses testid `approve-special-order-btn` and a confirmation dialog (button text 'Setujui'). OD list rows require the 'Detail →' link (not the SORD text) to open detail. Base test file: /app/backend/tests/test_iter45_special_orders.py. Backend threshold APPROVAL_THRESHOLD=10_000_000; ensure total_amount > threshold + submit_for_approval=True to reach pending_approval. Storage reference bug fix applied in special_order_routing.py.",
+  "rca of the issue": "Reference download 500: services.storage_service.get_object returns (data, ctype) tuple; special_order_routing.reference_bytes was passing the tuple as body. Fix: unpack tuple in both reference_bytes and route_on_approve reference-copy loop. Verified with pytest test_od_reference_upload_and_fetch."
+}

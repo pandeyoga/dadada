@@ -1,0 +1,22 @@
+{
+  "summary": "FASE SL RFID Auto-Tag + Alias Katalog MD verified end-to-end. Backend 9/9 pass (100%). Frontend: warehouse scan-label panel shows EPC badges, print buttons per row, and print-actions block (popup+queue) with live queue info; scanning TB-UI1 auto-encodes RFID and appends a new row (3rd EPC badge). WMS Stok tab displays 'pabrik: CBN-MEGA-PREM — Batik Cap Mega Mendung Premium' balance-supplier-alias rows. MD catalog (ptpl_ec3683557d1bad0da326) shows catalog-supplier-alias-prod_benang_katun 'pabrik: SLW-YARN-30S' and header catalog-selected-supplier-alias 'Versi supplier: SLW-YARN-30S — Cotton Combed 30s Cone 1,89 Kg (Solo Weave)'.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_fase_sl_rfid_alias.py",
+    "/app/test_reports/pytest/fase_sl_rfid_alias.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "In backend list_scanned_rolls response payload, roll rows use auto-generated internal roll_no (e.g. RL-00060); the supplier-provided label roll number goes into supplier_roll_no. Consumers looking up by 'roll_no' must be aware of this. Documented for future tests.",
+    "DELETE /api/rfid/tags/{tag_id} keeps historical EPC uniqueness against 'active' tags; retrying the same test EPC after delete may still 409 in some paths — parametrize test EPCs (done in this suite)."
+  ],
+  "updated_files": ["/app/backend/tests/test_fase_sl_rfid_alias.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% verified"},
+  "test_credentials": "warehouse@kainnusantara.id / demo12345, admin@kainnusantara.id / demo12345, md@kainnusantara.id / demo12345, X-Entity-Id: ent_ksc",
+  "seed_data_creation": "Ephemeral rolls with supplier_roll_no prefix TB-; cleaned up in test_99 and via _cleanup_prefix helper. UI TB-UI1 row created during scan and left in place (cleanup by undo was flaky via dynamic selector but does not affect scenario outcome).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Task wms_8abc6bed9e15 is preserved (do NOT complete). Tests use supplier_roll_no matching (not roll_no) and generate unique EPCs per run to avoid 409 EPC-in-use. Frontend testids: wms-tab-inbound/stok, inbound-task-<id>, scan-label-panel, scan-label-input, scan-label-print-actions/popup/queue/info, scanned-roll-epc-<roll_id>, scanned-roll-print-<roll_id>, scanned-roll-undo-<roll_id>, balance-supplier-alias-<bal_id>, catalog-card-<ptpl>, catalog-open-<ptpl>, catalog-supplier-alias-<prod_id>, catalog-selected-supplier-alias.",
+  "rca of the issue": "N/A — all scenarios green."
+}

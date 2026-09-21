@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 30 verified the new 'Galeri bukti per tab' feature on RND sample detail (ent_ksc). Backend smoke: GET /api/rnd/samples/{id}/rounds/{rid}/attachments/{fid} with admin token + X-Entity-Id returns 200 image/png for SMP-00008 attachments (pytest 1/1 pass). Frontend flow (admin@ + md@): SMP-00007 labdip tab shows sample-proof-gallery-labdip with header 'Galeri bukti · 2 berkas', 2 supplier columns (sample-proof-col-labdip-<sid>), and 2 sample-proof-thumb-<fid> each rendering <img> with blob: src (verified for tiny 1x1 seed PNGs). Handfeel tab shows no gallery + sample-tab-empty-handfeel; switching back to labdip re-renders gallery (cached). Existing round-row-* (2) and round-file-* (2) and sample-compare-type-labdip still render alongside the gallery. SMP-00008: 2 thumbs, clicking first opens sample-proof-lightbox with sample-proof-lightbox-image (<img> blob src), caption includes 'NTT Weaving Co', 'Round 1', 'swatch_1.png', '1/2'; next arrow → caption shows 'swatch_2.png' and '2/2'; Escape closes lightbox only (sample-detail-modal remains open); reopen + sample-proof-lightbox-close button closes lightbox. MD role on SMP-00006 sees gallery + blob thumbnails on labdip tab (no 403 on attachments).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_rnd_proof_gallery_smoke.py",
+    "/app/test_reports/pytest/iter30_proof_gallery.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ProofImage module-level `cache = new Map()` of object URLs never revokes URL.createObjectURL — long sessions across many samples will accumulate blob URLs in memory. Consider LRU or revoking on unmount/cache eviction.",
+    "ProofLightbox keydown listener uses capture=true and only stopPropagation on Escape. ArrowLeft/ArrowRight are captured globally while lightbox is open which is fine, but not stopPropagation'd — safe today but could interfere if a future parent adds arrow-key handlers.",
+    "SampleProofGallery grid uses `Math.min(cols.length, 4)` columns without responsive breakpoints; on narrow viewports 3–4 supplier columns will be cramped. Consider `grid-cols-1 md:grid-cols-2 lg:grid-cols-<n>` responsive pattern."
+  ],
+  "updated_files": ["/app/backend/tests/test_rnd_proof_gallery_smoke.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@kainnusantara.id/demo12345, md@kainnusantara.id/demo12345",
+  "seed_data_creation": "None — read-only UI + read-only API checks per request.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Galeri bukti feature is fully working. Header text is rendered with CSS uppercase (font is normal case in source: 'Galeri bukti · N berkas'), so tests should compare case-insensitively. Lightbox caption uses '·' separators; caption assertions should look for substrings not exact equality. SMP-00007 seed PNGs are 1x1 white (67 bytes) so thumbnails appear white — expected; SMP-00006/00008 have visible colored swatches.",
+  "rca of the issue": "N/A — no bugs found."
+}

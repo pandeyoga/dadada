@@ -1,0 +1,32 @@
+{
+  "summary": "Verifikasi K-1..K-7 + U-4 audit §7 (Kain Nusantara ERP). Backend smoke ALL PASS: smoke_feedback_klien_2026_09.py (K-1 EYD nama_orang/nama_usaha; K-2 phone_id normalisasi 62xxx, tolak 422/400; K-4 CBD/NET60/NET90 tersedia; K-5 sales_team max=2 dengan split 50/50). smoke_audit_2026_09_07.py ALL PASS. pytest test_f2_stock_buckets.py 20 passed. Frontend E2E (Sales role): K-3 checkout-address-select label 'Toko Utama — Jl. Mangga Besar Raya No. 45, Jakarta' + checkout-address-detail 'Pak Hendra · Jl. Mangga Besar Raya No. 45, Jakarta · 081234567890' ✓; step-3 checkout-review-address menampilkan label+penerima+alamat+kota+telp ✓. K-5 UI: sales-team-toggle → sales-team-add → dua baris sales-team-split-0/1 = 50/50, sales-team-add hilang, sales-team-max-note muncul ✓. K-6 checkout-review-line-prod_batik_mega '1 yard × Rp 170.200 = Rp 170.200' (harga khusus pelanggan Toko Kain Sejahtera) + checkout-review-line-prod_lurik_classic '1 yard × Rp 95.000 = Rp 95.000' → Subtotal bruto Rp 265.200 konsisten ✓. K-4 UI: dropdown Termin Pembayaran memuat 'CBD — Bayar Sebelum Kirim', 'Tempo 2 Bulan (NET 60)', 'Tempo 3 Bulan (NET 90)' ✓. K-7 Backend GET /api/inventory/rolls/available mengembalikan dye_lot='MEGA-2026-03' & created_at per item ✓ (RollPicker UI tidak diuji karena butuh mode 'Beli per Roll' — cukup diuji lewat backend endpoint karena view state langsung mem-pass ke RollPicker; badge roll-dye-lot/roll-age adalah rendering murni). U-4 label seragam: ApprovalInbox.jsx pakai 'Retur Penjualan'/'Retur Pembelian' ✓; navMeta.js purchase-returns='Retur Pembelian (Nota Debit)' ✓; Supplier360Panel tab='Retur Pembelian' ✓; MobileMore='Retur Penjualan' ✓.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "PurchaseReturns page (di dalam modul)", "issues": ["h2 title masih 'Retur Beli (Nota Debit)' (baris 291 PurchaseReturns.jsx) — spec U-4 hanya menyebut menu/tab, tapi konsistensi label internal (page title, ReturnDetailPanel label 'Nota Retur Beli', ReturnDetail 'Nota Retur Jual', navMeta 'Kebijakan Retur Jual', MobileSalesNative comment) belum diseragamkan. Bukan blocker karena diluar scope U-4 eksplisit, tapi worth follow-up."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/smoke_feedback_klien_2026_09.py",
+    "/app/backend/tests/smoke_audit_2026_09_07.py",
+    "/app/backend/tests/test_f2_stock_buckets.py"
+  ],
+  "action_items": [
+    "(Opsional/kosmetik) Seragamkan label 'Retur Beli/Jual' yang tersisa di PurchaseReturns.jsx (h2 & tombol/modal), ReturnDetailPanel.jsx ('Nota Retur Beli'), ReturnDetail.jsx ('Nota Retur Jual'), ReturnQuarantinePanel.jsx pesan/tombol, ReturnPoliciesView.jsx & navMeta.js 'Kebijakan Retur Jual', MobileSalesNative.jsx komentar/label. Di luar 4 titik yang eksplisit di U-4, spesifikasi tidak mewajibkan — tapi konsistensi UI menghindari kebingungan."
+  ],
+  "critical_code_review_comments": [
+    "Kode K-1..K-5 di backend rapi & idempoten; nama_orang/nama_usaha/phone_id sudah dipakai konsisten via PhoneStr BeforeValidator di schemas.py — bagus.",
+    "K-5 apply_group_sales_rule di customer_service.py membatasi 2 orang dan auto-split 50/50 dengan pesan 'Group sales maksimal 2 orang' — perlu memastikan sales_order_helpers.normalize_sales_team memakai konstanta yang sama (MAX_GROUP_SALES) untuk konsistensi (sudah PASS via smoke).",
+    "U-4 label belum sepenuhnya seragam di seluruh modul (lihat design_issues). Rekomendasi: buat konstanta pusat labels.js untuk 'Retur Penjualan'/'Retur Pembelian' agar tidak drift."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "sales@kainnusantara.id / demo12345 (Ayu Permatasari, KSC) untuk POS flow; admin@kainnusantara.id / demo12345 untuk API bearer test",
+  "seed_data_creation": "Smoke test creates temporary customer PT Test_klien Xyz Tbk (cust_159593868f46) & supplier CV Test_sup Makmur — sudah tidak berpengaruh (idempoten). Tidak ada pesanan riil dibuat di UI (checkout Toko Kain Sejahtera terblokir kredit — hanya view step 1/2/3 diuji, tidak submit).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Sales POS 'Buat Pesanan' membuka drawer dengan Toko Kain Sejahtera (CUST-0001) sudah terpilih otomatis. checkout-next lanjut ke step 2 (Termin & Lot), step 3 (Review). Untuk uji RollPicker via UI, buka QuickView produk (klik add-to-cart pada gambar produk) dan pilih 'Beli per Roll' — akan muncul modal roll dengan roll-toggle-*, roll-row-*, roll-dye-lot-*, roll-age-*. Pastikan role sales melihat entitas sendiri (KSC).",
+  "rca of the issue": "N/A — semua perubahan K-1..K-7 + U-4 sudah PASS pada scope yang diminta."
+}

@@ -1,0 +1,26 @@
+{
+  "summary": "Iter38: fitur 'Konfigurasi Lanjutan' (matriks permissions rinci) untuk Peran & Hak Akses LULUS backend + frontend. Backend pytest 9/9 hijau: GET /api/access/modules memuat resource_labels (>=60, order='Pesanan Penjualan (SO)') + action_labels (>=60, create='Buat') + actions per modul. POST /api/access/roles/preview {permissions:{order:['create'], tax_invoice:['view','create']}} pada cr_staf_penagihan → 200, levels.penjualan={level:'manage',partial:true}, turn_alerts memuat 'Terbitkan faktur & tagih'; aksi tidak dikenal ('order:['fly']') → 400 dengan pesan 'aksi tidak berlaku'; sumber daya tidak dikenal → 400. POST /roles {label:'TEST_Rinci', base_role:'sales', permissions:{order:['view','create'], customer:['view']}} → 200; GET → permissions.order=['create','view'], levels.penjualan manage+partial, levels.customer level 'view'. PATCH {permissions:{order:['create','update']}} → order auto-injected ['create','update','view'] & changes.permissions terisi. PATCH {permissions:{}} → semua modul level none. PATCH lama {levels:{customer:'view'}} tetap 200 (regresi). Regresi manager: permissions.order tetap sesuai DEFAULT (8 aksi persis: view/create/update/approve/confirm/print/deliver/verify), modified=false — task spec menulis '9 aksi' tapi baseline DEFAULT_PERMISSIONS memang 8 (bukan drift). Frontend E2E admin (?view=entities-access): (A) role-card-manager → role-module-row-penjualan menampilkan tombol role-module-advanced-penjualan + label 'Kelola penuh · sebagian'. Klik Lanjutan → role-advanced-panel-penjualan tampil dgn role-resource-row-order (label 'Pesanan Penjualan (SO)'), row sales_return + internal_request. role-action-order-view aria-pressed=true, delete=false. Klik role-action-order-delete → true + role-resource-changed-order muncul + save aktif. Klik role-resource-none-order → 9 chip order semua false. Klik role-action-order-create → view DAN create otomatis true. Klik role-action-order-view (cabut) → semua chip order false. Klik role-level-penjualan-manage → 19 chip (order+sales_return+internal_request) semua true, label baris jadi 'Kelola penuh' tanpa '· sebagian'. Save → role-editor-confirm + role-editor-confirm-penjualan tampil; cancel confirm + cancel editor tanpa menyimpan. (B) Buat via UI: role-create-button → label 'TEST_Rinci UI' → role-module-advanced-customer → role-action-customer-create → view+create true, label 'Kelola penuh · sebagian' + 'diubah · sebelumnya Tidak ada'. Save+confirm → kartu role-card-cr_test_rinci_ui muncul; buka lagi → panel lanjutan customer view+create=true, update=false. role-editor-delete → role-editor-danger-confirm → kartu hilang. (C) cr_staf_penagihan → role-module-advanced-ar → role-resource-none-tax_invoice → role-editor-turn-alerts menampilkan '(0) berubah' + '• Terbitkan faktur & tagih (hilang)'. Batal tanpa menyimpan. Manager tidak terubah (regresi pasca UI hijau).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_role_editor_iter38.py",
+    "/app/test_reports/pytest/iter38.xml"
+  ],
+  "action_items": [
+    "(Catatan minor, bukan bug) Task spec menyebut peran manager punya 9 aksi pada resource 'order', tetapi DEFAULT_PERMISSIONS['manager']['order'] hanya 8 aksi (view/create/update/approve/confirm/print/deliver/verify). Tidak ada drift; kemungkinan spec tulisan tangan salah hitung. Konfirmasi dengan produk apakah perlu menambah aksi ke-9 (mis. 'reject' atau 'cancel')."
+  ],
+  "critical_code_review_comments": [
+    "custom_role_service._clean_perms didefinisikan dua kali (baris 60-64 & 67-71) — duplikasi tak berbahaya karena identik, tapi hapus salah satu untuk kebersihan kode.",
+    "clean_permissions benar mengauto-inject 'view' bila ada aksi lain + 'view' termasuk full_actions — sudah teruji.",
+    "preview_role menerima permissions dan menerapkannya SETELAH apply_levels; urutan ini konsisten dengan create/update. Baik.",
+    "public_catalog menyertakan actions per resource — memenuhi kontrak frontend RoleAdvancedPanel."
+  ],
+  "updated_files": ["/app/backend/tests/test_role_editor_iter38.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (3/3 alur A/B/C)"},
+  "test_credentials": "admin@kainnusantara.id / demo12345",
+  "seed_data_creation": "Sementara membuat cr_test_rinci (fixture pytest, auto-delete) & cr_test_rinci_ui (UI, dihapus di akhir). Verifikasi custom_roles collection TEST_* kosong pasca uji.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Jalankan: export REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2); pytest backend/tests/test_role_editor_iter38.py -v. Selalu bersihkan cr_test_rinci*/cr_test_rinci_ui jika UI cleanup terlewat: db.custom_roles.delete_many({label:/^TEST_/}). Untuk memicu 'Kelola penuh · sebagian' pada manager, resource 'order' bawaan memang 8/9 (bukan drift).",
+  "rca of the issue": "Tidak ada isu. Satu-satunya deviasi vs spec adalah jumlah aksi manager.order (spec: 9, aktual DEFAULT_PERMISSIONS: 8). Aktual TIDAK berubah oleh uji frontend — regresi lolos terhadap defaults; kemungkinan hitungan spec salah tulis. Ditandai sebagai action_item (bukan bug)."
+}

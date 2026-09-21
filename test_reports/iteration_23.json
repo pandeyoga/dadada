@@ -1,0 +1,33 @@
+{
+  "summary": "Backend + frontend tests untuk (A) Pesanan Sampel (SOS-) dan (B) Design Studio revisi 17 Sep. 14/14 tes backend pytest lulus. UI: form desainer BENAR (tanpa jenis/palet/peruntukan-produk), kode otomatis SRI-SLR-AO-###, tab Final ada & tidak ada tab colorways, modal Kategori punya dua sumbu Pattern+Design, sampleadmin mendarat di sample-admin-desk, POS flow sampel jalan sampai step Review. Ditemukan ketidaksesuaian nama testid antara spesifikasi review dan implementasi UI (bukan bug fungsional).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "DesignDetailPage", "issue": "Testid `design-round-badge` tidak ada (aktual: `design-detail-round`)", "selector": "design-round-badge", "priority": "LOW"},
+      {"component": "RoundsProgress", "issue": "Testid `design-round-box-<v>` tidak ada (aktual: `design-round-<v>`)", "selector": "design-round-box-1", "priority": "LOW"},
+      {"component": "RndDesignsView header", "issue": "Testid tombol master kategori `design-categories-button` tidak ada (aktual: `rnd-designs-categories`)", "selector": "design-categories-button", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter23_sample_and_designer.py", "/app/test_reports/pytest/iter23.xml"],
+  "action_items": [
+    "Selaraskan nama data-testid dengan dokumen spec (test_credentials.md/prompt): `design-round-badge` (bukan design-detail-round), `design-round-box-<v>` (bukan design-round-<v>), dan `design-categories-button` (bukan rnd-designs-categories) — hanya alias/tambahan atribut agar QA/tester dapat mengandalkan selector yang didokumentasikan.",
+    "Opsional: pertimbangkan ikut menampilkan tombol `sample-detail-approve-payment` walau dalam status disabled (dengan tooltip alasan) supaya QA bisa memverifikasi keberadaannya tanpa perlu order berstatus tertentu."
+  ],
+  "critical_code_review_comments": [
+    "sales_orders.py: cabang order_type='sample' memaksa is_sample=True untuk seluruh item (baik) sehingga SAMPLE_MIXED hanya bisa dipicu ketika order_type='regular' berisi item is_sample=True. Perilaku ini konsisten dengan review request (skenario 'campur' dari sisi POS regular).",
+    "design_studio_service.request-revision otomatis membuka versi baru — verified via UI+API (round_label 'Revisi N', revision_count naik, rounds[].result='revision').",
+    "activate ditolak dari state approved sebelum submit-final (400) dan diterima dari final_submitted → verified.",
+    "return-final memaksa `note` (400 tanpa note) → verified.",
+    "RBAC designer: approve/activate/return-final → 403 → verified."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter23_sample_and_designer.py"],
+  "success_rate": {"backend": "100%", "frontend": "95%"},
+  "test_credentials": "admin@kainnusantara.id / designer@kainnusantara.id / sales@kainnusantara.id / sampleadmin@kainnusantara.id / finance@kainnusantara.id — semua demo12345 (ent_ksc).",
+  "seed_data_creation": "SO sampel TEST_ dibuat via API oleh sales_h (SOS-####) — dibatalkan/approve-payment/confirm melalui flow test; design TEST_sri_* dibuat, mengikuti lifecycle sampai active. Kategori design TEST BRxx ditambahkan (idempoten via prefix TEST/BR<epoch>).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Pytest file `test_iter23_sample_and_designer.py` mencakup: (a) create SOS + SAMPLE_MIXED/LIMIT/approve-payment/confirm/cancel; (b) categories both axes + add + reject + next-code; (c) designer create SRI-BTK-PG-###, notifikasi admin, revisi otomatis, approve dengan recommended_product_ids, full final flow + return-final + activate; (d) RBAC designer 403. Untuk pengujian ulang UI checkout-submit sampel: pelanggan `cust_toko_kain` sekarang memiliki tunggakan (kredit terblokir) — pakai pelanggan lain (cust yang belum lewat tempo) atau lunasi terlebih dahulu.",
+  "rca of the issue": "Tidak ada bug fungsional ditemukan pada backend maupun frontend. Ketidakcocokan nama testid adalah masalah dokumentasi saja."
+}

@@ -1,0 +1,10 @@
+{
+  "products_linked": 5,
+  "dry_run": false,
+  "conflicts": [],
+  "orphans_left": 0,
+  "immutable_field_drift": [],
+  "product_count_before": 5,
+  "product_count_after": 5,
+  "backup": "/app/memory/catalog_backups/20260906T195021189899.json"
+}

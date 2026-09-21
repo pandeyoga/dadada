@@ -1,0 +1,59 @@
+{
+  "source": "/tmp/kn-audit/frontend/src/utils/variants.js",
+  "probe_type": "isolated-real-frontend-utils",
+  "axis_options": {
+    "colors": [
+      {
+        "key": "BIR",
+        "label": "Biru",
+        "hex": "#0000FF",
+        "code": "BIR"
+      },
+      {
+        "key": "MER",
+        "label": "Merah",
+        "hex": "#FF0000",
+        "code": "MER"
+      }
+    ],
+    "grades": [
+      {
+        "key": "A",
+        "label": "A"
+      },
+      {
+        "key": "B",
+        "label": "B"
+      }
+    ],
+    "hasColor": true,
+    "hasGrade": true,
+    "hasWidthAxis": false,
+    "hasMaterialAxis": false
+  },
+  "resolve_variant_probe": {
+    "requested": {
+      "colorKey": "MER",
+      "gradeKey": "A"
+    },
+    "resolved": {
+      "id": "v1",
+      "sku": "SKU-MER-A-115-COT"
+    },
+    "ambiguous_candidates_same_color_grade": [
+      {
+        "id": "v1",
+        "sku": "SKU-MER-A-115-COT",
+        "lebar": "1.15",
+        "material": "Cotton"
+      },
+      {
+        "id": "v2",
+        "sku": "SKU-MER-A-150-POLY",
+        "lebar": "1.50",
+        "material": "Poly"
+      }
+    ],
+    "finding": "resolveVariant cannot disambiguate width/material when color+grade duplicates exist"
+  }
+}

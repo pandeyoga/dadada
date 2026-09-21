@@ -1,0 +1,37 @@
+{
+  "summary": "U-2 Meja Saya (6 peran) + T-11 approve idempoten + regresi guardrails/smoke. Semua uji utama LULUS. 10/10 pytest lulus (test_iter313_u2_role_desks.py). UI Meja Saya berfungsi untuk manager/sales/warehouse/admin dengan judul, PAGE_META, dan kartu antrean yang benar; finance TIDAK memuat nav 'Meja Saya' (memakai Meja Finance). Guardrails scripts/check_nav_map.py, verify_codebase_map.py, verify_to_list_bound.py PASS. smoke_wilayah PASS. smoke_turn_hygiene_entities PASS untuk alur turn giliran (giliran gudang muncul dan tertutup setelah cancel+scan) — ada 1 FAIL yang TIDAK terkait U-2/T-11/T-03 (perapian ulang setelah buka kunci — regresi lain).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "smoke_turn_hygiene_entities", "issue": "Bagian 'setelah buka kunci, perapian ulang menerapkan lagi' gagal (0 record). Tidak terkait U-2/T-11/T-03; kemungkinan regresi data-hygiene lain."},
+      {"endpoint": "test_iter276_g2_md_audit", "issue": "5 tes gagal (H3/H5/L2/D1/DD1): D1 mengharap 3 OD demo di draft dengan ambang 10jt (dapat 1); DD1 galeri desain approved=0 (perlu 1); ini seed/data terkait iter276, BUKAN T-03."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter313_u2_role_desks.py",
+    "/app/test_reports/pytest/iter13_u2.xml"
+  ],
+  "action_items": [
+    "(opsional) Selidiki kegagalan pre-existing smoke_turn_hygiene bagian 'perapian ulang setelah unlock' — bukan bagian U-2.",
+    "(opsional) Refresh seed iter276 (design gallery approved + 3 OD demo) — bukan bagian T-03."
+  ],
+  "critical_code_review_comments": [
+    "role_desk_service.role_desk: 'admin' menggabungkan manager_queues + warehouse_queues → menghasilkan queue id 'giliran_saya' + 4 manager + 3 warehouse = 8 queues (test frontend melihat 16 kartu — kemungkinan render kartu ganda per queue; verifikasi bahwa DeskQueueCard tidak memvisualisasikan tiap row sebagai kartu). Bila 16 = total_items rendering, tidak masalah; jika kartu queue, mungkin duplikasi.",
+    "sales_queues filter kepemilikan memakai $or 4-jalur (sales_id / created_by = id|email|name). Aman untuk data lama, tetapi rentan kolisi bila ada nama sama — pertimbangkan mem-backfill sales_id."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter313_u2_role_desks.py (baru)"
+  ],
+  "success_rate": {"backend": "100% (10/10 test U-2/T-11)", "frontend": "100% (5/5 skenario Meja Saya)"},
+  "test_credentials": "admin@/manager@/sales@/warehouse@/finance@/salesadmin@/md@ kainnusantara.id dengan password demo12345 (dari /app/memory/test_credentials.md). designer@/driver@ TIDAK ADA — endpoint desks/me akan 404 untuk mereka (tidak diuji langsung).",
+  "seed_data_creation": "1 sample_request dibuat & dibatalkan per run (TEST cleanup); turn_scan dipanggil untuk menutup notifikasi.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Uji U-2 lengkap di test_iter313_u2_role_desks.py. Selector UI: [data-testid=\"nav-my-desk\"], [data-testid=\"my-desk-title\"], kartu prefix [data-testid^=\"my-desk-queue-\"]. Meja admin mengembalikan gabungan 8 queue (giliran + 4 manager + 3 warehouse). extra.link 'operations' dispread ke top-level row (row.link, bukan row.extra.link).",
+  "rca of the issue": "N/A — tidak ada bug U-2/T-11 ditemukan; approve_order idempoten pada SO status 'approved' mengembalikan 200 dengan status='approved' sesuai T-11."
+}

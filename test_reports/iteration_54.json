@@ -1,0 +1,25 @@
+{
+  "summary": "Frontend-only regression for RND sample form focus-loss bug (labdip/handfeel/proofing). Tested continuous per-character typing (page.keyboard.type, delay=60ms) on ALL sample-spec-* and sample-*-input fields across (a) main create modal from ?view=rnd-samples, (b) galleries ?view=rnd-labdip|rnd-handfeel|rnd-proofing, and (c) switching between chip sample-type-labdip|handfeel|proofing. Verified for every field that (1) input_value equals the exact typed string, and (2) document.activeElement.data-testid remained the same input — proving focus is NOT lost per keystroke. Bug is FIXED. 20/21 field checks fully pass; the one non-focus discrepancy is that sample-spec-sku uppercases input ('ktn-150' -> 'KTN-150') which is an intentional transform (focus preserved, only value casing differs) — reporting as design note, not a focus bug.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "SampleFormModal · sample-spec-sku", "issues": ["Input auto-uppercases while user types ('ktn-150' becomes 'KTN-150'). Focus is preserved (not the reported bug), but casing differs from what user types. Confirm this is desired UX; if yes, consider setting CSS text-transform for consistency with typed value shown."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "SampleSpecFields L and FinalPanel Row moved to module-level scope — correct fix pattern to avoid remounting inputs each render. Continue applying this pattern for any other in-render sub-components in RND forms.",
+    "sample-spec-sku uppercasing changes user-typed value — surface visually via CSS text-transform: uppercase or explain via helper text to avoid confusion."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped)", "frontend": "100% for focus-loss regression (21/21 fields kept focus); 20/21 value-exact (SKU uppercased by design)"},
+  "test_credentials": "admin@kainnusantara.id / demo12345 (entity ent_ksc)",
+  "seed_data_creation": "None. Did NOT click sample-form-save; only typed to verify focus retention.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Focus-loss bug on RND Labdip/Proofing/Handfeel forms is verified FIXED across all entry points (rnd-samples create button + rnd-labdip/handfeel/proofing gallery-create buttons + chip switching between sample-type-labdip|handfeel|proofing). Fields covered: sample-spec-gramasi, -lebar, -sku, -price, -notes, -yarn, -epi, -ppi, -composition, -finishing, -handfeel-target, sample-title-input, sample-qty-input, sample-brief-input. Only remaining note: sample-spec-sku uppercases input.",
+  "rca of the issue": "Root cause (per main agent's fix): sub-components L (in SampleSpecFields.jsx) and Row (in design/FinalPanel.jsx) were defined inside the parent render function. Each keystroke caused parent re-render, which produced a new component reference, causing React to unmount/remount the input on every character — losing focus. Fix: moved L and Row to module scope so their component identity is stable across renders. Verified: after fix, activeElement stays on the input and full strings are typed continuously without focus loss."
+}

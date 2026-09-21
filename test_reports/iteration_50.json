@@ -1,0 +1,46 @@
+{
+  "summary": "Iter 50 — Marketing & Sosial Media (modul baru): 30/30 pytest lulus + Playwright end-to-end lulus. Backend meliputi GET /marketing/meta (6 platform, 7 status, pic_options; warehouse 403), CRUD kampanye (nama kosong/tanggal terbalik → 400; rename kampanye → post.campaign_name ikut berubah; list membawa post_counts & posts_total), lifecycle post (hashtags dedup ['a','b'], idea→review langsung 400 'Tidak bisa dari idea ke review', draft→review tanpa caption 400, approve oleh sales 400 'Hanya manager/admin…', approve oleh manager OK, scheduled tanpa PIC 400, approved→draft tanpa note 400, PATCH pic → scheduled OK, scheduled→published + published_url + published_at terisi, metrics pada non-published 400, metrics negatif 400, metrics {likes:10, reach:100} OK & metrics_history≥1, PATCH caption pada published 400, DELETE published 400, DELETE draft OK), attachment lifecycle PNG (POST multipart → GET image/png 200 → DELETE → hilang), list posts?month=2026-10 memuat post uji, filter platform+status, GET /assets?q=OD berisi keys designs/products/special_orders, GET /analytics?month=2026-09 (published≥1, by_platform.instagram.reach=4400 ≥3400, engagement_rate_pct numeric) & campaign_id filter. Frontend Playwright (admin): mkt-calendar terbuka; mkt-new-post → mkt-post-form; isi mkt-f-title/mkt-f-platform-instagram/mkt-f-publish-at=2026-09-28T10:00/mkt-f-caption/PIC=Ayu Permatasari → mkt-post-submit → mkt-post-detail terbuka dgn mkt-detail-status 'Ide'; klik mkt-action-draft→'Draft'; review→'Review'; approved→'Disetujui'; scheduled→'Terjadwal'; isi mkt-published-url lalu mkt-action-published→'Tayang' + blok mkt-metrics muncul; likes=50 reach=1000 mkt-save-metrics → teks 'terakhir dicatat…engagement 50' tampil. Tutup → chip di mkt-day-2026-09-28 count=1; mkt-mode-list menampilkan 2 baris Sep 2026; filter mkt-filter-status=Tayang tetap menampilkan hanya Tayang (2). Kampanye: mkt-new-campaign→isi nama/tanggal→mkt-campaign-submit sukses (kartu bertambah 6). Analitik: mkt-kpi-total=2, mkt-kpi-published=2, mkt-kpi-reach=4.400, mkt-an-platform 'Instagram 2/2 tayang · jangkauan 4.400 · eng 178 · klik 22'. Peran designer (Sari Melati): menu 'Marketing & Sosmed' tampil, kalender terbuka, buat post & bawa ke Review — di mkt-post-detail status=Review: mkt-action-approved TIDAK tampak (approver=admin/manager only), tetapi mkt-edit-post tetap ada.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "backend_verified": [
+    "GET /api/marketing/meta admin: platforms=6, statuses=7, pic_options≥1; warehouse → 403.",
+    "POST /api/marketing/campaigns 400 saat name kosong dan end<start; PATCH name → propagasi ke posts.campaign_name; list mengandung post_counts & posts_total.",
+    "POST /api/marketing/posts tanpa platforms 400. Body {hashtags:'#a #b #a'} → dedup ['a','b'], status 'idea'.",
+    "Transitions: idea→review 400; idea→draft OK; draft→review tanpa caption 400; approve oleh sales 400 (contains 'manager'); approve oleh manager OK (status=approved); scheduled tanpa PIC 400; approved→draft tanpa note 400; PATCH pic + scheduled OK; scheduled→published + published_url sukses (published_at terisi, published_url tersimpan).",
+    "Metrics: pada non-published 400 ('Performa hanya…'); negatif 400; {likes:10,reach:100} OK & metrics_history len≥1.",
+    "PATCH caption pada published 400 ('sudah tayang tidak bisa diubah'); DELETE published 400; DELETE draft OK.",
+    "Attachments PNG multipart → mka_* returned; GET response Content-Type image/png; DELETE menghilangkan lampiran.",
+    "GET /api/marketing/posts?month=2026-10 memuat post uji; filter platform=tiktok&status=published mengembalikan hanya post cocok.",
+    "GET /api/marketing/assets?q=OD → keys 'designs','products','special_orders' hadir.",
+    "GET /api/marketing/analytics?month=2026-09 → published≥1, by_platform.instagram.reach≥3400 (aktual 4.400), engagement_rate_pct numeric; filter campaign_id posts_total≥1."
+  ],
+  "frontend_verified": [
+    "?view=mkt-calendar&entity=ent_ksc — mkt-calendar render, mkt-new-post membuka mkt-post-form, submit → mkt-post-detail dgn mkt-detail-status 'Ide'.",
+    "Aksi berurutan mkt-action-draft/review/approved/scheduled/published mengubah mkt-detail-status ke Draft/Review/Disetujui/Terjadwal/Tayang; setelah Tayang blok mkt-metrics muncul; mkt-save-metrics menampilkan teks 'terakhir dicatat …'.",
+    "Chip mkt-post-chip-* muncul di mkt-day-2026-09-28 (count=1). mkt-mode-list menampilkan mkt-list-row-*; filter mkt-filter-status=Tayang menyaring dengan benar.",
+    "?view=mkt-campaigns — mkt-new-campaign membuka form, mkt-campaign-submit menambah kartu mkt-campaign-*.",
+    "?view=mkt-analytics — mkt-kpi-total, mkt-kpi-published, mkt-kpi-reach terisi; mkt-an-platform berisi 'Instagram'.",
+    "Peran designer@: menu 'Marketing & Sosmed' tampil (sidebar), bisa buat post → bawa ke Review; di mkt-post-detail status=Review, tombol mkt-action-approved TIDAK ada, mkt-edit-post tetap ada (gating isApprover correct)."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter50_marketing.py",
+    "/app/test_reports/pytest/iter50_marketing.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "marketing_service.transition() semua guard business terpusat & konsisten (approver role, caption-before-review, pic-before-scheduled, note-before-return, published_at auto) — good.",
+    "record_metrics() memvalidasi status published + non-negative + minimal satu angka; menulis snapshot ke metrics_history — solid.",
+    "list_campaigns aggregation memakai $ifNull untuk metrics — aman dari post tanpa metrics.",
+    "analytics.engagement_rate_pct dibulatkan 2 desimal & aman-div-nol (0.0 saat reach=0).",
+    "router.transition mem-audit 'from' status sebelum update — traceable.",
+    "Minor: create_post() mengabaikan payload.status kecuali 'idea'/'draft' — sesuai desain, tidak berbahaya."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter50_marketing.py"],
+  "success_rate": {"backend": "100% (30/30)", "frontend": "100% (all UI checks)"},
+  "test_credentials": "admin@ / manager@ / sales@ / warehouse@ / designer@kainnusantara.id — semua demo12345; X-Entity-Id: ent_ksc",
+  "seed_data_creation": "Uji Kampanye Iter50 (mkc_*) + post uji (mkp_*) dengan hashtags dedup, dibawa dari idea→published dgn metrics likes=10/reach=100. Post attachment lifecycle membuat lampiran PNG lalu dihapus. Frontend membuat 'Uji UI Iter50' (mkp_*, Sep 28 2026, published, likes=50/reach=1000), 'Uji UI' kampanye Okt 2026, dan 'Designer Review Check' (Sep 30 2026, status review oleh Sari Melati).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Modul Marketing & Sosmed baru bekerja penuh: backend service marketing_service.py (357 baris) mengelola alur idea→draft→review→approved→scheduled→published + cancelled, dg APPROVE_ROLES={admin,manager}. Router marketing.py (249) expose /api/marketing/meta|campaigns|posts|posts/{id}/transition|/metrics|/attachments|/assets|/analytics. permissions_config.py memberi 'marketing' ke admin,manager,sales,sales_admin,designer (view+create+update, approve+delete hanya admin+manager); warehouse tidak punya → 403. Frontend feature dir /app/frontend/src/features/marketing/ (ContentCalendar, PostFormModal, PostDetailModal, Campaigns, MarketingAnalytics, marketingShared) — mem-render testid mkt-* seperti dispesifikasikan. Seed data Sep 2026 ada: post published 'Teaser koleksi Navy' (metrics reach=3400 dsb) yang membuat analytics IG reach=4.400.",
+  "rca of the issue": "Tidak ada isu ditemukan."
+}

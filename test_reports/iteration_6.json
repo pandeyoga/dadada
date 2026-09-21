@@ -1,0 +1,27 @@
+{
+  "summary": "Verified backend GET /api/product-motifs and UI conversion of product-related forms to KNSelect (master-driven) + numeric inputs (min free-text). Backend motifs: 14 items, 'Polos' first, sources={baku,induk,desain}, no duplicates, contains Mega Mendung. MD FamilyForm: family-category/family-motif/family-base_unit are KNSelect (roles=combobox), motif options include Polos+Mega Mendung, unit options include Meter/Yard/Kilogram/etc, family-sku_prefix filters to A-Z0-9- and uppercases ('ab-12$xy!' -> 'AB-12XY'). Successfully saved TEST_UI_4791 (Batik/Mega Mendung, gramasi 180, lebar 1.5, warna Hitam Pekat). SpecFormModal: KNSelect for spec-category-input (includes '— pilih kategori —') and spec-unit-input (Meter first). spec-gramasi/lebar/epi/ppi are type=number. spec-sku-input uppercase filter works. Draft spec saved. SampleFormModal (as manager): sample-unit-input KNSelect with initial 'Meter (m)', sample-qty-input type=number; sample saved successfully. Admin legacy ProductMasterForm (via md-products → Data SKU & impor → Tampilkan Formulir Buat): admin-product-motif-input/supplier-input/category-input/base_unit-input all KNSelect; supplier options begin with 'Internal (produksi sendiri)' followed by Master Supplier list.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "FamilyForm (catalog)", "issue": "family-category tidak memiliki opsi placeholder '— pilih kategori —'; nilai awal dipatok 'Kain' (yang bukan bagian Master Kategori → tampil sebagai '(nilai lama)'). Review meminta placeholder '— pilih kategori —' dan error 'Pilih kategori dari Master Kategori.' saat simpan tanpa memilih; keduanya belum ada di FamilyForm.jsx. SpecFormModal sudah benar (placeholder ada di spec-category-input).", "selector": "[data-testid=family-category]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/smoke_variant_axes_base_fabric.py"],
+  "action_items": [
+    "FamilyForm.jsx: ubah default `category` menjadi string kosong (bukan 'Kain') saat template baru, tambahkan opsi placeholder `{value:'', label:'— pilih kategori —'}` di depan `masters.categoryOptions`, dan tambahkan validasi di submit: `if (!f.category) { setError('Pilih kategori dari Master Kategori.'); return; }` — konsisten dengan SpecFormModal."
+  ],
+  "critical_code_review_comments": [
+    "Pola master-driven sudah benar di SpecFormModal, SampleFormModal, ProductMasterForm, tetapi FamilyForm belum menerapkan placeholder + validasi wajib kategori; berisiko induk baru tetap tersimpan dengan 'Kain' (legacy) tanpa disadari pembuat data.",
+    "useCatalogMasters.js: cache modul-level `_cache` bagus untuk kinerja, namun setelah pengguna berpindah entitas atau menambah motif/supplier baru, opsi tidak refresh sampai memanggil refreshCatalogMasters() atau reload. Pertimbangkan invalidate saat entitas berubah."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "~90%"},
+  "test_credentials": "md@ / manager@ / admin@kainnusantara.id · demo12345 (ent_ksc)",
+  "seed_data_creation": "UI: induk TEST_UI_4791 (kategori Batik, motif Mega Mendung, 1 warna Hitam Pekat). Spec draft TEST_UI_8488 (Batik/Meter, gramasi 180, lebar 1.5, epi 60, ppi 55). 1 permintaan sample TEST_UI_smp_* labdip (manager) — nomor terbaru pada tab Permintaan Sample.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Semua form utama (FamilyForm/SpecFormModal/SampleFormModal/ProductMasterForm) sudah memakai KNSelect + input numerik. Satu-satunya penyimpangan dari review: FamilyForm belum punya placeholder '— pilih kategori —' dan validasi 'Pilih kategori dari Master Kategori.' (default 'Kain'). Backend /api/product-motifs sudah rapi. Tidak melakukan regresi edit TEST_BF_print_37954F (dibatasi waktu) — namun rendering '(nilai lama)' sudah terverifikasi (kategori 'Kain' tampak sebagai 'Kain (nilai lama)' saat form baru dibuka).",
+  "rca of the issue": "FamilyForm.jsx menggunakan `template?.category || 'Kain'` sebagai default (baris 14) dan tidak menyisipkan opsi kosong di `masters.categoryOptions` (baris 35). Tidak ada branch `if (!f.category)` di fungsi submit (baris 20-29). Fix minimal: (1) default '', (2) prepend {value:'',label:'— pilih kategori —'}, (3) validasi setError('Pilih kategori dari Master Kategori.')."
+}

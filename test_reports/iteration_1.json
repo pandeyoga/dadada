@@ -1,0 +1,128 @@
+{
+  "summary": "Completed READ-ONLY static audit on /tmp/kn-audit plus isolated pure-function probes only (no live API/UI execution). Confirmed key gaps in R&D->product family linkage, variant axis normalization, media model, and sales-facing variant resolution.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/api/rnd/specs/{id}/approve",
+        "issue": "approve_spec inserts exactly one product from _product_draft without template_id, variant_attrs, or image/media fields (rnd_spec_service.py:87-122, 259-289).",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "/api/rnd/specs/{id}/approve",
+        "issue": "ensure_parent is not invoked in R&D approve path; only found in /api/products create and manual resolve-orphans flow (products.py:122; product_variant_service.py:72-94,106-117).",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "variant parent invariant (global)",
+        "issue": "Mandatory parent invariant can be broken: delete_template and detach_products set template_id to empty, and PATCH /products accepts arbitrary template_id without validating parent existence nor auto-repair (product_template_service.py:128-143,274-278; products.py:133-143,178-186).",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "/api/product-templates*",
+        "issue": "Template list/detail/summary path has no product_exclusivity filter, no line_scope narrowing, and no strip_cost_fields redaction unlike /api/products; yet role sales has product.view (permissions_config.py:96-99). Disclosure risk for sales-scoped visibility assumptions.",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "/api/product-templates/{id}/generate-variants",
+        "issue": "Generated variants omit lifecycle field (product_template_service.py:224-245). rnd_gate.lifecycle_of treats missing lifecycle as produksi (rnd_gate.py:69-73), creating policy-bypass risk classification.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "_normalize_axes (service internal)",
+        "issue": "ensure_parent default axes use values[] shape, but _normalize_axes reads only options[] -> both default axes dropped. Confirmed by isolated probe output_is_empty=true (product_variant_service.py:88; product_template_service.py:80-97; /app/test_reports/isolated_normalize_axes_result.json)."
+      },
+      {
+        "endpoint": "_normalize_axes (service internal)",
+        "issue": "Color hex from UI option payload is discarded during normalization (output keys only code,label,value). Confirmed by isolated probe (product_template_service.py:90-94; /app/test_reports/isolated_normalize_axes_result.json)."
+      },
+      {
+        "endpoint": "AI illustration mode",
+        "issue": "Code path is conditional: live Gemini SDK call when api_key exists, local DEMO renderer when key absent. Not executed and configuration intentionally unknown (gemini_image_service.py:34-41,97-114,169-193)."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ProductTemplatesView.TemplateModal",
+        "issue": "Create UI only exposes axis presets color/grade/lebar and add-axis buttons for those presets; no custom axis key control despite backend generic axis/cartesian support.",
+        "selector": "AXIS_PRESETS + tpl-add-axis-* buttons",
+        "priority": "HIGH"
+      },
+      {
+        "component": "VariantAxisPicker + variants.js",
+        "issue": "Axis mode resolves only color+grade. Width/size/material are not offered as selectable axes, so resolveVariant cannot disambiguate duplicates sharing same color+grade.",
+        "selector": "deriveAxisOptions/resolveVariant + quickview/mobile-quickview axis picker",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Variant media for sales quickview",
+        "issue": "Product quickviews consume a single selected.image URL only; no per-combination gallery/multi-photo handling. design_gallery files[] + optional product_id + AI illustration are separate features and not consumed by sales quickviews.",
+        "affected_selectors": [
+          "quickview-image",
+          "mobile-quickview image",
+          "admin-product-image-input"
+        ]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Desktop/Mobile QuickView variant info",
+        "issues": [
+          "Displayed variant line emphasizes SKU/color/motif/grade but omits other active axes (e.g., width/material), increasing ambiguity when axisMode is on."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/isolated_normalize_axes_probe.py",
+    "/app/test_reports/isolated_normalize_axes_result.json",
+    "/app/test_reports/isolated_variants_probe.mjs",
+    "/app/test_reports/isolated_variants_result.json",
+    "/tmp/kn-audit/backend/services/rnd_spec_service.py",
+    "/tmp/kn-audit/backend/services/product_template_service.py",
+    "/tmp/kn-audit/backend/services/product_variant_service.py",
+    "/tmp/kn-audit/backend/routers/product_templates.py",
+    "/tmp/kn-audit/backend/routers/products.py",
+    "/tmp/kn-audit/frontend/src/utils/variants.js",
+    "/tmp/kn-audit/frontend/src/components/VariantAxisPicker.jsx",
+    "/tmp/kn-audit/frontend/src/components/ProductQuickView.jsx",
+    "/tmp/kn-audit/frontend/src/features/sales/mobile/MobileQuickView.jsx",
+    "/tmp/kn-audit/backend/tests/test_f1b_product_templates.py",
+    "/tmp/kn-audit/backend/test_fase_f_rnd_poc.py"
+  ],
+  "action_items": [
+    "Define canonical R&D approve output model: family/template linkage + variant_attrs + media references; decide whether approve creates parent+variant or parent only.",
+    "Enforce parent invariant on PATCH/delete/detach paths (validate template_id existence, auto-repair strategy, or strict prohibition).",
+    "Align axis contract end-to-end: use options[] consistently, preserve hex metadata, and add custom axis controls in frontend.",
+    "Extend sales variant picker and resolver to include additional active axes beyond color/grade and show full variant label context.",
+    "Introduce per-variant/per-combination multi-photo model and quickview/gallery consumption path.",
+    "Add backend filtering/redaction parity for /product-templates routes with exclusivity/line scope/cost redaction expectations.",
+    "Harden lifecycle policy checks for generated variants with explicit lifecycle assignment and gate-consistent defaults.",
+    "Expand tests to integrated R&D->family->variants->media->sales flow; current tests largely validate separate old scopes only."
+  ],
+  "critical_code_review_comments": [
+    "No global repository/middleware safeguard observed that applies product_exclusivity or line filtering to product-template detail/summary responses; access currently relies on module-level permission only.",
+    "Invariant intent ('INDUK WAJIB') is contradicted by public detach/delete behavior plus unrestricted template_id patching.",
+    "Frontend/backend axis capabilities are mismatched: backend cartesian engine is generic, UI constrains authoring and selection to limited presets.",
+    "Media architecture for products remains single URL field; design gallery/AI illustrations are adjacent capabilities, not product-variant media coverage."
+  ],
+  "updated_files": [
+    "/app/test_reports/isolated_normalize_axes_probe.py",
+    "/app/test_reports/isolated_variants_probe.mjs",
+    "/app/test_reports/iteration_1.json"
+  ],
+  "success_rate": {
+    "backend": "100% static audit tasks completed (0% live runtime tests by request)",
+    "frontend": "100% static audit + isolated utility probes completed (0% live UI tests by request)"
+  },
+  "seed_data_creation": "None. In-memory synthetic rows only for isolated probes.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "This iteration was READ-ONLY. No KN app servers started, no DB writes, no integration tests executed. Use this report as static evidence baseline; future agent can perform controlled live verification after approval.",
+  "rca of the issue": "Root causes are contract drift and split ownership across modules: (1) R&D approve creates product docs directly without entering variant-parent normalization path; (2) axis schema inconsistency (values vs options and dropped hex) breaks parent defaults and color metadata continuity; (3) frontend variant UX models only two axes while backend allows many; (4) product media model stayed at single image URL while gallery/AI evolved separately; (5) template routes did not inherit products-route visibility/redaction guards."
+}

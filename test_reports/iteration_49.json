@@ -1,0 +1,40 @@
+{
+  "summary": "Iter 49 — Special Order FASE 4 (auto pengiriman OD + Meja Admin Sales OD queues). Backend 14/14 pytest pass. Frontend verified: sales-admin-desk shows both od_acc_pelanggan (SORD-260919-0023 · Catat ACC) and od_kunci_harga (SORD-260919-0024 · Kunci harga · 'kontrak Rp 39,000 → final Rp 50,700/meter'); clicking row action deep-links to special-orders view + auto-opens special-order-detail-view with matching special-order-number (0023 & 0024). OD 0024 detail exposes od-pricing with od-price-margin & od-price-lock-button. Baseline OD sord_ea3ce1b8387d (actually SORD-260919-0021, request said 0020) at status 'done' → od-shipping renders 1 outbound task 'Surat Jalan terbit', od-shipments 'KSC/SJ-00005 · dispatched', lini masa 'Selesai' active + rantai PR-00014·PO KSC/PO-00020·SO KSC/SO-00020 all done. Full new FASE-4 flow succeeded end-to-end via API: lock-price(auto_po) → both linked_po_id & linked_sales_order_id populated, chain.so.status='waiting_stock'; scan-receive/complete PO → OD='ready' + 1 outbound task (qty 60) + chain.so.status='confirmed'; scan-pick+dispatch → OD='shipped' + KSC/SJ; mark-delivered → OD='done'; prepare-shipment idempotent (200) on shipped OD, and 400 with 'SO hasil OD belum ada' on fresh OD.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "review request text", "issues": ["Request mentions sord_ea3ce1b8387d as SORD-260919-0020 but actual mapping is SORD-260919-0021 — likely a review-request typo, no code bug"]}
+    ]
+  },
+  "backend_verified": [
+    "GET /api/sales-admin/desk?entity_id=ent_ksc — as salesadmin & admin — queues include 'od_acc_pelanggan' (count>=1, SORD-260919-0023, ref_type='special_order') and 'od_kunci_harga' (count>=1, SORD-260919-0024, subtitle contains 'kontrak Rp 39').",
+    "GET /api/special-orders/sord_ea3ce1b8387d → status 'done', chain.shipments[0].shipment_no='KSC/SJ-00005', chain.so.status 'done', outbound_task_ids populated.",
+    "Full new OD flow (Uji F4, labdip qty 60, price 40000, margin 20%): create+submit → pending_approval → manager approve → confirmed + sample_ids populated; send({sup_343fce6af69e,[labdip]}) → attach PNG → submit{delta_e:0.5,wash:4,rub:4} → assess acc/90; admin decide{reason_code:'warna_paling_dekat', price:40000, approve_spec, product_sku:OD-F4-*} → decision.product_id populated; customer-decision acc; lock-price {margin_pct:20, auto_po:true} → pricing.procurement.po_number set, no procurement_error, OD.linked_po_id + linked_sales_order_id populated, chain.so.status='waiting_stock'. Receive PO: inbound scan-receive{qty:60,batch:'B',lot:'L'} + complete (qc-decision if pending) → OD.status='ready', shipping_error empty, chain.outbound_tasks[0].status='created' & qty=60, chain.so.status='confirmed'. scan-pick?actual_qty=60 → dispatch → OD.status='shipped', chain.shipments len>=1. mark-delivered SO → OD.status='done'. prepare-shipment on shipped OD → 200 idempotent (result.skipped or tasks==0). prepare-shipment on OD without linked SO → 400 with 'SO hasil OD belum ada'."
+  ],
+  "frontend_verified": [
+    "?view=sales-admin-desk&entity=ent_ksc — Admin Sales (Rina Kusumawati): 'Pesanan khusus — menunggu ACC pelanggan' shows SORD-260919-0023 with 'Catat ACC' button (data-testid=desk-action-sord_1f6b5ccddd31); 'Pesanan khusus — perlu kunci harga' shows SORD-260919-0024 with 'Kunci harga' button and subtitle 'kontrak Rp 39,000 → final Rp 50,700/meter'.",
+    "Click 'Catat ACC' → URL becomes ?view=special-orders&entity=ent_ksc; special-order-detail-view rendered; special-order-number == SORD-260919-0023 (status 'Terkonfirmasi'), lini masa marks 'Sample siap'.",
+    "Click 'Kunci harga' → same deep-link routing → special-order-number == SORD-260919-0024, od-pricing panel exposes od-price-margin input and od-price-lock-button.",
+    "?view=special-orders&entity=ent_ksc row special-order-row-sord_ea3ce1b8387d ('Detail →') → detail SORD-260919-0021 shows badge 'Selesai'; header chips PR:PR-00014, SKU:OD-F3-8813, SO:KSC/SO-00020; od-outbound-tasks '1 · Surat Jalan terbit'; od-shipments 'KSC/SJ-00005 · dispatched'; od-phases 'Selesai' active + rantai PR/PO/SO all done."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter49_special_orders_phase4.py",
+    "/app/test_reports/pytest/iter49.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "special_order_phase2.on_goods_received / on_shipment_dispatched / on_delivered hooks are all guarded by fresh DB fetch and idempotent status transitions — good.",
+    "routers/special_orders.lock_price auto-triggers convert_special_order_to_so post auto_procure and catches HTTPException to persist shipping_error rather than fail — good UX pattern.",
+    "auto_procure re-writes PO items to the winning contract price after conversion (iter48 fix persists in iter49 regression)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter49_special_orders_phase4.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% (all 4 UI checks)"},
+  "test_credentials": "admin@kainnusantara.id / salesadmin@kainnusantara.id / manager@kainnusantara.id / warehouse@kainnusantara.id — all demo12345; X-Entity-Id: ent_ksc",
+  "seed_data_creation": "Full new OD flow created SORD-260919-0025 (Uji F4, done via API) and a fresh draft SORD-260919-0026 (Uji F4 no-SO) to prove prepare-shipment 400. New md_sample, supplier_contract, PR, PO (auto), SO (auto), inbound+outbound wms_tasks, and shipment doc were generated by the flow.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "iter49 verifies FASE 4 auto-pengiriman: hooks in purchase_orders.recompute_po_status / qc_service (after QC accept) / shipment_service.dispatch_task / sales_orders_extra.mark_delivered all correctly drive OD status forward (in_production→ready→shipped→done). Sales-admin desk queues cover od_acc_pelanggan, od_kunci_harga, and (conditionally) od_siap_kirim. Deep-link from desk row → special-order-detail-view works via ROW_TARGET['special_order'] & focusDoc in App.js. Note: request text says sord_ea3ce1b8387d==SORD-260919-0020 but actual is SORD-260919-0021 (verify by inspecting row testid).",
+  "rca of the issue": "No issues found."
+}

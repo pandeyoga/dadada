@@ -1,0 +1,21 @@
+{
+  "summary": "Verifikasi temuan audit 2026-09-07: (R-3a, R-7, INV-PERF-01) via smoke_audit_2026_09_07.py — ALL PASS (cross-entity 404 pada GET /api/sample-requests/{id}; Blanket PO & PO standar menolak 400 SKU lifecycle=konsep dengan pesan seragam; generate-variants 2×2×2 → created=8 idempoten skipped=8). (R-4 regresi) pytest backend/tests/test_f2_stock_buckets.py → 20 passed. Frontend ProductGallery lightbox (INV-UI-01/10): login sales, buka QuickView produk prod_batik_mega (setelah unggah + approve foto uji via API), verifikasi 4 perilaku: (a) klik zoom membuka lightbox ✅ (b) Escape menutup ✅ (c) klik backdrop menutup ✅ (d) klik pada gambar TIDAK menutup ✅ (testid: quickview-gallery-{zoom,lightbox}). Regresi navigasi admin: dashboard, md-products, sales, purchase-orders, produk — semua render normal (body_text > 2400 chars) tanpa console error.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/smoke_audit_2026_09_07.py",
+    "/app/backend/tests/test_f2_stock_buckets.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ProductGallery.jsx menggunakan testId sebagai prefix (mis. quickview-gallery-* di QuickView Sales, product-gallery-* di halaman produk). Review request menyebut testid 'product-gallery-*' — di SalesPOS quick view aktualnya 'quickview-gallery-*'. Bukan bug (prop-driven), tapi perlu diperjelas di dokumen tes."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@ · sales@kainnusantara.id / demo12345 · entity uji ent_ksc",
+  "seed_data_creation": "Sementara: media_c88262f4cb94 (photo approved) diunggah ke prod_batik_mega untuk uji lightbox — SUDAH DIHAPUS setelah tes selesai. Smoke_audit script juga membuat 2 sample requests (KSC/SMP-00032, KANDA/SMP-00004) — script biasa membatalkan otomatis di akhir; verifikasi manual jika perlu.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "ProductGallery testId di SalesPOS QuickView = 'quickview-gallery' (bukan 'product-gallery'). Untuk tes lightbox produk sales: prod_bc7eb7e27def (SKU I3AF10BCB9-...) memiliki foto approved tetapi exclusivity=sales_tertentu sehingga tidak muncul di sales POS umum — gunakan produk lain (prod_batik_mega) dan unggah foto sementara via POST /api/products/{id}/media (multipart) + PATCH status=approved. useEscapeClose + overlayDismiss(closeFull) memfungsikan Escape + backdrop-close; klik gambar tidak menutup (ada onClick stopPropagation di child).",
+  "rca of the issue": "N/A — seluruh temuan audit yang divalidasi sudah PASS. Tidak ada regresi."
+}

@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 41 frontend-only verification of unified FormModal shells on 5 R&D modals + Supplier Color Variants modal. All target modals open with expected testids, correct disabled/label states, and close cleanly via `${testId}-close`. Supplier color variants badge & navigation to sample also verified. No overflow observed on 1920x900 or 390x844.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verifications": {
+    "manager_smp_00007": {
+      "decide_modal": {"opens": true, "fields_present": ["decide-supplier","decide-reason","decide-note","decide-price","decide-supplier-sku","decide-impact","decide-confirm","decide-modal-close"], "decide_confirm_disabled_no_price": true, "closes_via_close_testid": true},
+      "sample_send_modal": {"opens": true, "fields_present": ["sample-send-types","sample-send-search","sample-send-supplier-list","sample-send-due","sample-send-note","sample-send-count","sample-send-confirm","sample-send-modal-close"], "confirm_disabled_no_supplier": true, "confirm_label_after_pick": "Kirim · 1 round", "closes_via_close_testid": true},
+      "issue_material_modal": {"opens": true, "fields_present": ["issue-roll","issue-qty","issue-note","issue-confirm","issue-material-modal-close"], "confirm_disabled_initial": true, "closes_via_close_testid": true},
+      "sample_finish_modal": {"opens": true, "fields_present": ["sample-finish-date","sample-finish-note","sample-finish-confirm","sample-finish-modal-close"], "closes_via_close_testid": true}
+    },
+    "admin_smp_00008_round_action": {"opens": true, "fields_present": ["round-attach-hint","round-note-input","round-cost-input","round-modal-confirm","round-action-modal-close","round-meas-fields"], "closes_via_close_testid": true},
+    "color_library": {
+      "badge_text": "1 versi supplier",
+      "modal_title": "KN-BLU-01 · Biru Indigo",
+      "row_sup_a05908473e52_content_contains": ["Palembang Silk House","Navy 07","NV-07","KSC/SMP-00031"],
+      "sample_button_navigates_and_opens_sample_detail": true
+    },
+    "responsive": {"desktop_1920x900": "no overflow", "mobile_390x844": "send & issue modals render cleanly"}
+  },
+  "test_report_links": [
+    "/app/test_reports/iter41-decide-1920.jpeg",
+    "/app/test_reports/iter41-send-1920.jpeg",
+    "/app/test_reports/iter41-issue-1920.jpeg",
+    "/app/test_reports/iter41-finish-1920.jpeg",
+    "/app/test_reports/iter41-round-1920.jpeg",
+    "/app/test_reports/iter41-variants-1920.jpeg",
+    "/app/test_reports/iter41-send-mobile.jpeg",
+    "/app/test_reports/iter41-issue-mobile.jpeg"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped)", "frontend": "100%"},
+  "test_credentials": "manager@kainnusantara.id / demo12345, admin@kainnusantara.id / demo12345",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All 5 R&D FormModal shells (DecideModal, RoundActionModal, SampleSendModal, SampleFinishModal, IssueMaterialModal) and Supplier Color Variants modal verified via testids. `${testId}-close` convention consistently works across all. Sample KSC/SMP-00031 opens as sample-detail-modal after clicking color-variant-sample button. No mutations were confirmed (per instruction).",
+  "rca of the issue": "n/a - all requested UI verifications passed"
+}

@@ -1,0 +1,46 @@
+{
+  "summary": "Executed live backend+frontend testing on external preview URL. Backend regression suite for catalog variants/R&D/security passed (12/12). Frontend critical catalog flow mostly works (create family, generate 8 variants, edit variant, upload/approve/cover/reorder/delete media, reload persistence), with remaining mobile routing/deep-link instability to verify.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "App router / mobile layout",
+        "issue": "After viewport switch to mobile in automation run, screen jumped from catalog deep link context to approvals card view; md-products deep-link stability at 390 width needs revalidation.",
+        "selector": "?view=md-products + [data-testid='catalog-workspace']",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter316_catalog_rnd_security.py",
+    "/app/test_reports/pytest/pytest_results_iter316.xml"
+  ],
+  "action_items": [
+    "Re-check mobile deep-link/routing behavior for md-products at width 390/768 with deterministic nav assertion after viewport changes.",
+    "Run dedicated frontend pass for remaining requested scopes not fully executed here: sales quickview multi-axis picker with stock/order API preparation, and full role matrix UI visibility (manager review-only, sales no edit/import/HPP).",
+    "Run dedicated UI pass for R&D spec flow from catalog relation tab (template select + axis mapping + approve/release) to complement backend API verification."
+  ],
+  "critical_code_review_comments": [
+    "Catalog color axis input in FamilyForm depends on Pantone picker path; automation/manual path should verify discoverability and fallback behavior for users expecting direct text option entry.",
+    "Frontend route alias mapping exists (product-templates -> md-products), but behavior under mobile/responsive transitions needs hard assertion in router-level tests."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter316_catalog_rnd_security.py",
+    "/app/test_reports/iteration_2.json",
+    "/app/test_reports/pytest/pytest_results_iter316.xml"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12 pytest)",
+    "frontend": "80% (core catalog CRUD/media flow passed; some requested role/sales/routing scopes partially covered)"
+  },
+  "seed_data_creation": "Created TEST_ prefixed catalog templates/variants/spec records via live APIs during test runs.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend API assertions are in /app/backend/tests/test_iter316_catalog_rnd_security.py and green. UI media upload requires REAL valid image files (tiny synthetic bytes can trigger 400). Continue from TEST_catalog_ui_* families for UI relation/mobile deep-link checks.",
+  "rca of the issue": "Observed unresolved frontend risk is likely responsive navigation state handling rather than API failure: md-products deep-link initially loaded, but later responsive transition showed another hub view. Reproduce with deterministic sequence (login -> direct ?view=md-products -> viewport resize -> assert active view/testid)."
+}

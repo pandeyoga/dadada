@@ -1,0 +1,61 @@
+{
+  "summary": "Iter 47 — Special Order FASE 3 (auto PR/PO on lock-price, warehouse default, in_production, convert-to-SO with locked price, printing category fallback, submit endpoint). Backend pytest 17/18 passed. Frontend verified for baseline sord_dab2dcbc0de9 detail, draft OD 'Ajukan persetujuan' → Menunggu Persetujuan, and CreateSpecialOrderForm printing category selects. ONE REAL BUG in auto_procure: PO uses the FIRST active supplier contract regardless of product_id — new OD winning contract price is ignored.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/special-orders/{id}/lock-price (auto_po=true) → PO price",
+        "issue": "auto_procure picks a stale supplier contract (KSC/SCT-00025 at Rp 38.000 without product_id) instead of the newly-created winner contract (e.g. KSC/SCT-00027 at Rp 40.000). Reproduced on brand-new OD sord_48d82bff6182 (SORD-260919-0015): decide price=40000 → pricing.cost_price=40000, pricing.contract_number='KSC/SCT-00027' but linked PO items[0].price=38000, contract_number='KSC/SCT-00025'. SO conversion is unaffected (uses pricing.final_unit_price=50000). BUT the physical procurement PO is under-priced vs. winning supplier's promised contract — supplier will refuse or invoice differs.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "backend_verified": [
+    "GET /api/special-orders/sord_dab2dcbc0de9 → status in_production, linked_pr_number PR-00010, linked_po_number KSC/PO-00016, chain.po[0].supplier_name 'Solo Weave', chain.so.order_number KSC/SO-00016.",
+    "GET /api/sales-orders/so_... → items[0].price 49400, special_order_price=true, cost_price 38000, margin_pct 30.",
+    "GET /api/purchase-orders/po_648175665dd5 → items[0].price 38000, special_order_number SORD-260919-0001.",
+    "Full new OD flow (SORD-260919-0015, sord_48d82bff6182): create(labdip)+submit_for_approval → pending_approval → manager approve → confirmed + sample_ids[0] populated. send({supplier_ids:['sup_343fce6af69e'], type_codes:['labdip']}) → attach PNG → submit{note, measurements delta_e/wash/rub} → assess{acc, 90} → decide by admin (creator was manager) with price=40000, approve_spec, product_sku=OD-F3-<rnd> → decision.product_id populated. customer-decision acc → chain.phase=pricing. GET /api/warehouses returned 200. lock-price {margin_pct:25, warehouse_id, auto_po:true} → pricing.procurement.po_number set, no procurement_error, OD.status=in_production, chain.po[0].supplier_name='Solo Weave', chain.po[0].expected_delivery_date='2026-12-20'. GET PO → items[0].product_id=decision.product_id, quantity=120, warehouse_id=wh (BUT unit_price=38000, expected 40000 — see critical bug). Product lifecycle='produksi', exclusive_customer_id=cust_textile_medan. unlock-price by admin → 400 (PR/PO/SO already generated). convert-to-so → sales_order.items[0].product_id=decision.product_id, price=50000 (=40000*1.25), special_order_price=true, margin_pct=25; OD.linked_sales_order_id populated. Re-convert-to-so → 400 (idempotent).",
+    "Printing OD category fallback: create printing OD without pattern_category_code/design_category_code → draft; POST /submit → pending_approval; manager approve → design_request_id populated; GET /api/design-requests/{id} → category_code='ABS', design_category_code='AO' (first active).",
+    "Printing OD explicit: create printing OD with pattern_category_code='BGA', design_category_code='PG' → DSR uses BGA/PG."
+  ],
+  "frontend_verified": [
+    "?view=special-orders&entity=ent_ksc row SORD-260919-0001 → 'Detail →' opens detail.",
+    "Baseline sord_dab2dcbc0de9: od-pricing shows 'Harga final & confirmed · Dikunci Budi Santoso · 19 Sep 2026, 12.38 · Harga kontrak supplier Rp 38.000/meter · Solo Weave · KSC/SCT-00025 · KSC/SMP-00042 · Margin 30.0% · Harga final Rp 49.400/meter'.",
+    "od-procurement + od-po-chip = 'PO KSC/PO-00016 · Solo Weave · pending · tiba 2026-11-30'.",
+    "od-node-purchasing shows 'PR PR-00010 · converted', 'PO KSC/PO-00016 · Solo Weave · pending', 'SO KSC/SO-00016 · waiting_stock'.",
+    "special-order-linked-so chip = 'SO: KSC/SO-00016'.",
+    "Draft OD sord_ab82978e1eea → 'submit-special-order-btn' with label 'Ajukan persetujuan'; click → confirm dialog → page shows 'Menunggu Persetujuan'.",
+    "CreateSpecialOrderForm: 'create-special-order-btn' opens modal; click 'od-type-printing' chip → 'od-design-categories' panel appears with 'od-pattern-category' and 'od-design-category' selects (defaulting to 'otomatis (kategori pertama aktif)')."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter47_special_orders_phase3.py",
+    "/app/test_reports/pytest/iter47.xml",
+    "/app/test_reports/iter47-od-baseline-detail.jpeg",
+    "/app/test_reports/iter47-od-form-printing.jpeg"
+  ],
+  "action_items": [
+    "HIGH — Fix backend/services/special_order_phase2.py::auto_procure so PO uses the WINNING sample contract price (pricing.cost_price / pricing.contract_number). Currently pr_svc.convert_to_po(pr_id, supplier_id, ...) delegates contract lookup to sourcing which picks the first active supplier contract regardless of product_id/sample_ref. Options: (a) pass the explicit contract_id to convert_to_po; (b) prefer contracts whose product_id matches or whose sample_ref matches pricing.sample_number; (c) after conversion, override items[].price back to pricing.cost_price and set contract_id/contract_number/price_source='special_order'.",
+    "OPTIONAL — auto_procure creates PR with est_price=pricing.cost_price but convert_to_po later overrides — remove misleading est_price signal or feed it into contract selection."
+  ],
+  "critical_code_review_comments": [
+    "special_order_phase2.py::auto_procure — passes supplier_id but NOT contract_id when calling pr_svc.convert_to_po. That routine's sourcing prefers the first matching active contract; when a supplier has multiple contracts (labdip generic + product-specific), the LABDIP-generic contract (no product_id) is picked. Should scope by product_id or explicitly pass the winner contract_id from pricing.",
+    "special_order_phase2.py::lock_price — `pricing.contract_number` is stored on OD but never re-verified during PO creation, so the OD's audit trail claims one contract while the PO uses a different one. Consider asserting equality post-PO or embedding contract_id on OD.pricing.",
+    "special_orders.py::unlock_price — status_code inference `400 if user.role=='admin' else 403` still hides the ODError kind when non-admin errors. Recommend explicit role check first (as noted iter46).",
+    "special_orders.py::convert_to_so — SO uses pricing.final_unit_price correctly via sales_orders.py L190-198 — verified 50000=40000*1.25. This confirms cost_price is correct in pricing; only the physical PO price is wrong."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter47_special_orders_phase3.py"
+  ],
+  "success_rate": {"backend": "94% (17/18)", "frontend": "100% (5/5 UI checks)"},
+  "test_credentials": "admin@kainnusantara.id / demo12345 · manager@kainnusantara.id / demo12345 — X-Entity-Id: ent_ksc",
+  "seed_data_creation": "Created 3 new special orders for testing: SORD-260919-0015 (sord_48d82bff6182, labdip, in_production, converted to SO with linked SO), plus 2 printing ODs for category fallback tests. Submitted draft SORD-260919-0010 → pending_approval via UI test. Created corresponding md_samples, supplier contract KSC/SCT-00027 (Solo Weave 40000), warehouse-scoped PR and PO from auto_procure.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The auto_procure PO-price bug applies whenever a supplier has any older active labdip/generic contract without matching product_id. Solo Weave (sup_343fce6af69e) has KSC/SCT-00025 (no product) at 38000 which is picked over the newer winner contract KSC/SCT-00027. To retest: run pytest backend/tests/test_iter47_special_orders_phase3.py — test_09_verify_po asserts PO.items[0].price==40000. If main agent fixes auto_procure to pass contract_id or scope by product_id, this test should pass. SORD-260919-0015 already used up its slots; a fresh flow will create SORD-260919-0016+. Draft SORD-260919-0010 is now pending_approval (submitted during frontend test).",
+  "rca of the issue": "auto_procure calls pr_svc.convert_to_po(pr_id, supplier_id, ...) without an explicit contract_id. Downstream contract-sourcing (services/pricing/sourcing.py) selects the first active contract for that supplier — when the supplier has a legacy/generic contract with empty product_id (as Solo Weave does via KSC/SCT-00025 from an earlier labdip sample), it wins over the newer product-specific contract created at /decide. Reproduction steps documented in test_09_verify_po. Fix: force convert_to_po to use pricing.contract_number/id or override PO item price post-conversion to pricing.cost_price."
+}

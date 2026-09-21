@@ -1,0 +1,22 @@
+{
+  "summary": "Iter34 retest — notification audience/relevance sinkron dengan Peran & Hak Akses. Backend 10/10 pytest LULUS pada /app/backend/tests/test_notifications_iter33.py. Fix cabang admin di services/notification_scope.py:relevance_filter (meloloskan segala recipient_role, hanya menyaring recipient_user null/''/exists:false/==admin.id) TERBUKTI benar: admin melihat A(manager,reorder), B(finance,ar-aging), C(all,fixed-assets), D(all,'') dan TIDAK melihat E (recipient_user=penag). Penagihan melihat B/C/D/E tidak A. Sales melihat hanya D. unread-count konsisten; /read visible→200 non-relevan→404; read-all→200. turn_alerts finance/warehouse/cr_staf_penagihan expected; turn_roles(sales_orders.shipped)={cr_staf_penagihan,finance}. Frontend smoke: admin @ ?view=entities-access&entity=ent_ksc → tab role → role-card-finance → drawer terbuka; [data-testid=role-editor-turn-alerts] tampil dengan teks 'Notifikasi giliran yang diterima peran ini (1) • Terbitkan faktur & tagih' → OK. Login penagihan@ → klik ikon lonceng → panel NotificationCenter terbuka menampilkan 'Tidak ada notifikasi. Sistem dalam kondisi baik.' tanpa error console/DOM.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_notifications_iter33.py",
+    "/app/test_reports/pytest/iter34.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "notification_scope.relevance_filter cabang admin sekarang benar: hanya menyaring recipient_user milik user lain, semua audiens lolos.",
+    "Fixture seed_notifs pytest module-scoped — pastikan tetap dijalankan tanpa xdist (-o addopts=''), sudah didokumentasikan dalam file uji."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "100%"},
+  "test_credentials": "admin@kainnusantara.id / penagihan@kainnusantara.id / sales@kainnusantara.id (demo12345)",
+  "seed_data_creation": "5 notifikasi type='qa' + 1 type='qa_gl' disisipkan via pymongo pada fixture module-scope dan dibersihkan pada teardown; level accounting cr_staf_penagihan dikembalikan ke 'view' di finally block.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter33 selesai; regression suite di test_notifications_iter33.py tetap referensi untuk perubahan notification_scope / turn_notification_service berikutnya. Jalankan: export REACT_APP_BACKEND_URL=<url>; pytest tests/test_notifications_iter33.py -o addopts=''.",
+  "rca of the issue": "Bug iter33 sudah diperbaiki oleh main agent di services/notification_scope.py:relevance_filter — cabang admin kini mengembalikan `{'$or':[{'recipient_user':{'$in':[None,'',uid]}},{'recipient_user':{'$exists':False}}]}` tanpa membatasi recipient_role, sehingga admin melihat notifikasi ke peran apa pun namun tidak melihat notifikasi yang ditujukan langsung ke user lain. Verifikasi via test_admin_sees_ABCD_not_E PASS."
+}

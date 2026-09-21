@@ -1,0 +1,36 @@
+{
+  "template_id": "ptpl_c2e85ba6c7b5",
+  "template_name": "TEST_iter4_family_b485f1ac",
+  "sku_prefix": "I4B485F1AC",
+  "products": [
+    {
+      "id": "prod_c3669f372bbe",
+      "sku": "I4B485F1AC-001",
+      "variant_options": {
+        "color": "TESTI4CB485F1AC1",
+        "size": "S",
+        "material": "CTN",
+        "lebar": "W110"
+      }
+    },
+    {
+      "id": "prod_244c2e6679c7",
+      "sku": "I4B485F1AC-002",
+      "variant_options": {
+        "color": "TESTI4CB485F1AC2",
+        "size": "L",
+        "material": "LIN",
+        "lebar": "W120"
+      }
+    }
+  ],
+  "missing_combo_example": {
+    "color": "TESTI4CB485F1AC1",
+    "size": "L",
+    "material": "CTN",
+    "lebar": "W110"
+  },
+  "customer_id": "cust_03a8611041ad",
+  "customer_address_id": "addr_24590cb61efb",
+  "entity_id": "ent_ksc"
+}

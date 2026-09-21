@@ -1,0 +1,25 @@
+# Kain Nusantara backend — Python 3.11 (sama dengan lingkungan pengembangan).
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 TZ=Asia/Jakarta
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl build-essential libffi-dev tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app/backend
+
+COPY backend/requirements.txt .
+# emergentintegrations & litellm hanya ada di lingkungan preview Emergent (wheel privat,
+# TIDAK diimpor oleh kode aplikasi) — WAJIB dilewati, kalau tidak pip gagal di VPS.
+RUN grep -viE '^(emergentintegrations|litellm)([=<>@ ]|$)' requirements.txt > /tmp/req.txt \
+    && pip install --no-cache-dir -r /tmp/req.txt
+
+COPY backend/ .
+# .env preview tidak ikut; semua konfigurasi dari environment docker-compose.
+RUN rm -f .env && rm -rf tests uploads/* && mkdir -p /data/uploads
+
+EXPOSE 8001
+HEALTHCHECK --interval=20s --timeout=5s --start-period=180s --retries=10 \
+    CMD curl -fsS http://127.0.0.1:8001/api/ || exit 1
+
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001", "--proxy-headers", "--forwarded-allow-ips=*"]

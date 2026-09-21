@@ -1,0 +1,31 @@
+{
+  "summary": "Iter37: 3 fitur baru Peran & Hak Akses (Pratinjau Notifikasi, Duplikat Peran, Pindah Akun Massal) LULUS backend + frontend. Backend pytest test_role_editor_iter37.py 11/11 hijau: preview role_id/base_role/levels dengan turn_alerts benar (cr_staf_penagihan {} → ['Terbitkan faktur & tagih']; ar:none → drop; base finance → screens non-kosong), preview 400 untuk base_role tak dikenal & tingkat tak dikenal, preview TIDAK menyimpan (ar tetap manage). Move-users: admin → 400, same-role → 400, nonexistent → 404, sales → 200 moved=1 & user_ids berisi id, user berubah ke sales, peran kosong deletable, DELETE 200. Frontend E2E admin: (A) Preview cr_staf_penagihan (1) 'Terbitkan faktur & tagih' TANPA badge; klik role-level-ar-none → (0) + badge 'berubah' + 'Terbitkan faktur & tagih (hilang)'; batal → reopen tetap (1). (B) Duplikat role-card-duplicate-finance → editor title 'Duplikat Peran · Finance', label 'Finance (salinan)', tidak ada tombol duplikat pada role-card-admin; rename ke TEST_Finance Salinan → simpan → role-card-cr_test_finance_salinan muncul; delete lewat editor OK. (C) Pindah Akun Massal: buka role-card-cr_test_asal (1 akun) → panel role-editor-move; opsi role-editor-move-target-option-admin TIDAK ADA; pilih sales → tombol 'Pindahkan 1' → dialog title 'Pindahkan 1 akun dari “TEST_Asal”?' → confirm → editor TETAP terbuka, users '0 akun', accounts-empty tampil, tombol delete AKTIF; delete → confirm → kartu hilang. Semua data uji TEST_ dibersihkan.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Duplikat Peran editor", "issues": ["Saat editor dibuka via Duplikat, pratinjau notifikasi menampilkan badge 'berubah' + label '(baru)' pada tiap item — meski baseline diff seharusnya peran sumber. Task spec menyatakan 'tanpa badge berubah'. Tidak menghalangi fungsi (data tersimpan benar); UX diff-vs-source lebih akurat bila dibandingkan terhadap peran sumber, bukan peran kosong."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_role_editor_iter37.py",
+    "/app/test_reports/pytest/iter37.xml"
+  ],
+  "action_items": [
+    "(Opsional/UX) Baseline diff pratinjau notifikasi pada mode Duplikat: bandingkan terhadap peran sumber sehingga tidak muncul badge 'berubah' & label '(baru)' pada item warisan — sesuai deskripsi task."
+  ],
+  "critical_code_review_comments": [
+    "custom_role_service.move_users benar menolak to_role=admin (LOCKED_ROLES) dan same-role & non-existent target (404) — pesan Indonesia jelas.",
+    "preview_role menggunakan apply_levels di atas salinan matrix (deepcopy) → tidak mempersistensi; sudah diverifikasi via GET setelahnya.",
+    "Frontend RoleEditorDrawer: pertimbangkan pass baseline permissions dari template saat mode Duplikat agar RoleNotifPreview membandingkan terhadap sumber, bukan peran kosong."
+  ],
+  "updated_files": ["/app/backend/tests/test_role_editor_iter37.py"],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (3/3 alur)"},
+  "test_credentials": "admin@kainnusantara.id / demo12345",
+  "seed_data_creation": "Sementara membuat peran cr_test_asal + user test_asal@kainnusantara.id via API + peran cr_test_finance_salinan via UI. Semua sudah dihapus/dibersihkan (users.delete_many + role delete via UI/API).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Jalankan: `export REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2); pytest backend/tests/test_role_editor_iter37.py -v`. Selalu bersihkan test_asal@/test_pindah@ dan peran TEST_* via db.users.delete_many jika UI cleanup terlewat. Catatan: modul 'penjualan' pada cr_staf_penagihan sudah berlevel 'manage' secara default → klik role-level-penjualan-manage bersifat no-op; untuk memicu '(baru)' pilih modul yang saat ini bukan manage (mis. customer/product) atau gunakan mode Duplikat.",
+  "rca of the issue": "Tidak ada isu fungsional. Catatan minor UX: RoleEditorDrawer mode Duplikat memberi baseline diff sebagai peran kosong, sehingga RoleNotifPreview memberi badge 'berubah' + '(baru)'; perbaiki dengan memakai permissions/levels peran sumber sebagai baseline pratinjau saat mode duplikat."
+}

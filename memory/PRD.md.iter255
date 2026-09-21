@@ -1,0 +1,37 @@
+# Iterasi 255–258 — Temuan audit T1–T8, sapuan flow besar, rantai beli dari nol, nilai roll presisi
+
+Masalah asal (pemilik): lanjutkan development repo `walsaksajanaba/kn`; audit sebelumnya
+menulis 10 temuan tanpa eksekusi. Keputusan pemilik: **kerjakan semua T1–T8**, lalu
+**uji semua flow besar**, lalu **rantai beli dari nol** + **nilai roll presisi (sen bulat)**.
+Fitur "Sengketa Bisa Diputus" DITUNDA atas permintaan pemilik.
+
+## Iterasi 255 — T1–T8 dikerjakan (18/18 PASS)
+T1 izin riwayat nilai roll + galat tidak ditelan · T2 dialog catatan hanya bila ada
+tempat simpan · T3 catatan kosong tidak menimpa alasan bawaan · T4 tagihan tanpa PO
+tidak 500 · T5 pra-cek SoD & ambang Direksi di papan · T6 daftar ikut menyegar ·
+T7 jejak nilai ditulis sesudah pembaruan · T8 alasan tanpa penulis dihapus.
+
+## Iterasi 256 — sapuan luas semua flow besar (53/53 PASS, 0 HTTP 5xx)
+Satu gap: residu Rp 0,01 + dua definisi "sinkron" (layar 0,01 vs server Rp 1).
+
+## Iterasi 257 — ambang pembulatan satu sumber
+`ROUNDING_TOLERANCE = 1.0` di `services/gl_service.py`, dikirim ke layar
+(`rounding_tolerance`, `reconciled`, `rounding_only`).
+
+## Iterasi 258 — rantai beli dari nol + nilai roll presisi (14/15 PASS, 1 skip)
+- **Rantai beli**: PR → PO → penerimaan barang (roll baru) → tagihan supplier →
+  jurnal seimbang, trial balance seimbang, tanpa 5xx.
+- **Nilai roll presisi**: `core_utils.to_cents/from_cents` + SSOT
+  `roll_service.roll_value_cents()` (sen bulat, int) dipakai `inventory_reconciliation()`
+  dan `inventory_drift_explain()` → dua layar identik sampai sen, `difference` eksak.
+- **Rapikan sisa pembulatan**: `POST /api/gl/inventory-opening-balance?include_rounding=true`
+  + tombol `recon-fix-rounding` (opt-in; tombol utama tetap mati untuk sisa sen).
+- Integritas 242 PASS / 0 FAIL sesudah semua write.
+
+## Sisa backlog
+- P1: "Sengketa Bisa Diputus" — terima/tolak/potong sebagian di baris kontrabon.
+- P1: T9 backfill riwayat nilai roll (hanya dari sumber nyata, ditandai
+  `reason: "backfill_dari_jejak_dokumen"`).
+- P1: T10 kunci berkas `memory/.poc.lock` supaya POC & pemeriksa lain tak berbenturan.
+- P2: WRITE E2E dari nol untuk order-to-cash, produksi/makloon, dan HRD.
+- P2: pra-cek T5 diperluas ke tahap berjenjang lain + mode "Semua Entitas".
