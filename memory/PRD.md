@@ -59,3 +59,9 @@ Lihat `/app/memory/test_credentials.md`.
 - Impor mentah "Semua Data" (sheet `leads`, id kosong) kini mengisi default lead (`_lead_defaults` di data_mgmt_full_session.py).
 - `BACKUP_DIR` ditambahkan ke backend/.env (preview). Di VPS sudah diset lewat docker-compose.
 - Diverifikasi testing agent: 7/7 pytest lulus (/app/test_reports/iteration_42.json).
+
+## 2026-06 — Impor Leads langsung di halaman Leads
+- Tombol **Impor Excel** (/leads, izin leads:create) → dialog unduh template, unggah .xlsx/.csv, pratinjau dry-run (Baris/Baru/Diperbarui/Error), commit.
+- Endpoint: `GET /api/leads/import-template.xlsx`, `POST /api/leads/import-file` (multipart, dry_run). Sales cakupan-sendiri → lead ditugaskan ke dirinya.
+- Menerima template Leads, CSV (Nama;No. HP), dan sheet `leads` dari ekspor Semua Data.
+- Diverifikasi testing agent (iteration_43): backend 8/8 + UI superadmin & sales lulus.
