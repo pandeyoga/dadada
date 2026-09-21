@@ -1,0 +1,36 @@
+{
+  "summary": "Iterasi 58 — regresi audit KN 2026-09-21 lanjutan: D11 (ATP tunggal via services.atp_policy), D16 (ambang 3-way tunggal three_way_policy), atomic scan-label pada task completed, dan UI Special Order + SamplePriceMaster. Semua uji hijau.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_kn_audit_2026_09_21_iter58.py",
+    "/app/backend/tests/test_kn_audit_2026_09_21.py",
+    "/app/backend/tests/test_kn_audit_2026_09_21_extended.py",
+    "/app/test_reports/pytest/iter58.xml",
+    "/app/test_reports/pytest/iter58_all.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "atp_policy.py sudah satu sumber: compute_atp/within_horizon/pending_backorder_qty/sum_incoming_in_horizon dipakai roll_service.rebuild_balance & _on_order_qty; roll_service._on_order_qty men-skip PO tanpa entity_id (fallback OK karena PO KN wajib entity_id).",
+    "three_way_policy.tolerances → contra_bon_service.policy: qty_pct/price_pct/value_rp konsisten dengan permintaan D16. evaluate_bill_exceptions memakai price_tolerance_percent (harga) + value_tolerance_rupiah — bukan qty_tol lama.",
+    "vendor_bill_service.evaluate_match memakai value_tol untuk qty_over_billed (over_value) & price_variance (|price-po_price|*billed). Selisih rupiah kecil di bawah value_tol dihilangkan (test terverifikasi).",
+    "routers/inbound_scan_label.py memakai wms_tasks.find_one_and_update dengan status precondition sehingga task completed → 400/409, tanpa residu roll (verifikasi kuantitatif: count inventory_rolls tetap).",
+    "routers/special_orders.py approve mempakai find_one_and_update dengan predikat approval_level_current (verified via static regex — CAS klaim per-tingkat).",
+    "Frontend: KNSelect 'od-unit' opsi berasal dari GET /api/uom-conversions/catalog (26 opsi termasuk meter, yard, cm, mm, inch, feet, km, kg, gram, ton, lbs, oz, pcs, roll, dll). SamplePriceMaster tampil untuk admin dengan testid sample-price-master."
+  ],
+  "updated_files": ["/app/backend/tests/test_kn_audit_2026_09_21_iter58.py"],
+  "success_rate": {"backend": "100% (17/17 iter58 + 45 previous, 2 skipped)", "frontend": "100% (login, uom catalog, od-unit dari master, SamplePriceMaster, 0 console errors)"},
+  "test_credentials": "admin@kainnusantara.id / demo12345 (X-Entity-Id: ent_ksc)",
+  "seed_data_creation": "Tidak ada data uji tersisa. Semua fixture temporer (sales_orders backorder uji, wms_tasks jika di-inject, inventory_rolls turunan) dihapus di finally.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "iter58 memverifikasi D11 (ATP tunggal), D16 (3-way tunggal), atomic scan-label, dan UI Special Order od-unit + SamplePriceMaster. Test file `test_kn_audit_2026_09_21_iter58.py` memakai shared event loop `_LOOP` + helper `_run(coro)` untuk menghindari 'Event loop is closed' karena motor client. Endpoint ATP: /api/stock/atp?product_id=...&owner_entity_id=ent_ksc. UOM catalog: /api/uom-conversions/catalog. Tidak ada isu ditemukan; tidak perlu perbaikan.",
+  "rca of the issue": "N/A — tidak ada bug ditemukan pada scope iterasi ini."
+}

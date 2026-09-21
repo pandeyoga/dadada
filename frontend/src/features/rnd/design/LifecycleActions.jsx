@@ -1,6 +1,7 @@
 /** LifecycleActions — tombol aksi sesuai status & peran (desainer vs penilai) + dialog catatan/nilai/ACC/hold.
  *  Nilai HANYA diberikan sekali, di dialog ACC (keputusan pemilik 2026-09). */
 import { useState } from "react";
+import { overlayDismiss } from "@/utils/overlayDismiss";   // INV-UI-01
 import { Archive, CheckCircle2, Eye, GitBranch, PackageCheck, PauseCircle, PlayCircle, Rocket, RotateCcw, Send, Undo2 } from "lucide-react";
 import { designLifecycle, designNewVersion, holdDesign, releaseDesignHold } from "../rndApi";
 import { errMsg, roundLabel } from "../rndMeta";
@@ -87,7 +88,7 @@ export default function LifecycleActions({ design, canAssess, canEdit, canHold =
         );
       })}
       {dlg && (
-        <div className="fixed inset-0 z-[190] flex items-center justify-center bg-black/50 p-4" onClick={() => setDlg(null)} data-testid="design-action-dialog">
+        <div className="fixed inset-0 z-[190] flex items-center justify-center bg-black/50 p-4" {...overlayDismiss(() => setDlg(null))} data-testid="design-action-dialog">
           <div className="max-h-[90vh] w-full max-w-[560px] space-y-3 overflow-y-auto rounded-xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-[14px] font-bold">{A.label} — {design.code} · {roundLabel(design.version)}</h3>
             <DialogHint action={dlg.action} design={design} fin={fin} />

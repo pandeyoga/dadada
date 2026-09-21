@@ -63,6 +63,7 @@ MODAL_COMPONENT = re.compile(r"<[A-Z][A-Za-z0-9]*(?:Modal|Dialog|Drawer|Sheet|Wi
 #: Nama state yang memang berarti "pintu terbuka" (bukan wadah data form).
 STATE_TOGGLE = re.compile(r"^(show|open|is|modal|creating|editing|adding|wizard|new)",
                           re.IGNORECASE)
+BUSY_FLAG = re.compile(r"^(loading|busy|saving|submitting|sending|posting|working|pending)$", re.IGNORECASE)
 NAV_CALL = re.compile(r"\b(onNavigate|setActiveView|setView|navigate|onOpenDocument)\s*\(")
 
 #: Penanda "blok ini memang FORM" (ada isian yang bisa diketik/dipilih).
@@ -213,6 +214,10 @@ def scan(files: List[Tuple[str, str]]) -> Dict[str, List[tuple]]:
                 continue
             for setter, state in setters.items():
                 if not re.search(rf"\b{setter}\s*\(\s*(true|!\s*{state}\b|\{{)", blk):
+                    continue
+                # Bendera KESIBUKAN (`loading/busy/saving/submitting/sending`) bukan pintu form:
+                # tombol "Ajukan …" yang hanya memanggil API lalu setLoading(true) bukan form inline.
+                if BUSY_FLAG.search(state):
                     continue
                 # `setForm({...})` bukan "membuka pintu" — itu wadah DATA form. Tanpa
                 # saringan ini penjaga menuduh palsu tombol yang justru sudah benar
