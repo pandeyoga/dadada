@@ -1,0 +1,33 @@
+{
+  "summary": "Iter57 — audit KN 2026-09-21: konversi satuan (KN-B12/B16/B22/B27), D18/D25, gate lama (motifs/hygiene/customers), regresi impor `except: pass`. Backend: 11/11 uji baru PASS; regresi lama 45 passed, 2 skipped. Frontend: revenue card `order-dashboard-revenue` menampilkan angka + sublabel 'Setelah diskon & PPN · seluruh pesanan'; layar Stok tidak menampilkan `inventory-truncated-warning` (di bawah cap); modal Buat PO menampilkan `item-discount-input` (enabled) & `order-discount-input` (muncul setelah item ditambahkan) sesuai `purchasing.allow_item_discount/allow_order_discount = true` di /settings/effective; POS Checkout dengan route `**/customer-prices/quote` di-abort → `checkout-price-error` & `checkout-price-retry` tampil, banner error 'Harga kontrak pelanggan gagal dimuat (Network Error)' muncul. Tidak ada uncaught console error non-intended.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_kn_audit_2026_09_21_iter57.py",
+    "/app/backend/tests/test_kn_audit_2026_09_21.py",
+    "/app/backend/tests/test_kn_audit_2026_09_21_extended.py",
+    "/app/test_reports/pytest/iter57.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "KN-B27 create_inbound_roll: kuantitas dikonversi ke base_unit sebelum insert (100 yard → length_initial 91.44 m, unit meter). Movement juga tercatat dalam meter.",
+    "KN-B16 rebuild_balance: roll ber-unit yard dikonversi via to_base_qty; delta on_hand_qty & available_qty ≈ 91.44 (bukan 100 mentah).",
+    "KN-B12 apply_cycle_count_adjustment: saat susut > available, roll reserved/hold/quarantine ikut dipotong FEFO sesuai ranking (available=0, hold/quarantine/blocked/damaged/wip=1, reserved/committed=2); mengembalikan -removed dan meloggingkan reservasi tersentuh.",
+    "KN-B22 _normalize_return_items_to_base: 10 yard → quantity_returned 9.14 m, unit 'meter', jejak quantity_returned_input=10 & unit_input='yard' tersimpan.",
+    "KN-D18 GET /api/sales-orders/stats/summary: revenue.{7d,30d,90d}.{count,grand_total} + revenue_basis; grand_total 90d sesuai Σ Mongo sales_orders ter-scope status terpenuhi.",
+    "KN-D25 GET /api/inventory/balances: header X-Total-Count & X-Truncated hadir (CORS expose_headers OK); sku & product_name terisi seluruh baris.",
+    "Gate lama: /api/product-motifs & /api/data-hygiene/log ter-scope ent_ksc (tidak ada bocor entitas lain); POST /api/customers X-Entity-Id=all ditolak 409.",
+    "KN-C10 tidak ada lagi `except: pass` di services/routers (grep -rE '^\\s*except\\s*:' → 0 hasil).",
+    "Regresi jalur sah: /api/, dashboard, gl/trial-balance, vendor-bills, purchase-returns, inventory/balances semua 200."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_kn_audit_2026_09_21_iter57.py (baru, 11 uji: 4 KN-B + D18 + D25 + 3 gate + regresi impor)"
+  ],
+  "success_rate": {"backend": "100% (11/11 iter57 + 45/45 regresi non-skip)", "frontend": "100% jalur yang diuji (revenue card, inventory truncated, PO diskon toggle, POS price-error retry)"},
+  "test_credentials": "admin@kainnusantara.id / demo12345 (ent_ksc)",
+  "seed_data_creation": "Uji membuat roll uji + warehouse uji + item retur uji dalam-memori — semua dihapus di finally; rebuild_balance dipanggil ulang untuk merestore proyeksi.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Jalankan: cd /app/backend && python -m pytest tests/test_kn_audit_2026_09_21_iter57.py tests/test_kn_audit_2026_09_21.py tests/test_kn_audit_2026_09_21_extended.py -o addopts='' -v. File iter57 memakai satu event loop modul-scoped (_LOOP) agar Motor tidak melempar 'attached to a different loop'. Frontend statis, tidak perlu rebuild. gate.sh JANGAN dijalankan.",
+  "rca of the issue": "N/A — seluruh perbaikan iter ini terbukti hijau."
+}
