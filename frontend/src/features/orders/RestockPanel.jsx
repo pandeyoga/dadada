@@ -27,7 +27,7 @@ const PR_TONE = {
   cancelled: "pill-muted",
 };
 const PR_LABEL = {
-  draft: "Draft",
+  draft: "Draf",
   pending_approval: "Menunggu persetujuan",
   approved: "Disetujui",
   converted: "Jadi PO",

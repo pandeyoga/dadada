@@ -73,7 +73,7 @@ export default function CreateSpecialOrderForm({ token, onCreated, onCancel }) {
 
   return (
     <FormModal open onClose={onCancel} size="lg" testId="special-order-form" icon={Sparkles} error={err}
-      title="Pesanan Khusus Baru (Special Order)" subtitle="Permintaan produk custom dari pelanggan — diteruskan otomatis ke Desainer / R&D setelah disetujui"
+      title="Pesanan Khusus Baru" subtitle="Permintaan produk custom dari pelanggan — diteruskan otomatis ke Desainer / R&D setelah disetujui"
       onSubmit={submit} submitLabel="Simpan pesanan khusus" busy={busy} submitDisabled={problems.length > 0} submitTestId="special-order-save">
       <div className="grid gap-3">
         <Step n={1} title="Pelanggan & permintaan">
@@ -163,7 +163,7 @@ export default function CreateSpecialOrderForm({ token, onCreated, onCancel }) {
             <Field label="Catatan pesanan"><input className="field" data-testid="od-notes" value={f.notes} onChange={(e) => set("notes", e.target.value)} /></Field>
           </div>
           <label className="mt-2 flex items-center gap-2 text-[11.5px]">
-            <input type="checkbox" checked={f.submit} onChange={(e) => set("submit", e.target.checked)} data-testid="od-submit-approval" /> Langsung ajukan untuk persetujuan Manager
+            <input type="checkbox" checked={f.submit} onChange={(e) => set("submit", e.target.checked)} data-testid="od-submit-approval" /> Langsung ajukan untuk persetujuan Manajer
           </label>
           {problems.length > 0 && <p className="mt-1 text-[11px] text-[#A8221A]" data-testid="od-problems">Belum lengkap: <b>{problems.join(", ")}</b>.</p>}
         </Step>

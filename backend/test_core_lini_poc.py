@@ -275,15 +275,26 @@ def main() -> int:  # noqa: C901 — POC linear supaya mudah dibaca sebagai bukt
         pid, before_code = item["product_id"], item["line_code"]
         head_before = sorted(so.get("line_codes") or [])
         prod = db.products.find_one({"id": pid}, {"_id": 0})
-        restore_product.append((pid, str(prod.get("line_code") or "")))
+        # Drift (fase varian produk): lini SKU MENGIKUTI induk/template-nya — yang boleh
+        # dipindah adalah lini INDUK. Snapshot SO tetap diuji pada SKU yang sama.
+        tpl_id = prod.get("template_id") or ""
+        patch_url = (f"{BASE}/api/product-templates/{tpl_id}" if tpl_id else f"{BASE}/api/products/{pid}")
+        if tpl_id:
+            prod = db.product_templates.find_one({"id": tpl_id}, {"_id": 0}) or prod
+        restore_product.append((patch_url, str(prod.get("line_code") or ""), bool(tpl_id)))
         # pindahkan lini produk ke lini lain yang SAH untuk kain ini
         target_line = code4 if code4 in after else "printing"
         if target_line == before_code:
             target_line = "printing" if before_code != "printing" else code4
-        r = admin.patch(f"{BASE}/api/products/{pid}", headers=h(ENT_A), timeout=30,
-                        json={"data": {"line_code": target_line}})
-        ok(r.status_code == 200, f"lini master produk dipindah ke `{target_line}`",
-           f"dapat {r.status_code}: {r.text[:200]}")
+        r = admin.patch(patch_url, headers=h(ENT_A), timeout=30,
+                        json=({"line_code": target_line} if tpl_id else {"data": {"line_code": target_line}}))
+        # Fase varian produk: induk yang SUDAH punya SKU menolak pindah lini massal (400/409,
+        # pagar `product_variant_service`) — itu juga memenuhi janji L3 (riwayat SO tak
+        # ikut berubah). Produk mandiri tetap harus bisa dipindah (200).
+        _guarded = r.status_code in (400, 409) and "SKU" in r.text
+        ok(r.status_code == 200 or _guarded,
+           f"lini master produk dipindah ke `{target_line}` ATAU ditolak pagar varian (induk ber-SKU)",
+           f"dapat {r.status_code}: {r.text[:160]}")
         so_after = db.sales_orders.find_one({"id": so["id"]}, {"_id": 0})
         item_after = next(it for it in so_after["items"] if it["product_id"] == pid)
         ok(item_after.get("line_code") == before_code,
@@ -315,8 +326,9 @@ def main() -> int:  # noqa: C901 — POC linear supaya mudah dibaca sebagai bukt
     # ── L9. Nol residu ──────────────────────────────────────────────────────
     print("\n── L9. Bersih-bersih (POC harus bisa dijalankan berulang) ──")
     removed = 0
-    for pid, code in restore_product:
-        db.products.update_one({"id": pid}, {"$set": {"line_code": code}})
+    for url, code, is_tpl in restore_product:
+        _id = url.rsplit("/", 1)[-1]
+        (db.product_templates if is_tpl else db.products).update_one({"id": _id}, {"$set": {"line_code": code}})
     for coll, _id in cleanup_master:
         if _id:
             removed += db[coll].delete_many({"id": _id}).deleted_count

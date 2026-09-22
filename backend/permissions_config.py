@@ -323,7 +323,9 @@ DEFAULT_PERMISSIONS = {
         #   (kesalahan gagal ditampilkan; `.catch` mengubah 403 jadi daftar kosong).
         #   MENERBITKAN faktur tetap milik `finance` (tidak ada `create` di sini).
         # `ar_receipt` — panel riwayat uang masuk di Worklist Penagihan. `sales`
-        #   pun sudah boleh MELIHAT; mencatat uang masuk tetap milik `finance`.
+        #   pun sudah boleh MELIHAT. CATATAN: sejak Sesi 16, `bootstrap.GRANT`
+        #   menambahkan `ar_receipt.create` untuk `sales` (kwitansi dari HP) di matriks
+        #   DB — `void` & keputusan selisih tetap milik `finance`.
         "supplier": ["view"],
         "supplier_item": ["view"],
         "tax_invoice": ["view"],
@@ -358,6 +360,9 @@ DEFAULT_PERMISSIONS = {
         "ar_receipt": ["view", "create"],      # void → manajer
         "tax_invoice": ["view", "create", "update", "replace", "print"],   # cancel → manajer
         "payment_variance": ["view", "decide"],  # batas nominal tetap dijaga config
+        # Papan antrean persetujuan (`/approvals/backlog`) — finance memutus selisih bayar &
+        # menyetujui pembayaran sampel, jadi ia harus MELIHAT antreannya (tanpa menyetujui SO).
+        "approval": ["view"],
         "penalty": ["view", "issue"],          # waive/adjust → manajer
         "payment_plan": ["view", "update"],
         "cash": ["view", "create"],

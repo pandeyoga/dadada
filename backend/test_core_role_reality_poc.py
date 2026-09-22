@@ -211,10 +211,15 @@ def a_findings(adm):
     check("R1 · kesimpulan dijelaskan dengan kalimat manusia",
           "Admin Sales" in (rudi.get("headline") or ""),
           (rudi.get("headline") or "")[:70])
+    # Drift seed: nama singkat KSC diambil dari data (`short_name`), bukan literal "KSC".
+    _ents = adm.get(f"{BASE}/api/entities").json() if hasattr(adm, "get") else []
+    _ents = _ents if isinstance(_ents, list) else (_ents.get("items") or [])
+    _ksc = next((e for e in _ents if e.get("id") == "ent_ksc"), {})
+    _ksc_short = _ksc.get("short_name") or _ksc.get("legal_name") or "KSC"
     check("R1 · nama badan usaha tampil sebagai NAMA SINGKAT (INV-UI-02)",
-          rudi.get("home_entity_name") == "KSC"
+          rudi.get("home_entity_name") == _ksc_short
           and not str(rudi.get("home_entity_name")).startswith("ent_"),
-          f"home={rudi.get('home_entity_name')}")
+          f"home={rudi.get('home_entity_name')} harap={_ksc_short}")
 
     dewi = row_of(rep, REAL_MANAGER)
     check("R2 · manajer SUNGGUHAN tidak ikut dituduh (bukti-merah pembeda)",

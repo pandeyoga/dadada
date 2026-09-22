@@ -205,7 +205,7 @@ export default function RoleEditorDrawer({ role, template, roles, modules, label
             <RoleMenuPreview modules={modules} levels={levels} baseRole={editing ? role.base_role : baseRole} />
             <div className="flex items-start gap-1.5 rounded-md border border-[#C9DBF7] bg-[#F2F7FF] p-2.5">
               <Info size={12} className="mt-0.5 shrink-0 text-[#0058CC]" />
-              <p className="text-[10.5px] text-[#3C3C43]">Perubahan berlaku otomatis untuk yang sedang masuk (paling lama 1 menit atau saat muat ulang) — tidak perlu logout. <b>Notifikasi ikut menyesuaikan</b>: hanya layar yang boleh dibuka yang muncul di lonceng, dan "giliran Anda" dikirim ke peran yang memegang wewenangnya.</p>
+              <p className="text-[10.5px] text-[#3C3C43]">Perubahan berlaku otomatis untuk yang sedang masuk (paling lama 1 menit atau saat muat ulang) — tidak perlu keluar-masuk lagi. <b>Notifikasi ikut menyesuaikan</b>: hanya layar yang boleh dibuka yang muncul di lonceng, dan "giliran Anda" dikirim ke peran yang memegang wewenangnya.</p>
             </div>
           </div>
         </div>

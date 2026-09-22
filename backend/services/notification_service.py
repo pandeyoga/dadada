@@ -415,3 +415,43 @@ async def _notify_stuck_po_stages() -> int:
             )
             created += len(notes)
     return created
+
+
+async def notify_cycle_count_hit_reservation(*, product_id: str, warehouse_id: str, entity_id: str,
+                                             order_ids: List[str], shortage_qty: float,
+                                             session_number: str = "") -> List[Dict[str, Any]]:
+    """Opname susut memotong roll yang sudah DIRESERVASI pesanan — sales pemilik pesanan
+    (dan peran sales secara umum) harus tahu agar alokasi dicek/dipesankan ulang."""
+    out: List[Dict[str, Any]] = []
+    prod = await db.products.find_one({"id": product_id}, {"_id": 0, "name": 1, "sku": 1}) or {}
+    label = prod.get("name") or prod.get("sku") or product_id
+    for oid in order_ids:
+        so = await db.sales_orders.find_one({"id": oid}, {"_id": 0, "number": 1, "sales_id": 1,
+                                                          "assigned_sales_id": 1, "created_by_id": 1,
+                                                          "created_by": 1, "sales_name": 1,
+                                                          "entity_id": 1, "customer_name": 1})
+        if not so:
+            continue
+        recipient_user = so.get("sales_id") or so.get("assigned_sales_id") or so.get("created_by_id")
+        if not recipient_user:
+            # SO lama hanya menyimpan NAMA sales/pembuat — petakan ke akun bila unik.
+            nm = so.get("sales_name") or so.get("created_by")
+            if nm:
+                u = await db.users.find_one({"name": nm, "active": {"$ne": False}}, {"_id": 0, "id": 1})
+                recipient_user = (u or {}).get("id")
+        n = await create_notification(
+            notif_type="cycle_count_reservation_hit",
+            ref=f"cc_res:{oid}:{product_id}:{warehouse_id}",
+            title=f"Stok reservasi pesanan {so.get('number', oid)} terpangkas opname",
+            body=(f"Susut opname {session_number or ''} pada {label} mengambil roll yang sudah "
+                  f"direservasi untuk {so.get('customer_name', '') or 'pelanggan'} "
+                  f"(susut {shortage_qty:g}). Cek alokasi & hubungi pelanggan bila perlu."),
+            severity="warning", link="orders", entity_id=so.get("entity_id") or entity_id,
+            # INV-NOTIF-02 — beralamat ke PEMILIK pesanan; peran `sales_admin` hanya bila
+            # pemiliknya tak dikenal (bukan siaran ke seluruh sales).
+            **({"recipient_user": recipient_user} if recipient_user else {"recipient_role": "sales_admin"}),
+            action_type="order_open", action_id=oid, action_role="sales",
+        )
+        if n:
+            out.append(n)
+    return out

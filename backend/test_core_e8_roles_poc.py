@@ -291,8 +291,12 @@ def c_sales_separation(sales):
     print(f"\n{YEL}C · E8.2 — sales tak lagi menyentuh uang masuk, pajak & pegging{RST}")
     r = sales.post(f"/api/sales-orders/{FAKE}/tax-invoice", json={})
     check("sales TERBITKAN Faktur Pajak → 403", r.status_code == 403, f"HTTP {r.status_code}")
+    # Sesi 16 (keputusan pemilik, bootstrap.GRANT): sales lapangan BOLEH mencatat kwitansi
+    # dari HP (alokasi ke tagihan & selisih tetap milik finance). Pagar izin lolos → yang
+    # tersisa adalah validasi/404 pelanggan palsu, BUKAN 403.
     r = sales.post("/api/ar-receipts", json={"customer_id": FAKE, "amount": 1})
-    check("sales CATAT uang masuk (kwitansi AR) → 403", r.status_code == 403, f"HTTP {r.status_code}")
+    check("sales CATAT uang masuk (kwitansi AR) → lolos pagar izin (bukan 403; Sesi 16)",
+          r.status_code != 403, f"HTTP {r.status_code}")
     r = sales.post(f"/api/payment-variances/receipt/{FAKE}/decide",
                    json={"kind": "outstanding", "reason_code": "poc"})
     check("sales PUTUSKAN selisih bayar → 403", r.status_code == 403, f"HTTP {r.status_code}")
@@ -313,8 +317,8 @@ def c_sales_separation(sales):
     perms = sales.login_body["permissions"]
     check("izin efektif sales: tax_invoice hanya `view`", perms.get("tax_invoice") == ["view"],
           str(perms.get("tax_invoice")))
-    check("izin efektif sales: ar_receipt hanya `view`", perms.get("ar_receipt") == ["view"],
-          str(perms.get("ar_receipt")))
+    check("izin efektif sales: ar_receipt = view + create (Sesi 16), TANPA void",
+          sorted(perms.get("ar_receipt") or []) == ["create", "view"], str(perms.get("ar_receipt")))
     check("izin efektif sales: TANPA `order.deliver` & TANPA `inventory.pegging`",
           "deliver" not in (perms.get("order") or [])
           and "pegging" not in (perms.get("inventory") or []),
@@ -393,8 +397,10 @@ def e_finance(fin):
     # Yang HARUS tertutup — meja pesanan bukan wilayahnya.
     r = fin.post(f"/api/sales-orders/{FAKE}/confirm")
     check("Finance KONFIRMASI pesanan → 403", r.status_code == 403, f"HTTP {r.status_code}")
-    r = fin.post("/api/customers", json={"name": "POC", "pic_name": "x", "phone": "08",
-                                         "email": "a@b.c", "city": "Bandung", "address": "jl"})
+    # Drift 2026-09: payload sah menurut aturan kini (telepon 10–13 angka, alamat ≥3 huruf)
+    # supaya yang diukur benar-benar PAGAR IZIN (403), bukan validasi payload (422).
+    r = fin.post("/api/customers", json={"name": "POC", "pic_name": "x", "phone": "081200000002",
+                                         "email": "a@b.c", "city": "Bandung", "address": "Jl. Uji POC E-8"})
     check("Finance BUAT pelanggan → 403 (hanya melihat)", r.status_code == 403,
           f"HTTP {r.status_code}")
     perms = fin.login_body["permissions"]

@@ -111,8 +111,8 @@ export default function DesignDetailPage({ designId, currentUser, onBack, onChan
 
           {d.on_hold && (
             <div className="mt-3 rounded-lg border border-[#F2B48A] bg-[#FFF1E6] px-3 py-2 text-[11.5px] text-[#B24A00]" data-testid="design-detail-hold-banner">
-              <b>HOLD</b> sejak {d.hold?.at ? new Date(d.hold.at).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" }) : "—"} oleh <b>{d.hold?.by}</b> — “{d.hold?.reason}”.
-              Desain ini <b>tidak bisa masuk proofing R&amp;D</b> dan tidak bisa diaktifkan sampai hold dilepas.
+              <b>DITAHAN</b> sejak {d.hold?.at ? new Date(d.hold.at).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" }) : "—"} oleh <b>{d.hold?.by}</b> — “{d.hold?.reason}”.
+              Desain ini <b>tidak bisa masuk proofing R&amp;D</b> dan tidak bisa diaktifkan sampai penahanan dilepas.
             </div>
           )}
 

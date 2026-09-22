@@ -108,7 +108,7 @@ export default function ContentCalendar({ currentUser, selectedEntity = "all" })
 
       {unscheduled.length > 0 && mode === "month" && (
         <div className="rounded-xl border border-dashed border-[#D9D9DE] bg-white p-2.5" data-testid="mkt-unscheduled">
-          <p className="mb-1 text-[10.5px] font-bold uppercase tracking-wide text-[#8E8E93]">Ide & draft belum berjadwal · {unscheduled.length}</p>
+          <p className="mb-1 text-[10.5px] font-bold uppercase tracking-wide text-[#8E8E93]">Ide & draf belum berjadwal · {unscheduled.length}</p>
           <div className="flex flex-wrap gap-1.5">{unscheduled.map((p) => <PostChip key={p.id} post={p} wide onClick={() => setDetailId(p.id)} />)}</div>
         </div>
       )}

@@ -11,7 +11,7 @@ export const PLATFORM_STYLE = {
 };
 export const STATUS_STYLE = {
   idea: { label: "Ide", cls: "bg-[#F2F2F7] text-[#6B6B73] border-[#E5E5EA]" },
-  draft: { label: "Draft", cls: "bg-[#EEF2FF] text-[#3730A3] border-[#C7D2FE]" },
+  draft: { label: "Draf", cls: "bg-[#EEF2FF] text-[#3730A3] border-[#C7D2FE]" },
   review: { label: "Review", cls: "bg-[#FFF4E5] text-[#B45309] border-[#FCE1B6]" },
   approved: { label: "Disetujui", cls: "bg-[#E0F2FE] text-[#0369A1] border-[#BAE6FD]" },
   scheduled: { label: "Terjadwal", cls: "bg-[#EDE9FE] text-[#6D28D9] border-[#DDD6FE]" },
@@ -19,7 +19,7 @@ export const STATUS_STYLE = {
   cancelled: { label: "Batal", cls: "bg-[#FDECEC] text-[#C0392B] border-[#F5C6C6]" },
 };
 export const NEXT_ACTIONS = {
-  idea: [{ to: "draft", label: "Jadikan draft" }],
+  idea: [{ to: "draft", label: "Jadikan draf" }],
   draft: [{ to: "review", label: "Ajukan review", primary: true }],
   review: [{ to: "approved", label: "Setujui", primary: true, approver: true }, { to: "draft", label: "Kembalikan", reason: true }],
   approved: [{ to: "scheduled", label: "Jadwalkan", primary: true }, { to: "draft", label: "Kembalikan", reason: true }],

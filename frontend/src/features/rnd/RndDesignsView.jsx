@@ -33,7 +33,7 @@ const SCORE_OPTS = [
   { value: "1", label: "≥ 1,00" }, { value: "1.5", label: "≥ 1,50" }, { value: "1.75", label: "≥ 1,75" }, { value: "2", label: "= 2,00" },
 ];
 const ARTWORK_OPTS = [{ value: "", label: "Berkas: semua" }, { value: "yes", label: "Sudah ada berkas desain" }, { value: "no", label: "Belum ada berkas" }];
-const HOLD_OPTS = [{ value: "", label: "Hold: semua" }, { value: "yes", label: "Sedang HOLD" }, { value: "no", label: "Tidak di-hold" }];
+const HOLD_OPTS = [{ value: "", label: "Ditahan: semua" }, { value: "yes", label: "Sedang ditahan" }, { value: "no", label: "Tidak ditahan" }];
 const PROOFING_OPTS = [{ value: "", label: "Proofing: semua" },
   ...Object.entries(PROOFING_STATE_META).map(([k, m]) => ({ value: k, label: m.label }))];
 const EMPTY = { q: "", status: "", cat: "", dcat: "", designer: "", tag: "", product: "", revision: "", score: "", artwork: "", line: "", hold: "", proofing: "" };
@@ -158,7 +158,7 @@ export default function RndDesignsView({ currentUser, selectedEntity, focus, onF
             <Kpi label="Perlu revisi" value={stats.revision} tone="#C62828" />
             <Kpi label="Tahap final" value={stats.final} tone="#A05000" />
             <Kpi label="ACC / Aktif" value={stats.acc} tone="#1B7F4B" />
-            <Kpi label="Sedang HOLD" value={stats.hold} tone="#B24A00" testId="rnd-designs-kpi-hold" onClick={() => set("hold", f.hold === "yes" ? "" : "yes")} active={f.hold === "yes"} />
+            <Kpi label="Sedang ditahan" value={stats.hold} tone="#B24A00" testId="rnd-designs-kpi-hold" onClick={() => set("hold", f.hold === "yes" ? "" : "yes")} active={f.hold === "yes"} />
             <Kpi label="Proofing berjalan" value={stats.proofing} tone="#6B219A" testId="rnd-designs-kpi-proofing" onClick={() => set("proofing", f.proofing === "in_progress" ? "" : "in_progress")} active={f.proofing === "in_progress"} />
             <Kpi label="Jadi master produk" value={stats.master} tone="#0058CC" testId="rnd-designs-kpi-master" onClick={() => set("proofing", f.proofing === "master" ? "" : "master")} active={f.proofing === "master"} />
           </div>

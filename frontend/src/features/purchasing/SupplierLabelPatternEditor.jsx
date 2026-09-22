@@ -74,7 +74,7 @@ export default function SupplierLabelPatternEditor({ value, onChange }) {
               <span className="mb-0.5 block text-[10px] font-semibold text-[#6B6B73]">Urutan kolom (pisahkan koma)</span>
               <input data-testid="label-pattern-fields" value={(p.fields || []).join(",")}
                 onChange={(e) => set({ fields: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-                className="field font-mono text-[10.5px]" placeholder="supplier_sku,lot,roll_no,length,weight_kg,color_code" />
+                className="field font-mono text-[10.5px]" placeholder="supplier_sku,lot,roll_no,length,weight_kg,kode_warna" />
             </label>
           </>
         )}

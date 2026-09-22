@@ -395,9 +395,9 @@ export default function AdminView({
             <label className="grid gap-1 text-[11px] font-semibold text-[#3C3C43]">Pelaku
               <input data-testid="audit-actor-filter-input" className="field" placeholder="nama / email pelaku" value={auditFilters.actor} onChange={(e) => setAuditFilters({ ...auditFilters, actor: e.target.value })} /></label>
             <label className="grid gap-1 text-[11px] font-semibold text-[#3C3C43]">Modul / entitas
-              <input data-testid="audit-module-filter-input" className="field" placeholder="mis. user, sales_order" value={auditFilters.module} onChange={(e) => setAuditFilters({ ...auditFilters, module: e.target.value })} /></label>
+              <input data-testid="audit-module-filter-input" className="field" placeholder="mis. pengguna, pesanan" value={auditFilters.module} onChange={(e) => setAuditFilters({ ...auditFilters, module: e.target.value })} /></label>
             <label className="grid gap-1 text-[11px] font-semibold text-[#3C3C43]">Kunci aksi
-              <input data-testid="audit-action-filter-input" className="field" placeholder="mis. login, create" value={auditFilters.action} onChange={(e) => setAuditFilters({ ...auditFilters, action: e.target.value })} /></label>
+              <input data-testid="audit-action-filter-input" className="field" placeholder="mis. masuk, buat" value={auditFilters.action} onChange={(e) => setAuditFilters({ ...auditFilters, action: e.target.value })} /></label>
             <div className="grid grid-cols-2 gap-2">
               <label className="grid gap-1 text-[11px] font-semibold text-[#3C3C43]">Dari tanggal
                 <KNDatePicker data-testid="audit-date-from-input" placeholder="Dari" value={auditFilters.date_from} onChange={(v) => setAuditFilters({ ...auditFilters, date_from: v })} /></label>

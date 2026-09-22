@@ -107,13 +107,19 @@ def e7a_group_partner_guard(adm, mgr):
                                     "items": [{"product_id": prod["id"], "quantity": 5}]})
     check("RFQ mengundang badan usaha grup DITOLAK 409", r.status_code == 409,
           f"HTTP {r.status_code}")
-    r = adm.post("/api/customers", json={"name": "CV Kanda Suka", "pic_name": "x",
-                                         "phone": "0812", "email": "a@b.c", "city": "Bandung",
-                                         "address": "jl"})
+    # Drift 2026-09: telepon wajib 10–13 angka & pelanggan wajib PIC internal (sales aktif).
+    _sales = [u for u in (adm.get("/api/users").json() or []) if isinstance(u, dict) and u.get("role") == "sales"]
+    # Nama badan usaha grup diambil dari data (seed bisa berganti nama), bukan literal.
+    _grp = adm.get(f"/api/suppliers/{G_SUPPLIER}").json()
+    _grp_name = (_grp.get("name") if isinstance(_grp, dict) else None) or "Kanda Fabric"
+    r = adm.post("/api/customers", json={"name": _grp_name, "pic_name": "x",
+                                         "phone": "081200000001", "email": "a@b.c", "city": "Bandung",
+                                         "address": "Jl. Uji POC E-7 No. 1",
+                                         "assigned_sales_id": (_sales[0]["id"] if _sales else None)})
     check("Buat PELANGGAN bernama badan usaha grup DITOLAK 409", r.status_code == 409,
           f"HTTP {r.status_code}")
-    r = adm.post("/api/suppliers", json={"name": "CV Kanda Suka", "pic_name": "x",
-                                         "phone": "0812"})
+    r = adm.post("/api/suppliers", json={"name": _grp_name, "pic_name": "x",
+                                         "phone": "081200000001", "address": "Jl. Uji POC E-7 No. 1", "city": "Bandung"})
     check("Buat pemasok KEMBAR badan usaha grup DITOLAK 409", r.status_code == 409,
           f"HTTP {r.status_code}")
     r = adm.delete(f"/api/suppliers/{G_SUPPLIER}")

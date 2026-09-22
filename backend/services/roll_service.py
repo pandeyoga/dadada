@@ -1657,6 +1657,14 @@ async def apply_cycle_count_adjustment(
     if _touched_orders:
         logger.warning("[cycle_count] susut menyentuh roll reservasi pesanan %s — alokasi pesanan perlu dicek",
                        sorted(_touched_orders)[:10])
+        try:   # notifikasi ke sales pemilik pesanan (bukan hanya log server)
+            from services.notification_service import notify_cycle_count_hit_reservation
+            await notify_cycle_count_hit_reservation(
+                product_id=product_id, warehouse_id=warehouse_id, entity_id=owner_entity_id,
+                order_ids=sorted(_touched_orders), shortage_qty=-diff,
+                session_number=str(session_id or ""))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[cycle_count] notifikasi reservasi gagal: %s", exc)
     await rebuild_balance(product_id, warehouse_id, owner_entity_id)
     return -round(removed, 2)
 

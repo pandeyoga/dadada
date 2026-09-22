@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException
 
 from db import db
-from core_utils import new_id, now_iso, parse_decimal
+from core_utils import new_id, now_iso, parse_decimal, rupiah
 from services import storage_service as storage
 from services import rnd_sample_service as smp
 from services import rnd_spec_service as spec_svc
@@ -236,7 +236,7 @@ async def lock_price(od: Dict[str, Any], payload: Dict[str, Any], actor: Dict[st
                  "price_locked": True, "updated_at": now_iso(),
                  **({"linked_product_id": pv["product_id"], "linked_product_sku": pv["product_sku"]} if pv["product_id"] else {})}),
         "$push": {"status_history": {"status": od.get("status"), "timestamp": now_iso(), "user": actor.get("email", ""),
-                                     "note": f"Harga final dikunci: Rp {pricing['final_unit_price']:,.0f}/{pricing['unit']} (kontrak {pricing['cost_price']:,.0f} + margin {pricing['margin_pct']:g}%)"}}})
+                                     "note": f"Harga final dikunci: {rupiah(pricing['final_unit_price'])}/{pricing['unit']} (kontrak {rupiah(pricing['cost_price'])} + margin {pricing['margin_pct']:g}%)"}}})
     if _res.matched_count == 0:
         raise ODError("Harga OD ini baru saja dikunci oleh pihak lain. Muat ulang.")
     pid_final = pv["product_id"] or od.get("linked_product_id") or ""
@@ -307,7 +307,7 @@ async def auto_procure(od: Dict[str, Any], actor: Dict[str, Any], warehouse_id: 
             warehouse_id=wh, entity_id=entity_id,
             reason=f"Pengadaan otomatis {_label(od)} — supplier pemenang {pricing.get('supplier_name')}",
             needed_by_date=od.get("expected_delivery", ""), source="special_order", source_ref_id=od["id"],
-            notes=f"Harga final pelanggan Rp {float(pricing.get('final_unit_price') or 0):,.0f} (margin {float(pricing.get('margin_pct') or 0):g}%)",
+            notes=f"Harga final pelanggan {rupiah(float(pricing.get('final_unit_price') or 0))} (margin {float(pricing.get('margin_pct') or 0):g}%)",
             submit_now=True), created_by="Sistem (OD)")
         pr_id = pr["id"]
         await db.special_orders.update_one({"id": od["id"]}, {"$set": {"linked_pr_id": pr_id, "linked_pr_number": pr["number"], "pr_id": pr_id}})

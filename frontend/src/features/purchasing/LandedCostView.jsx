@@ -23,7 +23,7 @@ const TABS = [
 
 function StatusPill({ status }) {
   const map = {
-    draft: ["pill-muted", "Draft"], pending_approval: ["pill-warning", "Menunggu"],
+    draft: ["pill-muted", "Draf"], pending_approval: ["pill-warning", "Menunggu"],
     applied: ["pill-info", "Diterapkan"], paid: ["pill-success", "Lunas"], cancelled: ["pill-danger", "Batal"],
   };
   const [cls, label] = map[status] || ["pill-muted", status];

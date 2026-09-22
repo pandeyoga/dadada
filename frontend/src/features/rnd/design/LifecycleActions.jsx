@@ -19,8 +19,8 @@ const ACTIONS = {
   archive: { label: "Arsipkan", icon: Archive, side: "assessor", cls: "secondary-button", needNote: true },
   reopen: { label: "Buka kembali", icon: Undo2, side: "assessor", cls: "secondary-button" },
   new_version: { label: "Buat versi baru", icon: GitBranch, side: "designer", cls: "secondary-button", needNote: true },
-  hold: { label: "Hold desain", icon: PauseCircle, side: "holder", cls: "secondary-button !border-[#F2B48A] !text-[#B24A00]", needNote: true },
-  release_hold: { label: "Lepas hold", icon: PlayCircle, side: "holder", cls: "primary-button !bg-[#B24A00]" },
+  hold: { label: "Tahan desain", icon: PauseCircle, side: "holder", cls: "secondary-button !border-[#F2B48A] !text-[#B24A00]", needNote: true },
+  release_hold: { label: "Lepas penahanan", icon: PlayCircle, side: "holder", cls: "primary-button !bg-[#B24A00]" },
 };
 
 const BY_STATUS = {
@@ -140,8 +140,8 @@ function DialogHint({ action, design, fin }) {
   if (action === "new_version") return box("bg-[#F2F7FF] text-[#004099]", <>
     v{design.version} → <b>v{design.version + 1}</b>. Status kembali <b>Draf</b>; unggah berkas baru lalu ajukan lagi.</>);
   if (action === "hold") return box("bg-[#FFF1E6] text-[#B24A00]", <>
-    Selama <b>HOLD</b>, desain ini <b>tidak bisa dipakai permintaan proofing R&D</b> dan tidak bisa diaktifkan untuk produksi. Label HOLD tampil di daftar & bisa disaring.</>, "design-hold-hint");
+    Selama <b>DITAHAN</b>, desain ini <b>tidak bisa dipakai permintaan proofing R&D</b> dan tidak bisa diaktifkan untuk produksi. Label DITAHAN tampil di daftar & bisa disaring.</>, "design-hold-hint");
   if (action === "release_hold") return box("bg-[#EAF7EF] text-[#1A7A3A]", <>
-    Hold sejak <b>{design.hold?.at ? new Date(design.hold.at).toLocaleString("id-ID") : "—"}</b> oleh <b>{design.hold?.by}</b>: “{design.hold?.reason}”. Setelah dilepas, desain kembali bisa masuk proofing.</>, "design-release-hold-hint");
+    Ditahan sejak <b>{design.hold?.at ? new Date(design.hold.at).toLocaleString("id-ID") : "—"}</b> oleh <b>{design.hold?.by}</b>: “{design.hold?.reason}”. Setelah dilepas, desain kembali bisa masuk proofing.</>, "design-release-hold-hint");
   return null;
 }

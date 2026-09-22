@@ -92,7 +92,7 @@ export const HUB_TABS = {
   // MARKETING — sosial media & kalender konten.
   "marketing-hub": [
     { view: "mkt-calendar",  label: "Kalender Konten", roles: ["admin", "manager", "designer", "sales", "sales_admin"] },
-    { view: "mkt-analytics", label: "Dashboard & Performa", roles: ["admin", "manager", "designer", "sales", "sales_admin"] },
+    { view: "mkt-analytics", label: "Dasbor & Performa", roles: ["admin", "manager", "designer", "sales", "sales_admin"] },
     { view: "mkt-campaigns", label: "Kampanye",        roles: ["admin", "manager", "designer", "sales", "sales_admin"] },
     { view: "mkt-accounts",  label: "Akun Sosmed",     roles: ["admin", "manager", "designer", "sales", "sales_admin"] },
   ],

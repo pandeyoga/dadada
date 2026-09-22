@@ -19,7 +19,7 @@ export default function ProofingPanel({ design }) {
         <p className="text-[11px] text-[#3C3C43]" data-testid="design-proofing-detail">{p.detail}</p>
         {design.on_hold && (
           <p className="mt-1 text-[10.5px] font-semibold text-[#B24A00]" data-testid="design-proofing-hold-note">
-            Desain sedang HOLD — permintaan proofing baru ditolak sampai hold dilepas.
+            Desain sedang DITAHAN — permintaan proofing baru ditolak sampai penahanan dilepas.
           </p>
         )}
       </div>

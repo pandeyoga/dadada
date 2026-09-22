@@ -22,7 +22,7 @@ PLATFORMS = [
 ]
 CONTENT_TYPES = ["foto", "carousel", "reels", "video", "story", "live", "artikel"]
 STATUSES = [
-    {"code": "idea", "label": "Ide"}, {"code": "draft", "label": "Draft"}, {"code": "review", "label": "Review"},
+    {"code": "idea", "label": "Ide"}, {"code": "draft", "label": "Draf"}, {"code": "review", "label": "Tinjauan"},
     {"code": "approved", "label": "Disetujui"}, {"code": "scheduled", "label": "Terjadwal"},
     {"code": "published", "label": "Tayang"}, {"code": "cancelled", "label": "Batal"},
 ]

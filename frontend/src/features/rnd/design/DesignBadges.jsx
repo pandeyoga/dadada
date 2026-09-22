@@ -6,9 +6,9 @@ export function HoldBadge({ design, testId, size = "sm" }) {
   if (!design?.on_hold) return null;
   const pad = size === "lg" ? "px-2.5 py-1 text-[11px]" : "px-1.5 py-0.5 text-[9.5px]";
   return (
-    <span data-testid={testId} title={`HOLD oleh ${design.hold?.by || "—"} · ${design.hold?.reason || ""}`}
+    <span data-testid={testId} title={`Ditahan oleh ${design.hold?.by || "—"} · ${design.hold?.reason || ""}`}
       className={`inline-flex shrink-0 items-center gap-1 rounded font-bold uppercase tracking-wide ${pad} bg-[#FFF1E6] text-[#B24A00] ring-1 ring-[#F2B48A]`}>
-      <PauseCircle size={size === "lg" ? 12 : 10} /> Hold
+      <PauseCircle size={size === "lg" ? 12 : 10} /> Ditahan
     </span>
   );
 }

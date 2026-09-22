@@ -191,11 +191,11 @@ export default function ProductQuickView({ open, group, specialMap = {}, onAdd, 
               <div className="grid grid-cols-2 gap-2">
                 <button type="button" data-testid="quickview-kind-regular" onClick={() => pickKind("regular")} disabled={kindLocked && orderKind !== "regular"}
                   className={`flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-[12px] font-semibold transition disabled:opacity-40 ${!isSampleKind ? "border-[#0058CC] bg-[#EAF2FF] text-[#0058CC]" : "border-[#E5E5EA] bg-white text-[#3C3C43] hover:border-[#9A9BA3]"}`}>
-                  <ShoppingBag size={13} /> Order Biasa (PO)
+                  <ShoppingBag size={13} /> Pesanan Biasa (PO)
                 </button>
                 <button type="button" data-testid="quickview-kind-sample" onClick={() => pickKind("sample")} disabled={kindLocked && orderKind !== "sample"}
                   className={`flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-[12px] font-semibold transition disabled:opacity-40 ${isSampleKind ? "border-[#9A5B00] bg-[#FFF3D6] text-[#9A5B00]" : "border-[#E5E5EA] bg-white text-[#3C3C43] hover:border-[#9A9BA3]"}`}>
-                  <Scissors size={13} /> Order Sampel
+                  <Scissors size={13} /> Pesanan Sampel
                 </button>
               </div>
               {isSampleKind && limit && (
@@ -264,7 +264,7 @@ export default function ProductQuickView({ open, group, specialMap = {}, onAdd, 
             <div className="flex gap-2">
               {isSampleKind ? (
                 <button data-testid="quickview-sample-button" className="primary-button flex-1 justify-center py-2.5 !bg-[#9A5B00] hover:!bg-[#7A4700]" disabled={avail <= 0 || blocked || !(qty > 0)}
-                  title="Order Sampel — dipotong gudang dari roll; gratis/berbayar dipilih saat checkout"
+                  title="Pesanan Sampel — dipotong gudang dari roll; gratis/berbayar dipilih saat checkout"
                   onClick={() => { if (blocked || avail <= 0) return; onAdd(selected, clampSampleQty(selected, qty), baseUnit, { is_sample: true }); onClose(); }}>
                   <Scissors size={15} /> {avail <= 0 ? "Stok Habis" : `Tambah Sampel (${qty} ${baseUnit})`}
                 </button>

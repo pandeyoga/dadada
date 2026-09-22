@@ -75,7 +75,7 @@ function HistoryRow({ e }) {
       </p>
       {e.note && <p className="text-[11px] text-[#3C3C43]">{e.note}</p>}
       {e.event === "release_hold" && e.hold_reason && (
-        <p className="text-[10px] text-[#8E8E93]">hold sejak {fmtAt(e.held_since)} — alasan: {e.hold_reason}</p>
+        <p className="text-[10px] text-[#8E8E93]">ditahan sejak {fmtAt(e.held_since)} — alasan: {e.hold_reason}</p>
       )}
       {Array.isArray(e.changes) && e.changes.length > 0 && (
         <ul className="mt-1 space-y-0.5 rounded-lg bg-[#FAFBFC] px-2 py-1.5" data-testid="design-history-changes">

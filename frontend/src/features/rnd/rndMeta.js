@@ -123,7 +123,7 @@ export const DESIGN_HISTORY_GROUPS = [
   { key: "lifecycle", label: "Status & keputusan", events: ["created", "submit", "start_review", "request_revision", "approve", "submit_final", "return_final", "activate", "archive", "reopen", "new_version", "scored"] },
   { key: "files", label: "Berkas", events: ["artwork_uploaded", "reference_uploaded", "mockup_uploaded", "colorway_uploaded", "source_uploaded", "file_deleted"] },
   { key: "edits", label: "Perubahan data", events: ["updated", "colorway_added", "colorway_updated", "colorway_deleted"] },
-  { key: "hold", label: "Hold", events: ["hold", "release_hold"] },
+  { key: "hold", label: "Ditahan", events: ["hold", "release_hold"] },
   { key: "rnd", label: "Proofing & master produk", events: ["proofing_requested", "proofing_finished", "proofing_decided", "sample_requested", "sample_finished", "sample_decided", "spec_linked", "master_product_created", "master_product_released"] },
   { key: "feedback", label: "Umpan balik", events: ["feedback"] },
 ];

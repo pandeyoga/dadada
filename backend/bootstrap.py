@@ -393,7 +393,10 @@ async def sync_permission_revocations() -> None:
                 changed = True
     # Sesi 16 — sales lapangan mencatat kwitansi penerimaan dari HP (keputusan user); alokasi tetap
     # ke tagihan terbuka & selisih ditangani finance. Ditambahkan tanpa mencabut aksi lain.
-    GRANT = {"sales": {"ar_receipt": ["create"]}}
+    GRANT = {"sales": {"ar_receipt": ["create"]},
+             # Sesi audit 2026-09-21 — finance melihat papan antrean persetujuan (selisih bayar
+             # & pembayaran sampel adalah keputusannya); hanya `view`.
+             "finance": {"approval": ["view"]}}
     for role, mp in GRANT.items():
         rm = matrix.setdefault(role, {})
         for m, actions in mp.items():

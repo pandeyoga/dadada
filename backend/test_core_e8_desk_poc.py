@@ -337,7 +337,10 @@ def c_sales_admin_desk(sa, fin, s1):
     harus = ["perlu_verifikasi", "siap_dikonfirmasi", "menunggu_manajer",
              "siap_cetak_dokumen", "perlu_dipenuhi", "jatuh_tempo", "retur",
              "permintaan_internal"]
-    check("8 antrean sesuai keputusan pemilik", ids == harus, str(ids))
+    # Drift 2026-09: meja bertambah antrean baru (OD acc pelanggan, kunci harga, …) lewat
+    # fase berikutnya — 8 antrean inti pemilik WAJIB tetap ada & berurutan di depan.
+    check("8 antrean inti pemilik tetap ada & berurutan (antrean tambahan boleh menyusul)",
+          ids[:len(harus)] == harus, str(ids))
     check("US15 — setiap antrean membawa JUMLAH, NILAI, dan UMUR TERTUA",
           all({"count", "total_value", "oldest_age_days"} <= set(q) for q in d["queues"]))
     check("setiap antrean punya SATU tindakan jelas per baris",
@@ -376,7 +379,8 @@ def d_finance_desk(fin, sa, s1):
     ids = [q["id"] for q in d["queues"]]
     harus = ["siap_faktur_pajak", "uang_masuk", "selisih_bayar", "denda_draft",
              "jatuh_tempo"]
-    check("5 antrean sesuai keputusan pemilik", ids == harus, str(ids))
+    check("5 antrean inti pemilik tetap ada & berurutan (hutang jatuh tempo/uang muka menyusul)",
+          ids[:len(harus)] == harus, str(ids))
     check("semua antrean bertanda milik Finance",
           all(q["owner"] == "finance" for q in d["queues"]))
     check("US20 — meja ini menyebut yang BUKAN wewenangnya (buat/konfirmasi pesanan)",

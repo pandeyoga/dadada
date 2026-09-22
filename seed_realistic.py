@@ -2063,10 +2063,18 @@ async def seed_document_templates():
 
 
 async def seed_permissions():
-    if await db.permission_settings.count_documents({}) == 0:
+    # Baris tanpa `updated_by` = belum pernah disunting pemilik lewat Matriks Izin →
+    # samakan dengan bawaan kode supaya residu POC/uji (izin yang disuntik lalu tidak
+    # dipulihkan) tidak mengubah hasil gate berikutnya. Suntingan pemilik (ada updated_by)
+    # TIDAK disentuh.
+    rec = await db.permission_settings.find_one({"id": "default"}, {"_id": 0, "updated_by": 1})
+    if rec is None:
         await db.permission_settings.insert_one(
             {"id": "default", "matrix": DEFAULT_PERMISSIONS, "updated_at": ago(days=30)}
         )
+    elif not rec.get("updated_by"):
+        await db.permission_settings.update_one(
+            {"id": "default"}, {"$set": {"matrix": DEFAULT_PERMISSIONS, "updated_at": ago(days=30)}})
     print("✅ Permissions seeded")
 
 

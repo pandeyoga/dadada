@@ -175,7 +175,10 @@ async def finance_desk(request: Request, entity_id: str = Query("")) -> Dict[str
     E8.10b#2 menaruh uang masuk & pajak keluaran di peran `finance`. Yang membedakan
     meja ini adalah wewenang MENCATAT.
     """
-    actor = await require_permission(request, "ar_receipt", "create")
+    # Meja Finance = pemutus selisih bayar. Dulu berpagar `ar_receipt.create`; sejak Sesi 16
+    # sales lapangan juga punya izin itu (kwitansi dari HP) sehingga sales bisa membuka meja
+    # finance — pagar dipindah ke `payment_variance.decide` (finance/manager/admin saja).
+    actor = await require_permission(request, "payment_variance", "decide")
     _, scope, ids = await _scope(request, entity_id or None)
     return await desks.finance_desk(actor, scope, ids)
 
