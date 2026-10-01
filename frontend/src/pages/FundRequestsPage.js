@@ -31,6 +31,7 @@ export default function FundRequestsPage() {
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState(null);
   const [canApprove, setCanApprove] = useState(false);
+  const [scope, setScope] = useState("own");
   const [status, setStatus] = useState("");
   const [type, setType] = useState("");
   const [q, setQ] = useState("");
@@ -53,6 +54,7 @@ export default function FundRequestsPage() {
         api.get("/fund-requests", { params }), api.get("/fund-requests/summary"),
       ]);
       setRows(list.data.data || []); setCanApprove(Boolean(list.data.can_approve));
+      setScope(list.data.scope || "own");
       setSummary(sum.data.data || null);
     } catch (e) {
       setError(e?.response?.data?.detail || "Gagal memuat pengajuan.");
@@ -86,6 +88,10 @@ export default function FundRequestsPage() {
             <p className="text-xs text-muted-foreground">
               Biaya operasional, reimbursement, pembelian, pembayaran vendor, dan kas bon — disetujui & dicairkan finance.
             </p>
+            <span data-testid="fund-requests-scope"
+              className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${scope === "all" ? "bg-emerald-100 text-emerald-700" : "bg-sky-100 text-sky-700"}`}>
+              {scope === "all" ? "Menampilkan semua pengajuan (approver)" : "Menampilkan pengajuan Anda saja"}
+            </span>
           </div>
         </div>
         <Button data-testid={FUNDREQ.newBtn} onClick={() => setOpenNew(true)}>

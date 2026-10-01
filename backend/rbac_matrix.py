@@ -371,11 +371,11 @@ DEFAULT_PERMISSIONS = {
     # Pengajuan keuangan (biaya, reimbursement, pembelian, vendor, kas bon): semua mengajukan,
     # finance/owner menyetujui & mencairkan.
     "fund_request": {
-        "sales_manager": ["view_all", "create", "update"],
+        "sales_manager": ["view_own", "create", "update"],
         "marketing_admin": ["view_own", "create", "update"],
         "sales": ["view_own", "create", "update"],
         "finance": ["view_all", "create", "update", "approve"],
-        "project_manager": ["view_all", "create", "update"],
+        "project_manager": ["view_own", "create", "update"],
         "site_engineer": ["view_own", "create", "update"],
         "legal_admin": ["view_own", "create", "update"],
     },

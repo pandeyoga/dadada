@@ -80,3 +80,9 @@ Lihat `/app/memory/test_credentials.md`.
 - Inbox: ikon pensil di header percakapan → `EditConvContactDialog`; endpoint baru PUT /api/inbox/{conv_id}/contact (leads:update) nama + HP, sinkron ke wa_contacts.
 - Mitra sudah punya edit sebelumnya (PartnerFormDialog).
 - Teruji iteration_45: backend 10/10, frontend semua alur lulus.
+
+## 2026-10-01 — Visibilitas Pengajuan Keuangan
+- `fund_request_router._sees_all` = izin `fund_request:approve`. Pemohon (tanpa approve) hanya melihat pengajuannya sendiri (list, summary, detail); approver (finance, finance_manager, owner, super_admin) melihat semua.
+- Matriks bawaan: sales_manager & project_manager `fund_request` view_all → view_own.
+- Respons list menambah `scope: all|own`; UI menampilkan lencana `fund-requests-scope`.
+- Diverifikasi curl: sales/pm hanya miliknya, manager/site 0, finance/owner/superadmin semua.

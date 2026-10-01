@@ -12,10 +12,15 @@ router = APIRouter(prefix="/fund-requests", tags=["fund-requests"])
 RES = "fund_request"
 
 
+async def _sees_all(user: dict) -> bool:
+    # Hanya approver yang melihat semua pengajuan; pemohon hanya miliknya sendiri.
+    return await can(user.get("role"), RES, "approve")
+
+
 async def _scope(user: dict, q: dict) -> dict:
     q = dict(q)
     q["org_id"] = user.get("org_id", ORG_ID)
-    if not await can(user.get("role"), RES, "view_all"):
+    if not await _sees_all(user):
         q["requested_by"] = user.get("email")
     return q
 
@@ -40,13 +45,14 @@ async def listing(status: str = None, type: str = None, q: str = None, skip: int
     total = await db[fr.COLL].count_documents(query)
     rows = await db[fr.COLL].find(query, {"_id": 0}).sort("created_at", -1) \
         .skip(skip).limit(limit).to_list(limit)
-    return {"data": serialize_doc(rows), "total": total,
-            "can_approve": await can(user.get("role"), RES, "approve")}
+    sees_all = await _sees_all(user)
+    return {"data": serialize_doc(rows), "total": total, "can_approve": sees_all,
+            "scope": "all" if sees_all else "own"}
 
 
 @router.get("/summary")
 async def summary(user: dict = Depends(require_permission(RES, "view"))):
-    own = None if await can(user.get("role"), RES, "view_all") else user.get("email")
+    own = None if await _sees_all(user) else user.get("email")
     return {"data": await fr.summary(user.get("org_id", ORG_ID), own)}
 
 
