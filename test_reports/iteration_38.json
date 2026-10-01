@@ -1,0 +1,22 @@
+{
+  "summary": "Verified sidebar NavLink active-state fix (Fase: nested prefix). Logged in as superadmin, navigated to /accounting/reports, /accounting, /, /leads, /customers. In every case exactly one sidebar nav item had aria-current='page' and bg-primary class, matching the current path. Specifically, on /accounting/reports only 'Laporan Keuangan' (nav-item-accounting-reports) is active; 'Buku Besar & Jurnal' (nav-item-accounting) is NOT active. On /accounting only 'Buku Besar & Jurnal' is active. On other pages Beranda is not falsely active. Bug is fixed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Sidebar.js `nested()` correctly detects prefix siblings using path-boundary check (endsWith('/') or appending '/'), avoiding false positives like /account matching /accounts.",
+    "NavLink `end` prop applied both for root ('/') and when hasNestedSibling — clean and idiomatic."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "100%"},
+  "test_credentials": "superadmin@sipro.co.id / Sipro#2026",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 38 verified the sidebar active-state fix for /accounting vs /accounting/reports. Uses data-testid pattern 'nav-item-{id}'. Active class contains 'bg-primary' and NavLink adds aria-current='page'."
+}

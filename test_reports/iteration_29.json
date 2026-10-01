@@ -1,0 +1,16 @@
+{
+  "summary": "Iter29 backend + UI verification for SPK→opname→AP→retention & AR→BAST GL flows. Ran official probe_ar_ap_gl.py and verify_business_invariants.py — both LULUS (exit 0). All requested invariants passed: SPK from RAB, opname gating, claim verify/approve with immediate GL entries (Dr 1-1600 / Cr 2-1100 / Cr 2-1200 balanced), partial→paid AP payment with over-pay rejection, retention request-release→release setting retention_released=true on origin bills and 2-1200 reduction, ap_outstanding & ap_pending_value split, aging pending_value/pending_count, AR reserve→book with addon_total, receipts with overpay→customer_deposits (2-1450), BAST revrec revenue == ar total (with add-ons), balanced revrec journal splitting COGS between 1-1600 WIP and 2-1700 accrual, non-negative WIP. Force-delete deal cascade removes revrec journals. COA includes 2-1700 & 2-1450. GL trial-balance & balance-sheet balanced=true. Finance dashboard AP card hint '= Utang Usaha 2-1100 · N menunggu approval' visible. Subcon & Buku Besar pages load and show journals. No fixes applied — everything green.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/scripts/probe_ar_ap_gl.py", "/app/scripts/verify_business_invariants.py"],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "finance@/pm@/site@/sales@/owner@/superadmin@sipro.co.id, pw Sipro#2026",
+  "seed_data_creation": "None. probe_ar_ap_gl.py self-cleans its own TEST_ data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All Flow A (SPK/opname/AP/retention/payment), Flow B (AR/receipts/deposit/BAST), tie-out, and force-delete revrec journal cleanup pass. Backend endpoints of note: /api/finance/summary returns ap_pending_value; /api/finance/ap/aging returns pending_value & pending_count; /api/gl/accounts includes 2-1700 and 2-1450. UI hint text 'Utang Usaha 2-1100 · N menunggu approval' verified on /finance dashboard.",
+  "rca of the issue": "n/a — all fixes in this iteration already effective and validated by probe+invariants scripts."
+}

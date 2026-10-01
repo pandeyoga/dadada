@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 39 — verified mandatory-proof-upload rollout across AR receipts, booking-fee, cost-invoices, deposits & KPR disbursement plus all-in BOOKING-component redirect. Ran /app/tests/smoke_booking_allin.py (PASS end-to-end: booking fee closes 2-1470 BOOKING cost invoice; AR paid=0; deposit balance=0 with in+apply_cost entries). Authored pytest suite /app/backend/tests/test_iter39_proof_and_booking.py (10 passed, 2 skipped for missing dataset preconditions cost invoice & overridable legal gate; both endpoints still exercised via non-existent-id path to confirm validator triggers before existence check). Frontend UI verified end-to-end: (1) /finance Piutang → 'Terima Bayar' dialog exposes ar-receipt-proof-input, ar-receipt-proof-input-required-empty red warning and ar-receipt-submit disabled while empty; enables after set_input_files. (2) /finance Titipan tab → 'Terima Titipan' dialog exposes deposit-proof-input, deposit-proof-input-required-empty warning and deposit-receive-submit disabled. (3) Legal timeline present (contract-legal-step x6) on a Draft contract; no override buttons enabled — noted per playbook. (4) Lead detail Unit & SPR tab → Booking fee panel booking-fee-pay-button opens dialog with bf-pay-proof-input, bf-pay-proof-input-required-empty warning and booking-fee-pay-submit disabled while empty. All matches spec.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter39_proof_and_booking.py",
+    "/app/test_reports/pytest/iter39.xml",
+    "/app/tests/smoke_booking_allin.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ReceiptCreate.proof_file_ids min_length=1 + FileList validator correctly returns 400/422 with Indonesian message; validator triggers before route lookup which lets us regression-test without a real invoice/deal.",
+    "allin_engine.compute_amount for BOOKING code short-circuits to booking_fee input; apply_booking_deposit routes booking-fee receipt to 2-1470 (cost_invoice type=booking_deposit) — verified by smoke + manual mongo trace.",
+    "EvidenceUploader shows required-empty warning + disables submit purely via prop-driven state; consistent testid pattern <scope>-proof-input(-required-empty) enables reliable e2e."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter39_proof_and_booking.py"],
+  "success_rate": {"backend": "100% (10/10 executed, 2 skipped due to seed prerequisites)", "frontend": "100% (4/4 flows)"},
+  "test_credentials": "superadmin@sipro.co.id / Sipro#2026",
+  "seed_data_creation": "Test creates transient reservations against available units (limit_override_reason set) + a bukti.txt file upload — cleaned up implicitly by not booking; no manual seeding required.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Suite /app/backend/tests/test_iter39_proof_and_booking.py runs standalone with `pytest -o addopts= backend/tests/test_iter39_proof_and_booking.py` (xdist parallelism must be disabled or unit-collision is possible on reserve). Two skips (cost-invoice unpaid missing, overridable legal-gate contract missing) exercise the validator via bogus IDs so proof-required behaviour is still verified. Frontend uses shadcn Button — disabled attribute renders as empty string; playwright detects via get_attribute('disabled') returning ''. Booking-fee flow: lead c52731ee-2492-400a-836b-f64c9a286fb0 → tab 'Unit & SPR' → booking-fee-pay-button."
+}

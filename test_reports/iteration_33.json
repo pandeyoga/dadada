@@ -1,0 +1,34 @@
+{
+  "summary": "Iter33 — Verified 2 new SIPRO features. (A) 'Ringkasan Bank' dashboard KPR di /finance?tab=receivables&sub=kpr. (B) 'Tagih Biaya All-in' via tombol Terbitkan Invoice Biaya di tab Rencana Bayar profil pelanggan. Backend 5/5 pytest PASS (test_kpr_bank_summary_iter33.py): GET /api/kpr/disbursement-summary (site_engineer → 403; finance/superadmin → 200; shape totals/banks/held/no_scheme lengkap; konsistensi Σbanks.plafon=totals.plafon dan Σheld.ready_amount=totals.ready_amount; BTN plafon 800jt; T2 ready=false, T4/T5 ready=true). POST /api/contracts/{cid}/cost-invoices: sales → 403; finance → 200 dengan number INB/2026/0001 & total 11.500.000; repeat call ditolak 400. GET /api/contracts/{cid}/costs-ledger: invoice unpaid, invoiced 11.500.000. GET /api/cost-invoices/{id}/pdf → 200 application/pdf (%PDF header).\n\nFrontend Playwright (superadmin@sipro.co.id):\n1) /finance?tab=receivables&sub=kpr: finance-tab-kpr aktif, kpr-bank-dashboard render, kpr-bank-totals berisi 5 kartu (Plafon Aktif 800jt, Sudah Cair 789,5jt, Belum Cair 10,5jt, Siap Cair 5,5jt / 2 tahap, Menunggu Syarat 5jt / 1 tahap). Kartu bank BTN (data-bank='BTN') menampilkan plafon/sudah cair/belum cair + chip '2 siap cair · Rp 5.500.000' + '1 menunggu syarat · Rp 5.000.000'. Tabel Tahap tertahan 3 baris: T5 Retensi Jalan (data-ready=true, Siap cair — tagih bank, Rp 3jt), T4 Retensi PBG (data-ready=true, Rp 2,5jt), T2 Retensi BN Sertifikat (data-ready=false, Menunggu syarat, Rp 5jt). Klik kartu BTN memfilter tabel & tombol kpr-bank-filter 'Semua bank' muncul; klik reset kembali normal. Tombol kpr-bank-refresh terlihat.\n2) /customers/2ccf0ccb.../?tab=bayar: cust-payment-plan-allin render; cust-payment-plan-allin-invoice data-status='unpaid' berisi 'Invoice biaya INB/2026/0001 · unpaid · total Rp 11.500.000 · sisa Rp 11.500.000' + tombol PDF (cust-payment-plan-allin-invoice-pdf) + link 'Terima pembayaran →'. Tombol Terbitkan (cust-payment-plan-allin-issue-btn) TIDAK muncul lagi karena invoice sudah diterbitkan oleh backend test — sesuai kontrak review request (verifikasi state unpaid saja).\n3) Regresi tab KPR (?tab=kpr): financing-tranches render; klik 'Cairkan' membuka dialog dengan financing-disburse-tranche-select (tidak dicatat pencairan baru — sesuai instruksi).\n4) Sales role (sales@sipro.co.id) di tab Rencana Bayar: tab menampilkan 'Belum ada transaksi untuk ditagih' — kotak all-in TIDAK render karena deal/kontrak demo tidak di-scope ke sales user ini (view_own filter). Bukan bug fitur, tapi implikasi cakupan RBAC — dicatat sebagai observasi.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_kpr_bank_summary_iter33.py",
+    "/app/test_reports/pytest/iter33.xml"
+  ],
+  "action_items": [
+    "Observasi (bukan bug): Sales user default (sales@sipro.co.id) tidak melihat kotak Biaya all-in di tab Rencana Bayar pelanggan demo, karena kontrak/deal demo tidak di-scope ke sales tsb (tampilan: 'Belum ada transaksi untuk ditagih'). Bila spec ingin sales melihat kotak all-in tanpa tombol Terbitkan (teks 'Diterbitkan oleh Keuangan.'), pertimbangkan menetapkan kontrak demo ke sales@sipro.co.id atau memperlebar scope tampilan tab Rencana Bayar untuk peran sales. Kontrak review request memperbolehkan skip skenario ini jika invoice sudah terbit."
+  ],
+  "critical_code_review_comments": [
+    "allin_router.py:459 GET /kpr/disbursement-summary memakai require_permission('financing','view_own') — sesuai; site_engineer diblok 403.",
+    "allin_router.py:233 POST /contracts/{cid}/cost-invoices memakai require_permission('finance','create') — sales 403 terverifikasi. Duplikat POST menghasilkan ValueError yang dipetakan ke 400 via _err. Skema aman.",
+    "KprBankDashboard.js: testid konsisten (kpr-bank-dashboard/totals/row/held-row/filter/refresh). data-ready true/false pada held row memudahkan QA. Chip 'Siap cair — tagih bank' vs 'Menunggu syarat' jelas.",
+    "Konsistensi Σbanks.plafon=totals.plafon & Σheld.ready_amount=totals.ready_amount terverifikasi via test → agregasi aman.",
+    "PDF cost invoice %PDF header valid → build_document_pdf jalan untuk template INB."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_kpr_bank_summary_iter33.py",
+    "/app/test_reports/iteration_33.json"
+  ],
+  "success_rate": {"backend": "100% (5/5)", "frontend": "100% pada core fitur baru (KPR Bank Dashboard + issue cost invoice state); skenario sales tergantung scope RBAC"},
+  "test_credentials": "superadmin@sipro.co.id / Sipro#2026",
+  "seed_data_creation": "Cost invoice INB/2026/0001 diterbitkan untuk contract ee3005c4-... (via backend test — sesuai instruksi review request). Tidak ada perubahan data seed lain; T4/T5 tetap open (siap cair) supaya dashboard punya data 'siap cair'.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Kontrak demo ee3005c4-0a99-4b32-a579-fa21e635cf69 (customer 2ccf0ccb-e100-4c78-9f31-f0cfc2689c22, bank BTN) sekarang punya cost invoice all-in INB/2026/0001 status UNPAID (total Rp 11.500.000). Untuk retest tombol Terbitkan awal, invoice ini perlu dibatalkan/void dulu. Kartu KPR: T1&T3 dicairkan, T2 syarat sertifikat unmet (menunggu), T4&T5 siap cair (open). Sales@sipro.co.id tidak melihat tab Rencana Bayar untuk pelanggan demo karena RBAC scope — bukan bug fitur.",
+  "rca of the issue": "Tidak ada bug ditemukan. Fitur (1) Ringkasan Bank & (2) Tagih Biaya All-in berfungsi sesuai spesifikasi review request. RBAC (site_engineer 403 pada dashboard KPR, sales 403 pada POST cost-invoices) tervalidasi. PDF cost invoice ter-generate benar."
+}

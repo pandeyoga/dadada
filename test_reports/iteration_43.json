@@ -1,0 +1,25 @@
+{
+  "summary": "Full test of new /api/leads/import-template.xlsx + /api/leads/import-file endpoints and the ImportLeadsDialog UI on /leads. Backend pytest (8 tests) covers: template download 200 with 'Leads' sheet, CSV dry-run (total=2, insert=1, error=1 with 'No. HP wajib diisi'), CSV commit persists 'Tes CSV', re-upload gives update=1/insert=0 (no duplicates), 77-row XLSX dry-run gives insert=77/error=0, .txt extension → 400, wrong columns → 400 with 'Nama'/'No. HP' hint, sales role import auto-assigns to self and phone normalised to +62. Frontend Playwright: superadmin login → /leads → data-testid=lead-import-button visible → dialog opens → template GET 200 → CSV upload preview stats (Baris 2, Baru 1, Error 1, message 'No. HP wajib diisi') → submit toast '1 lead baru, 0 diperbarui' → 'Tes CSV' searchable in table → reupload preview update=1 insert=0 → XLSX preview insert=77 error=0 (not committed). Sales login → import button visible → uploads CSV → commits → lead appears in own list with Sumber=Import. Test leads purged after. All checks passed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_leads_import_file.py",
+    "/app/test_reports/pytest/iter43_leads_import_file.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "leads_router.import_leads_file correctly forces assigned_to for is_scoped_sales users (overrides file column) as per spec.",
+    "parse_leads_upload picks the 'Leads' sheet if present or first non-guide sheet — good for both template and full ekspor.",
+    "ImportLeadsDialog resets state on close and disables submit when preview.insert+update==0. Good UX; toast text uses insert+update counts.",
+    "Minor: import-file 400 for missing columns returns Indonesian detail 'Kolom name (Nama) dan phone (No. HP) wajib ada…' — matches spec; UI surfaces it via toast.",
+    "Suggestion: dropzone button also has type='button' — good; ensures no accidental form submit."
+  ],
+  "updated_files": ["/app/backend/tests/test_leads_import_file.py"],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (all flows)"},
+  "test_credentials": "superadmin@sipro.co.id / Sipro#2026; sales@sipro.co.id / Sipro#2026",
+  "seed_data_creation": "Tes CSV + TEST_SalesUI_Andi committed via UI during testing, and TEST_Sales_CSV / 77 rows via pytest — all removed by test_zzz_cleanup + post-run manual purge. DB clean.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_leads_import_file.py can run standalone (parallel-safe via xdist LoadScope). Reuses fixtures/leads.csv (2 rows, one missing phone) and fixtures/SemuaData_leads.xlsx (77 rows). UI dropzone reuses data-testid lead-import-file-input for set_input_files.",
+  "rca of the issue": "N/A — no bugs."
+}
