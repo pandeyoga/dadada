@@ -72,3 +72,11 @@ Lihat `/app/memory/test_credentials.md`.
 - backend/.env: JWT_SECRET, SUPERADMIN_*, SEED_DEMO_USERS=true, DEFAULT_ORG_ID=org-sipro, PORTAL_MASTER_OTP=000000, STORAGE_PROVIDER=mongo, BACKUP_DIR.
 - Smoke test iteration_44: backend 18/18, frontend semua halaman inti + 2 dashboard peran LULUS.
 - Backlog terbuka (dari plan.md §11 dan PRD): pulihkan tes lama yang bergantung pada data seed lama; tes WA di-skip bila kredensial Meta kosong; audit GL/BI non-lead/portal pembeli; ringkasan notifikasi harian (email/WA); amandemen komponen biaya manual dari UI; impor leads: deteksi duplikat pelanggan, kolom tahap, riwayat impor.
+
+## 2026-10-01 — Edit Kontak (semua jenis)
+- Lead: tombol "Edit kontak" di profil lead → `EditLeadDialog` (PUT /api/leads/{id}, leads:update); nama ikut disinkronkan ke `conversations.contact_name`.
+- Customer: tombol "Edit kontak" di profil customer → `AddCustomerDialog` mode edit (PUT /api/customers/{id}, customers:update).
+- Kontak WA (/wa-capture): ikon pensil per baris → `EditWaContactDialog`; endpoint baru PUT /api/wa/contacts/{cid} (leads:update): nama, HP (validasi +62, 409 duplikat, cocok ulang lead/customer), email, pesan pertama, catatan, opt-out; sinkron ke percakapan.
+- Inbox: ikon pensil di header percakapan → `EditConvContactDialog`; endpoint baru PUT /api/inbox/{conv_id}/contact (leads:update) nama + HP, sinkron ke wa_contacts.
+- Mitra sudah punya edit sebelumnya (PartnerFormDialog).
+- Teruji iteration_45: backend 10/10, frontend semua alur lulus.
