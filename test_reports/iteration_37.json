@@ -1,31 +1,40 @@
 {
-  "summary": "Iter37: 3 fitur baru Peran & Hak Akses (Pratinjau Notifikasi, Duplikat Peran, Pindah Akun Massal) LULUS backend + frontend. Backend pytest test_role_editor_iter37.py 11/11 hijau: preview role_id/base_role/levels dengan turn_alerts benar (cr_staf_penagihan {} → ['Terbitkan faktur & tagih']; ar:none → drop; base finance → screens non-kosong), preview 400 untuk base_role tak dikenal & tingkat tak dikenal, preview TIDAK menyimpan (ar tetap manage). Move-users: admin → 400, same-role → 400, nonexistent → 404, sales → 200 moved=1 & user_ids berisi id, user berubah ke sales, peran kosong deletable, DELETE 200. Frontend E2E admin: (A) Preview cr_staf_penagihan (1) 'Terbitkan faktur & tagih' TANPA badge; klik role-level-ar-none → (0) + badge 'berubah' + 'Terbitkan faktur & tagih (hilang)'; batal → reopen tetap (1). (B) Duplikat role-card-duplicate-finance → editor title 'Duplikat Peran · Finance', label 'Finance (salinan)', tidak ada tombol duplikat pada role-card-admin; rename ke TEST_Finance Salinan → simpan → role-card-cr_test_finance_salinan muncul; delete lewat editor OK. (C) Pindah Akun Massal: buka role-card-cr_test_asal (1 akun) → panel role-editor-move; opsi role-editor-move-target-option-admin TIDAK ADA; pilih sales → tombol 'Pindahkan 1' → dialog title 'Pindahkan 1 akun dari “TEST_Asal”?' → confirm → editor TETAP terbuka, users '0 akun', accounts-empty tampil, tombol delete AKTIF; delete → confirm → kartu hilang. Semua data uji TEST_ dibersihkan.",
+  "summary": "Iterasi 37 — Verifikasi end-to-end plafon-check/reconcile SP3K (shortfall/excess/match) & form Penawaran (all-in + booking fee). Backend & UI keduanya PASS. State demo dipulihkan (financing_apps kembali ke 'appraisal', ar_invoices dikembalikan ke porsi bank 255jt tanpa item kpr_shortfall, receipt uji dihapus).",
   "backend_issues": {"critical": [], "minor": []},
-  "frontend_issues": {
-    "ui_bugs": [],
-    "integration_issues": [],
-    "design_issues": [
-      {"screen": "Duplikat Peran editor", "issues": ["Saat editor dibuka via Duplikat, pratinjau notifikasi menampilkan badge 'berubah' + label '(baru)' pada tiap item — meski baseline diff seharusnya peran sumber. Task spec menyatakan 'tanpa badge berubah'. Tidak menghalangi fungsi (data tersimpan benar); UX diff-vs-source lebih akurat bila dibandingkan terhadap peran sumber, bukan peran kosong."]}
-    ]
-  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
   "test_report_links": [
-    "/app/backend/tests/test_role_editor_iter37.py",
-    "/app/test_reports/pytest/iter37.xml"
+    "/app/backend/tests/test_kpr_plafon_2026_09_12.py",
+    "/app/backend/tests/test_iteration_37_e2e.py"
   ],
-  "action_items": [
-    "(Opsional/UX) Baseline diff pratinjau notifikasi pada mode Duplikat: bandingkan terhadap peran sumber sehingga tidak muncul badge 'berubah' & label '(baru)' pada item warisan — sesuai deskripsi task."
-  ],
+  "action_items": [],
   "critical_code_review_comments": [
-    "custom_role_service.move_users benar menolak to_role=admin (LOCKED_ROLES) dan same-role & non-existent target (404) — pesan Indonesia jelas.",
-    "preview_role menggunakan apply_levels di atas salinan matrix (deepcopy) → tidak mempersistensi; sudah diverifikasi via GET setelahnya.",
-    "Frontend RoleEditorDrawer: pertimbangkan pass baseline permissions dari template saat mode Duplikat agar RoleNotifPreview membandingkan terhadap sumber, bukan peran kosong."
+    "Field `data-testid=quotation-booking-fee` di-render dengan nilai kosong (bukan default dari server) walau backend memakai default 1.000.000 saat simulasi. Bisa membingungkan sales: input tampak kosong tapi hasil breakdown memakai Rp 1.000.000. Pertimbangkan prefill input dengan booking_fee_default dari GET /api/quotations/options."
   ],
-  "updated_files": ["/app/backend/tests/test_role_editor_iter37.py"],
-  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (3/3 alur)"},
-  "test_credentials": "admin@kainnusantara.id / demo12345",
-  "seed_data_creation": "Sementara membuat peran cr_test_asal + user test_asal@kainnusantara.id via API + peran cr_test_finance_salinan via UI. Semua sudah dihapus/dibersihkan (users.delete_many + role delete via UI/API).",
+  "updated_files": [
+    "/app/backend/tests/test_iteration_37_e2e.py (baru)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "superadmin@sipro.co.id / Sipro#2026",
+  "seed_data_creation": "Tidak ada seed baru. Data uji sementara (SP3K, receipt, quotation) dihapus/rollback setelah test.",
   "retest_needed": false,
   "main_agent_can_self_test": true,
-  "context_for_next_testing_agent": "Jalankan: `export REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2); pytest backend/tests/test_role_editor_iter37.py -v`. Selalu bersihkan test_asal@/test_pindah@ dan peran TEST_* via db.users.delete_many jika UI cleanup terlewat. Catatan: modul 'penjualan' pada cr_staf_penagihan sudah berlevel 'manage' secara default → klik role-level-penjualan-manage bersifat no-op; untuk memicu '(baru)' pilih modul yang saat ini bukan manage (mis. customer/product) atau gunakan mode Duplikat.",
-  "rca of the issue": "Tidak ada isu fungsional. Catatan minor UX: RoleEditorDrawer mode Duplikat memberi baseline diff sebagai peran kosong, sehingga RoleNotifPreview memberi badge 'berubah' + '(baru)'; perbaiki dengan memakai permissions/levels peran sumber sebagai baseline pratinjau saat mode duplikat."
+  "context_for_next_testing_agent": "Kontrak KPR demo 9c31c6bc... deal 0dac1579... financing_app kembali di stage 'appraisal' (next_stage=sp3k), ar_invoices bank_portion 255jt tanpa kpr_shortfall — siap untuk SP3K test ulang. Pytest suites: test_kpr_plafon_2026_09_12.py (5) + test_iteration_37_e2e.py (5 fungsi, 1 skip jika SP3K belum dicatat).",
+  "detail_results": {
+    "backend": {
+      "plafon_check_shortfall_200M": "kind=shortfall, shortfall=55M, requires_due_date=true, bank_portion=255M ✓",
+      "plafon_check_excess_300M": "kind=excess, excess=45M ✓",
+      "plafon_check_match_255M": "kind=match ✓",
+      "sp3k_without_due": "400 dgn pesan 'JATUH TEMPO' ✓",
+      "sp3k_with_due_2027-01-15": "200; reconcile.kind=shortfall, approved_plafon=200M; AR total tetap 850M, bank_outstanding turun ke 200M, buyer_outstanding naik ke 480M (item baru kpr_shortfall 55M payer=buyer due=2027-01-15) ✓",
+      "receipt_allocation_5M": "200; item shortfall paid_amount=5M; bank_outstanding tetap 200M ✓",
+      "receipt_delete": "diverifikasi lewat cleanup DB",
+      "quotation_create_allin_bookingfee": "POST /api/quotations 200 dgn allin_scheme_id, booking_fee, costs.components, payment_breakdown, buyer_total ✓",
+      "quotation_pdf": "GET /api/quotations/{id}/pdf 200 application/pdf ✓",
+      "pytest": "test_kpr_plafon_2026_09_12.py 5/5, test_iteration_37_e2e.py 4 pass + 1 skip (SP3K belum diset) — total 9/10 (skip disengaja)"
+    },
+    "frontend": {
+      "kpr_sp3k_dialog": "plafon 200M → data-kind=shortfall dgn teks 'Rp 55.000.000', DatePicker kpr-shortfall-due muncul, submit disabled sampai tanggal diisi ✓; plafon 300M → data-kind=excess (45jt); plafon 255M → data-kind=match ✓",
+      "quotation_dialog": "Tab tab-page-tab-penawaran → quotation-add-button → dialog memuat semua testid: quotation-unit-select, quotation-scheme-select, allin-scheme-select, quotation-booking-fee, quotation-simulate-button. Simulate men-render quotation-breakdown-wrap dgn komponen BPHTB, notaris, biaya bank, asuransi, all-in Standar, 'Booking fee (dibayar saat keep unit, dialihkan ke termin) Rp 1.000.000', total pembeli Rp 850.000.000 ✓"
+    }
+  }
 }

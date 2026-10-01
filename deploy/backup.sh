@@ -1,28 +1,37 @@
 #!/usr/bin/env bash
-# backup.sh — mongodump database KN + arsip uploads ke deploy/backups/, simpan 14 hari (cron harian).
-#   bash deploy/backup.sh            → backup sekarang
-#   bash deploy/backup.sh restore deploy/backups/kainnusantara-2026-09-07_0230.archive.gz
+# Backup / restore MongoDB SIPRO.
+#   bash deploy/backup.sh                                  -> buat arsip baru (simpan 14 hari)
+#   bash deploy/backup.sh restore deploy/backups/xxx.gz    -> pulihkan arsip
 set -euo pipefail
-APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="$APP_DIR/deploy/.env"
-DEST="$APP_DIR/deploy/backups"
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEPLOY_DIR="$REPO_DIR/deploy"
+ENV_FILE="$DEPLOY_DIR/.env"
+BACKUP_DIR="$DEPLOY_DIR/backups"
 KEEP_DAYS=14
-compose() { docker compose --env-file "$ENV_FILE" -f "$APP_DIR/deploy/docker-compose.yml" "$@"; }
-DB_NAME="$(grep '^DB_NAME=' "$ENV_FILE" | cut -d= -f2)"
+
+[ -f "$ENV_FILE" ] || { echo "GAGAL: $ENV_FILE tidak ada"; exit 1; }
+DB_NAME="$(grep '^DB_NAME=' "$ENV_FILE" | cut -d= -f2-)"
+DB_NAME="${DB_NAME:-sipro}"
+mkdir -p "$BACKUP_DIR"
+cd "$DEPLOY_DIR"
+
+MONGO_CID="$(docker compose ps -q mongo)"
+[ -n "$MONGO_CID" ] || { echo "GAGAL: container mongo tidak jalan"; exit 1; }
 
 if [ "${1:-}" = "restore" ]; then
-  FILE="${2:?berkas arsip wajib}"
-  echo "==> restore $FILE → db $DB_NAME (data lama DITIMPA)"
-  compose exec -T mongo mongorestore --archive --gzip --drop --nsInclude="$DB_NAME.*" < "$FILE"
-  echo "selesai"; exit 0
+  ARCHIVE="${2:-}"
+  [ -f "$REPO_DIR/$ARCHIVE" ] && ARCHIVE="$REPO_DIR/$ARCHIVE"
+  [ -f "$ARCHIVE" ] || { echo "GAGAL: arsip '$2' tidak ditemukan"; exit 1; }
+  echo "Memulihkan $ARCHIVE ke DB '$DB_NAME' (data saat ini akan ditimpa)..."
+  docker exec -i "$MONGO_CID" mongorestore --archive --gzip --drop \
+    --nsInclude="${DB_NAME}.*" < "$ARCHIVE"
+  echo "Selesai. Restart backend: cd $DEPLOY_DIR && docker compose restart backend"
+  exit 0
 fi
 
-mkdir -p "$DEST"
-STAMP="$(date +%F_%H%M)"
-OUT="$DEST/${DB_NAME}-$STAMP.archive.gz"
-compose exec -T mongo mongodump --db "$DB_NAME" --archive --gzip > "$OUT"
-docker run --rm --volumes-from kn-backend -v "$DEST":/backup alpine \
-  tar -czf "/backup/uploads-$STAMP.tar.gz" -C /data uploads 2>/dev/null || true
-cp -f "$ENV_FILE" "$DEST/.env.last" && chmod 600 "$DEST/.env.last"
-find "$DEST" \( -name "*.archive.gz" -o -name "uploads-*.tar.gz" \) -mtime +$KEEP_DAYS -delete
-echo "$(date '+%F %T') backup OK → $OUT ($(du -h "$OUT" | cut -f1))"
+STAMP="$(date +%Y-%m-%d_%H%M)"
+OUT="$BACKUP_DIR/sipro-${STAMP}.archive.gz"
+docker exec "$MONGO_CID" mongodump --db "$DB_NAME" --archive --gzip > "$OUT"
+find "$BACKUP_DIR" -name 'sipro-*.archive.gz' -mtime "+$KEEP_DAYS" -delete
+echo "Backup: $OUT ($(du -h "$OUT" | cut -f1))"

@@ -1,9 +1,9 @@
 {
-  "summary": "Iter-14 — Uji regresi Transfer Gudang (roll-based) + Picker Roll dua satuan + Supplier refs + RFID Devices lokasi KNSelect. Semua acceptance criteria LULUS. Backend: 9/9 pytest baru (test_iter14_wh_transfer_rolls.py) LULUS + F2 stock buckets 20/20 LULUS. Frontend: form Transfer Baru TIDAK memiliki input manual qty/unit; roll-picker menampilkan dua satuan (123,44 m ≈ 135 yd) + chip supplier-refs (Cirebon Craft · CBN-MEGA-PREM); label produk transfer memuat nama versi supplier; RFID Devices `rfid-form-loc` sudah KNSelect (opsi: Dock Terima/Kirim, Gate Utama, Zona Zone A, Zone A › Rack A1 › A1-01/02).",
+  "summary": "Tested the 3 fixes end-to-end (BUG1 build schedule from template, BUG2 PDF worker preview, BUG3 custom RBAC roles). BUG1 UI, BUG2 UI, BUG3 UI/API all pass; BUG1 API is only partially tolerant — filtering /api/build/templates by the master unit_type_code (e.g. 'TIPE-36-72') still returns [], while case-insensitive name ('tipe 36/72') and 'Ruko' work.",
   "backend_issues": {
     "critical": [],
     "minor": [
-      {"endpoint": "test_m3_coa_per_pt_and_ic_transfer / test_g6_poc / test_g6b_poc", "issue": "Pre-existing failures 10 tes (IC transfer JE, netting, invarian retur antar-PT). TIDAK terkait perubahan roll_ids/base_unit iterasi ini — sudah gagal sebelum patch."}
+      {"endpoint": "GET /api/build/templates?unit_type=TIPE-36-72", "issue": "Returns empty array. Templates store unit_types as display names (e.g. 'Tipe 36/72'); build_engine.unit_type_keys() normalizes both `type` and `unit_type_code` from the incoming string but never resolves code<->name via master `unit_types` collection, so a code-based query never matches a name-based template. Expected (per review spec) to also return RUMAH-9W. Fix: in list_templates()/unit_type_keys(), if input matches a master `unit_types.code` or `unit_types.name`, add the alternate value to keys."}
     ]
   },
   "frontend_issues": {
@@ -12,28 +12,24 @@
     "design_issues": []
   },
   "test_report_links": [
-    "/app/backend/tests/test_iter14_wh_transfer_rolls.py",
-    "/app/test_reports/pytest/iter14_transfer.xml"
+    "/app/backend/tests/test_iter14_bugs.py",
+    "/app/test_reports/pytest/iter14.xml"
   ],
   "action_items": [
-    "(opsional) Selidiki 10 kegagalan pre-existing pada test_m3_coa_per_pt_and_ic_transfer.py / test_g6_poc.py / test_g6b_poc.py — unrelated dengan scope iter-14.",
-    "(opsional) Uji Outbound scan pick UI perlu tugas picking aktif; belum diverifikasi UI-nya karena tidak ada tugas outbound siap dalam sesi (memerlukan alur SO + confirm end-to-end). Backend perilaku sudah tercakup lewat contract test."
+    "Make /api/build/templates unit_type filter tolerant to unit_type_code <-> unit_type name via master unit_types lookup (as promised in review request for 'TIPE-36-72')."
   ],
   "critical_code_review_comments": [
-    "routers/transfers.py:201 — validasi 'Pilih roll' hanya dipicu bila qty<=0 DAN roll_ids kosong (compatibility utk klien lama qty>0 tanpa roll_ids). OK, terverifikasi lewat test_legacy_qty_only_still_works.",
-    "roll_service.reserve_rolls_for_wh_transfer: pesan 400 saat roll salah gudang menyebut 'tidak berada di gudang asal' (verified). Pesan 409 untuk roll dobel-klaim menyebut 'sudah tidak tersedia' (verified).",
-    "list_available_rolls: field `supplier_refs` selalu dikembalikan meski produk tak punya supplier item (array kosong) — bagus untuk kontrak stabil.",
-    "TransferItem.qty=0 dengan roll_ids: backend menimpa qty dari panjang roll (item.qty = sum length_remaining) dan unit dari master (prod.base_unit), input klien 'pcs' benar-benar diabaikan (verified).",
-    "RfidDevicesView.rfid-form-loc KNSelect: opsi mencakup area (Dock Terima/Kirim, Gate Utama) + hirarki Zone › Rack › Bin dari master gudang terpilih (verified untuk wh_bandung)."
+    "backend/build_engine.py unit_type_keys(): normalizes the raw string values only; does not consult the master unit_types catalog to bridge code and name. This mismatch is user-visible when the front-end passes unit_type_code instead of the display name.",
+    "Backend response envelopes are inconsistent: /api/reference/<group> returns {data:{options:[]}} while /api/build/templates returns {data:[]} and /api/admin/roles returns {data:{...}}. Not a bug but complicates client and test code."
   ],
   "updated_files": [
-    "/app/backend/tests/test_iter14_wh_transfer_rolls.py (baru)"
+    "/app/backend/tests/test_iter14_bugs.py"
   ],
-  "success_rate": {"backend": "100% (9/9 iter14 + 20/20 F2)", "frontend": "100% (Transfer form + Roll picker + Supplier refs + RFID loc verified)"},
-  "test_credentials": "admin@kainnusantara.id/demo12345, warehouse@/demo12345 dari /app/memory/test_credentials.md. Header X-Entity-Id=ent_ksc.",
-  "seed_data_creation": "Transfer QA dibuat lalu di-reject di setiap tes utk cleanup roll kembali available. Tidak ada perubahan seed permanen.",
-  "retest_needed": false,
-  "should_main_agent_self_test": false,
-  "context_for_next_testing_agent": "Roll uji: RL-00004 (135 yd) di wh_jakarta / prod_batik_mega. Base_unit prod_batik_mega = 'yard'. Test file iter14 aman dijalankan berulang (cleanup lewat reject). Untuk uji Outbound scan pick UI, buat SO confirmed dulu supaya ada task picking (di luar scope iter-14).",
-  "rca of the issue": "N/A — tidak ada bug ditemukan pada scope Transfer/RollPicker/RFID-loc iter-14."
+  "success_rate": {"backend": "89% (8/9)", "frontend": "100% (3/3 flows)"},
+  "test_credentials": "superadmin@sipro.co.id / Sipro#2026",
+  "seed_data_creation": "Created + deleted RBAC role qa_api_role via API test; created + deleted RBAC role peran_uji_qa via UI test; created build schedule for unit B-06 (Tipe 36/72) using RUMAH-9W (kept, does not need cleanup).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "BUG1 UI (empty state + generate dialog + preselected unit + schedule + readiness update), BUG2 (pdf.js worker webpack chunk /static/js/vendors-node_modules_pdfjs-dist_build_pdf_worker_min_mjs.chunk.js, canvas 892x1262, no errors), BUG3 (SPA navigation from /admin/permissions to /admin/users picks up newly-added custom role in user-form-role select without reload) all verified working. Only remaining gap: templates endpoint tolerance to unit_type_code — filed under minor. Unit B-06 already has a schedule now; pick another Tipe unit via /api/build/unscheduled for re-runs. Existing test file /app/backend/tests/test_iter14_bugs.py can be reused for regression.",
+  "rca of the issue": "unit_type filter mismatch: templates.unit_types stores display names ('Tipe 36/72'); front-end may pass either 'Tipe 36/72' (name) or 'TIPE-36-72' (unit_type_code). unit_type_keys() only normalizes-lowercases the input; code and name normalize to different strings so template_matches() returns False. Repro: GET /api/build/templates?unit_type=TIPE-36-72 -> []. Fix: extend unit_type_keys() (or list_templates()) to look up master unit_types collection and add both the code and the name to the key set when either matches."
 }

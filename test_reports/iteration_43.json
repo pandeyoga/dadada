@@ -1,23 +1,25 @@
 {
-  "summary": "Iter 43 verified 'Spesifikasi produk WAJIB' merged into sample creation form (labdip/handfeel/proofing). Backend pytest 8/8 passed: 4 validation-error cases (no spec 400 'Spesifikasi produk WAJIB', labdip missing color_target 400 'warna target', proofing missing design_id 400 'desain', spec missing fabric_type 400 'jenis kain'), 2 happy paths (handfeel valid → spec_id+spec_number+persist+list.spec_summary; labdip valid), attach-spec twice → 400 'sudah punya spesifikasi', legacy attach POST /rnd/samples/{id}/spec → 200. Frontend admin flows verified: labdip gallery cards show sample-type-spec-<id> chips (e.g. 'woven · 200 gsm'); create-labdip modal opens with sample-section-source, sample-section-spec (badge 'wajib'), sample-spec-fields (sample-color, sample-spec-fabric, sample-spec-gramasi, sample-spec-lebar, sample-spec-sku), sample-section-what & sample-section-when; save disabled + sample-spec-problems shows 'warna target (labdip)'; after filling with KN-BLU-01 + 240 gsm + 150 cm + SKU + title, save enabled and new card KSC/SMP-00037 chip 'woven · 240 gsm · lebar 150 cm' appears. Adding sample-type-handfeel reveals sample-spec-handfeel with sample-spec-yarn/epi/ppi/composition; modal closes via sample-form-modal-close. Proofing form shows sample-design (label wajib '* (ACC)') + sample-spec-problems 'Belum lengkap: desain/pattern (proofing).'. General rnd-samples form: picking existing sample-spec acuan shows sample-spec-linked and hides sample-spec-fields. Legacy sample SMP-00007 already had spec (completed by legacy-attach test in this same iteration - TST-LEG-AC0D08); sample-spec-panel showed sample-spec-summary + sample-spec-number KSC/SPEC-00012 + sample-spec-edit-button. Edit modal: changed spec-edit-lebar to 160 → summary now shows 'Lebar 160 cm'. All key testids present.",
+  "summary": "Full test of new /api/leads/import-template.xlsx + /api/leads/import-file endpoints and the ImportLeadsDialog UI on /leads. Backend pytest (8 tests) covers: template download 200 with 'Leads' sheet, CSV dry-run (total=2, insert=1, error=1 with 'No. HP wajib diisi'), CSV commit persists 'Tes CSV', re-upload gives update=1/insert=0 (no duplicates), 77-row XLSX dry-run gives insert=77/error=0, .txt extension → 400, wrong columns → 400 with 'Nama'/'No. HP' hint, sales role import auto-assigns to self and phone normalised to +62. Frontend Playwright: superadmin login → /leads → data-testid=lead-import-button visible → dialog opens → template GET 200 → CSV upload preview stats (Baris 2, Baru 1, Error 1, message 'No. HP wajib diisi') → submit toast '1 lead baru, 0 diperbarui' → 'Tes CSV' searchable in table → reupload preview update=1 insert=0 → XLSX preview insert=77 error=0 (not committed). Sales login → import button visible → uploads CSV → commits → lead appears in own list with Sumber=Import. Test leads purged after. All checks passed.",
   "backend_issues": {"critical": [], "minor": []},
   "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
   "test_report_links": [
-    "/app/backend/tests/test_iter43_sample_spec_required.py",
-    "/app/test_reports/pytest/iter43.xml",
-    "/app/test_reports/iter43-labdip-after-save.jpeg",
-    "/app/test_reports/iter43-edit-summary.jpeg"
+    "/app/backend/tests/test_leads_import_file.py",
+    "/app/test_reports/pytest/iter43_leads_import_file.xml"
   ],
   "action_items": [],
   "critical_code_review_comments": [
-    "SampleSpecFields.jsx renders <KNSelect data-testid=\"sample-color\"> twice (lines 84 & 91); only one is visible at a time depending on state, but duplicate testid values can trip strict selectors. Consider suffixing (sample-color-labdip vs sample-color-proofing) or wrapping with visible-only helper."
+    "leads_router.import_leads_file correctly forces assigned_to for is_scoped_sales users (overrides file column) as per spec.",
+    "parse_leads_upload picks the 'Leads' sheet if present or first non-guide sheet — good for both template and full ekspor.",
+    "ImportLeadsDialog resets state on close and disables submit when preview.insert+update==0. Good UX; toast text uses insert+update counts.",
+    "Minor: import-file 400 for missing columns returns Indonesian detail 'Kolom name (Nama) dan phone (No. HP) wajib ada…' — matches spec; UI surfaces it via toast.",
+    "Suggestion: dropzone button also has type='button' — good; ensures no accidental form submit."
   ],
-  "updated_files": ["/app/backend/tests/test_iter43_sample_spec_required.py"],
-  "success_rate": {"backend": "100% (8/8)", "frontend": "100%"},
-  "test_credentials": "admin@kainnusantara.id / demo12345",
-  "seed_data_creation": "Created via backend tests: 4 new samples (TST-HF-*, TST-LB-*, TST-DUP-*, plus legacy attach on smp_efd9648809d4 with SKU TST-LEG-AC0D08). One frontend-created sample: KSC/SMP-00037 (TSTUI2-...). No seed data removed.",
+  "updated_files": ["/app/backend/tests/test_leads_import_file.py"],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (all flows)"},
+  "test_credentials": "superadmin@sipro.co.id / Sipro#2026; sales@sipro.co.id / Sipro#2026",
+  "seed_data_creation": "Tes CSV + TEST_SalesUI_Andi committed via UI during testing, and TEST_Sales_CSV / 77 rows via pytest — all removed by test_zzz_cleanup + post-run manual purge. DB clean.",
   "retest_needed": false,
-  "should_main_agent_self_test": false,
-  "context_for_next_testing_agent": "sample-color / sample-design are KNCombobox (searchable). Click the trigger WITHOUT force=True (force bypasses actionability and breaks Radix Popover open). Options are '[data-testid^=sample-color-option-]' including a leading 'sample-color-option-empty' placeholder — skip it. Legacy sample SMP-00007 (smp_efd9648809d4) has been completed with a spec now (KSC/SPEC-00012, SKU TST-LEG-AC0D08); to re-run the 'legacy attach' UI flow, seed a new legacy sample (or re-seed) — the backend test skips gracefully when no legacy sample without spec_id exists.",
-  "rca of the issue": "n/a - all backend + frontend flows for spec-required feature pass"
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_leads_import_file.py can run standalone (parallel-safe via xdist LoadScope). Reuses fixtures/leads.csv (2 rows, one missing phone) and fixtures/SemuaData_leads.xlsx (77 rows). UI dropzone reuses data-testid lead-import-file-input for set_input_files.",
+  "rca of the issue": "N/A — no bugs."
 }

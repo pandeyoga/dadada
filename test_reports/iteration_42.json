@@ -1,21 +1,24 @@
 {
-  "summary": "Verified split of Pustaka Warna into 'Warna Internal' & 'Warna Supplier' sub-tabs + new backend endpoints /api/color-library/supplier-variants and /api/color-library/{id}/links. Backend pytest (3/3 passed). Frontend flows fully verified: internal card + badge '1 versi supplier · keterkaitan', supplier tab table row for col_kn_blu_01/sup_a05908473e52 with Palembang Silk House/Navy 07/NV-07/KN-BLU-01/KSC/SMP-00031, search 'navy' keeps row, 'zzzz' shows supplier-color-empty, linked-filter 'Belum jadi produk' → empty, ColorLinksModal shows internal + supplier (highlighted with sample link) + 3 products + 3 samples, badge on internal tab opens modal, and clicking color-links-sample-sup_a05908473e52 navigates to R&D and opens sample-detail-modal with SMP-00031. Visual @1920x900 clean, no overlapping text.",
+  "summary": "Backend-only verification of Leads entity addition to master-data import template + raw full-session import defaults. Wrote /app/backend/tests/test_leads_import.py (pytest, 7 tests) covering: (1) template.xlsx contains sheet 'Leads' with expected columns; (2) upload only-Leads template dry-run then commit → 3 inserts, verified persistence via /api/leads (stage=acquisition, phone starts with +62, assigned_to populated, score numeric); (3) re-import same file → 0 insert / 3 update (no duplicates); (4) row without phone → error 'No. HP wajib diisi'; (5) POST /api/data-mgmt/full/sessions with /tmp/leads.xlsx (77 rows) → leads sheet parsed with 77 rows, 0 errors; (6) POST /sessions/{sid}/commit body {mode:'update',sheets:['leads'],confirm:'IMPOR'} → totals.inserted=77, sampled leads (Nurmareta/Fauzi) show stage=acquisition, phone +62, assigned_to filled, score set; (7) automatic cleanup removes all TEST_* and raw-import demo leads. All 7 pytest tests PASSED. Post-run DB verified empty of test leads.",
   "backend_issues": {"critical": [], "minor": []},
   "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
   "test_report_links": [
-    "/app/backend/tests/test_color_links.py",
-    "/app/test_reports/pytest/iter42_color_links.xml",
-    "/app/test_reports/iter42-supplier-tab-filtered.jpeg",
-    "/app/test_reports/iter42-links-modal.jpeg"
+    "/app/backend/tests/test_leads_import.py",
+    "/app/test_reports/pytest/leads_import.xml"
   ],
   "action_items": [],
-  "critical_code_review_comments": [],
-  "updated_files": ["/app/backend/tests/test_color_links.py"],
-  "success_rate": {"backend": "100% (3/3)", "frontend": "100%"},
-  "test_credentials": "admin@kainnusantara.id / demo12345",
-  "seed_data_creation": "none",
+  "critical_code_review_comments": [
+    "h_leads correctly upserts by phone, normalizes to +62, auto-assigns sales, and computes score — behavior matches request.",
+    "_lead_defaults in data_mgmt_full_session.py properly fills stage/source/assigned_to/score/phone for raw-imported minimal (name+phone) rows.",
+    "Minor: /api/leads response uses key 'data' (not 'items'); tests were adjusted accordingly. Consider documenting this consistently across similar list endpoints for FE consumers.",
+    "Cleanup query {created_by, source:'import', email:null} works because MongoDB treats null == missing for equality — good default. If email were ever imported as empty string '', it would leak; consider $in:[null,''] in future cleanup helpers."
+  ],
+  "updated_files": ["/app/backend/tests/test_leads_import.py"],
+  "success_rate": {"backend": "100%", "frontend": "not tested"},
+  "test_credentials": "superadmin@sipro.co.id / Sipro#2026 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "3 template TEST_ leads + 77 raw-file leads inserted during tests, all removed by test_zzz_cleanup_leads. Post-test count: 0.",
   "retest_needed": false,
-  "should_main_agent_self_test": false,
-  "context_for_next_testing_agent": "Supplier-variants row testid uses composite '{color_id}-{supplier_id}'. Linked-filter is a Radix Select combobox — use get_by_role('option', name=...).click(force=True), not select_option. ColorLinksModal closes via Escape; sample click navigates and opens sample-detail-modal.",
-  "rca of the issue": "n/a"
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_leads_import.py is idempotent when DB is clean at start. It uses module-scoped fixtures (token, template_bytes, raw_session). If run twice back-to-back, the earlier cleanup keeps state clean. The unique test phones are 081299999901..03 (→ +62...); avoid reusing.",
+  "rca of the issue": "N/A — no bugs found. Initial two failures during first test run were due to (a) motor client rejecting an env-loaded URL because MONGO_URL wasn't loaded in the pytest process — fixed by reading /app/backend/.env via python-dotenv; (b) test-1 dry_run reporting 0 inserts on second execution because prior-run cleanup had failed (issue a), leaving stale TEST_ leads. Once cleanup fixture worked, all 7 tests passed."
 }

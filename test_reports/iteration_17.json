@@ -1,24 +1,49 @@
 {
-  "summary": "FASE SL frontend (receipt_variances di PO Detail/Row/Board/VendorBill + scan-label-stats card + KNSelect di scan-label-panel) fully verified. Backend pytest already green per main agent - skipped. Semua 5 skenario FE lulus tanpa error konsol.",
+  "summary": "Iter 17: Validated RAB fuzzy template pickup (backend + UI) and Marketing Office field (backend + UI end-to-end). All 6 backend pytests pass; all UI flows verified.",
   "backend_issues": {"critical": [], "minor": []},
-  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
-  "test_results": {
-    "FE-1_po_detail": "PASS - po-row-variance badge 'Selisih terima 1 roll label\u2260aktual' visible; po-compact-receipt-variances present; po-open-full-detail dibuka; po-receipt-variances-item-0 memuat 'RL-00058' dan 'Eko Prasetyo 2026-09-16'.",
-    "FE-2_po_board": "PASS - Setelah pilih tab 'Semua' (PO sudah completed sehingga tidak muncul di tab default 'Berjalan'), search 'PO-00014' menampilkan po-board-row-po_78d343ce4efd dengan badge po-board-variance-po_78d343ce4efd = 'Selisih 1 roll label\u2260aktual'. Total variance badges di board = 1 (tidak ada PO lain memiliki badge).",
-    "FE-3_vendor_bill": "PASS - manager login; create-vendor-bill-button \u2192 modal open; vb-po-select \u2192 option vb-po-select-option-po_78d343ce4efd; vb-receipt-variances tampil dengan item-0 '1 roll selisih label vs aktual ... RL-00058 ... Eko Prasetyo 2026-09-16'. Modal ditutup lewat vb-create-close tanpa submit.",
-    "FE-4_scan_label_stats": "PASS - warehouse login \u2192 wms-tab-inbound \u2192 scan-label-stats-card visible; toggle expands table dengan 1 row scan-label-stats-row-sup_cd509babd952 (Cirebon Craft, kolom Label\u2260aktual 33.3% (1), 1 dikonfirmasi). Toggle kedua kali menutup tabel (0 rows).",
-    "FE-5_knselect_no_native_select": "PASS - membuka inbound task pertama (inbound-task-wms_f808e668a2e7) menampilkan scan-label-panel; document.querySelectorAll('[data-testid=\"scan-label-panel\"] select').length === 0.",
-    "regression_console": "No red console errors captured across purchasing, po-board, vendor-bills, operations screens."
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
   },
-  "test_report_links": [],
+  "test_report_links": [
+    "/app/backend/tests/test_iter17_rab_marketing.py",
+    "/app/test_reports/pytest/iter17.xml"
+  ],
   "action_items": [],
   "critical_code_review_comments": [
-    "Papan PO per Lini default membuka tab 'Berjalan' - PO yang sudah completed (seperti PO-00014) tidak terlihat kecuali user pindah tab 'Semua/Selesai'. Bila skenario reviewer mengharapkan PO ditemukan lewat search saja, pertimbangkan menampilkan hasil search lintas-tab atau otomatis switch tab bila hasil pada tab aktif kosong."
+    "Only one project (Cluster Asri Blok A) exists in seed for the current org — request mentions 'Harmony Land 5' as project but Harmony Land 5 is actually the ORG. Test performed against the available project.",
+    "GET /api/projects/{pid} returns nested {project, units, phases, curve} rather than flat project row — non-obvious but consistent with existing UI usage."
   ],
-  "updated_files": [],
-  "success_rate": {"backend": "N/A (skipped)", "frontend": "100%"},
-  "seed_data_creation": "None - menggunakan seed yang telah disiapkan main agent (task wms_7d68b73ebcc1, PO-00014, RL-00058).",
+  "updated_files": [
+    "/app/backend/tests/test_iter17_rab_marketing.py"
+  ],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100%"},
+  "test_credentials": "superadmin@sipro.co.id / Sipro#2026",
+  "seed_data_creation": "Created unit type RT-30-60 (Rumah Tapak 30/60) — left in place per instructions. Created build template QA-3060 during tests — cleaned up (DELETE 200).",
   "retest_needed": false,
-  "should_main_agent_self_test": false,
-  "context_for_next_testing_agent": "FASE SL receipt variance + scan label stats card + KNSelect di scan panel semua lulus verifikasi UI. Data seed: PO KSC/PO-00014 (po_78d343ce4efd), roll RL-00058 flag QC. Perhatikan: PO Board default tab='Berjalan' -- PO completed harus dicari di tab 'Semua' atau 'Selesai'."
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "RAB fuzzy: create unit type via POST /api/catalog/unit-types requires base_price. Build steps require day_from/day_to. rab/templates/unit_type uses field 'ref_code' not 'code'. GET /api/projects/{pid} returns nested structure — read body['project']['marketing_office']. Edit Project dialog opens via clicking project-card (opens Sheet) then project-edit-btn. Lead survey appt dialog: data-testid=lead-appt-project/lead-appt-location; location auto-prefills 'Kantor pemasaran <name> — <marketing_office>' exactly.",
+  "detailed_findings": {
+    "rab_backend": {
+      "GET /api/rab/templates/unit_type": "RT-30-60 row has has_schedule_template=true, steps_without_rab=2",
+      "GET /api/rab/templates/unit_type/RT-30-60/sync-check": "has_template=true, steps_without_rab includes S1,S2",
+      "GET /api/build/templates?unit_type=Rumah%20Tapak%2030%2F60": "includes QA-3060 (fuzzy '30/60' ⊂ 'Rumah Tapak 30/60')",
+      "GET /api/build/templates?unit_type=RT-30-60": "includes QA-3060 (matched by ref_code)",
+      "GET /api/build/templates?unit_type=Ruko": "does NOT include QA-3060 (negative)"
+    },
+    "rab_ui": {
+      "RT-30-60 dialog first option": "Otomatis (QA-3060) — matched",
+      "missing chips": "S1 · Persiapan, S2 · Pondasi",
+      "switch to RUKO-14W": "chips update to 16 Ruko steps; clicking chip adds rab-template-row with rab-template-step dropdown populated",
+      "KAVLING (no match)": "first option 'Otomatis — tidak ada yang cocok, pilih manual', rab-template-source-hint visible with 'Tipe Kavling belum tercantum...'"
+    },
+    "marketing_office": {
+      "PUT /api/projects/{pid} {marketing_office}": "200; GET returns value in body['project']['marketing_office']",
+      "POST /api/projects with marketing_office": "created 201, DELETE cleaned up",
+      "UI Tambah Proyek": "project-form-marketing-office input present",
+      "UI Ubah Proyek": "project-edit-marketing-office + project-edit-submit present, save works",
+      "Lead appt dialog prefill": "Location = 'Kantor pemasaran Cluster Asri Blok A — Marketing Gallery Jl. Uji No. 1' (exact expected format)"
+    }
+  }
 }

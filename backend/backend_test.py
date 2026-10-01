@@ -1,859 +1,365 @@
-#!/usr/bin/env python3
+"""Phase 13 EPIC 3.4 — General Ledger / CoA Backend Test Suite
+
+Tests:
+1. AUTH: Staff login for all roles
+2. CoA: GET /api/gl/accounts (19 seeded), POST new account, duplicate/invalid tests
+3. JOURNALS: GET /api/gl/journals (4 seed), POST balanced/unbalanced, GET by ID
+4. LEDGER: GET /api/gl/ledger?account_code=1-1200
+5. TRIAL BALANCE: GET /api/gl/trial-balance (balanced:true)
+6. STATEMENTS: GET /api/gl/income-statement, GET /api/gl/balance-sheet
+7. RBAC: sales/pm/site get 403, finance/owner get 200
+8. AUTO-POSTING: Approve pending AP bill, wait ~10s, verify new journal + TB still balanced
 """
-Backend API Test — M1 Makloon/Subcon (Fase M1)
-===============================================
-Comprehensive test covering:
-1. Makloons CRUD (GET, POST, PATCH, DELETE)
-2. Makloon 360 view (profile + recipes + orders + scorecard)
-3. Process Recipes CRUD
-4. Process Recipe Forecast (with formula validation)
-5. Supplier 360 upgrade (tabbed view)
-6. Permission tests (warehouse, sales roles)
-7. Validation tests (numeric bounds, required fields)
-"""
-import os
-import sys
 import requests
+import sys
+import time
 from datetime import datetime
 
-BASE = os.environ.get("BACKEND_URL", os.environ["REACT_APP_BACKEND_URL"]).rstrip("/")
-API = f"{BASE}/api"
-PASS, FAIL = [], []
+BASE_URL = "https://sipro-verify.preview.emergentagent.com/api"
+PASSWORD = "Sipro#2026"
 
-
-def ok(m):
-    PASS.append(m)
-    print(f"  ✅ [PASS] {m}")
-
-
-def bad(m):
-    FAIL.append(m)
-    print(f"  ❌ [FAIL] {m}")
-
-
-def info(m):
-    print(f"  ℹ️  {m}")
-
-
-class MakloonTester:
+class GLTester:
     def __init__(self):
-        self.session = requests.Session()
-        self.token = None
-        self.entity_id = None
-        self.makloon_id = None
-        self.recipe_id = None
-        self.supplier_id = None
-        self.product_id = None
+        self.tests_run = 0
+        self.tests_passed = 0
+        self.tokens = {}
+        self.results = []
+
+    def log(self, msg, status="INFO"):
+        prefix = {"PASS": "✅", "FAIL": "❌", "INFO": "🔍"}.get(status, "ℹ️")
+        print(f"{prefix} {msg}")
+
+    def test(self, name, fn):
+        """Run a test function and track results"""
+        self.tests_run += 1
+        self.log(f"Testing {name}...", "INFO")
+        try:
+            fn()
+            self.tests_passed += 1
+            self.log(f"PASSED: {name}", "PASS")
+            self.results.append({"test": name, "status": "PASS"})
+            return True
+        except AssertionError as e:
+            self.log(f"FAILED: {name} — {str(e)}", "FAIL")
+            self.results.append({"test": name, "status": "FAIL", "error": str(e)})
+            return False
+        except Exception as e:
+            self.log(f"ERROR: {name} — {str(e)}", "FAIL")
+            self.results.append({"test": name, "status": "ERROR", "error": str(e)})
+            return False
+
+    def login(self, email):
+        """Login and cache token"""
+        if email in self.tokens:
+            return self.tokens[email]
+        r = requests.post(f"{BASE_URL}/auth/login", json={"email": email, "password": PASSWORD})
+        assert r.status_code == 200, f"Login failed for {email}: {r.status_code} {r.text}"
+        token = r.json()["access_token"]
+        self.tokens[email] = token
+        return token
+
+    def get(self, endpoint, email, expected_status=200):
+        """GET request with auth"""
+        token = self.login(email)
+        r = requests.get(f"{BASE_URL}{endpoint}", headers={"Authorization": f"Bearer {token}"})
+        if expected_status:
+            assert r.status_code == expected_status, f"Expected {expected_status}, got {r.status_code}: {r.text}"
+        return r
+
+    def post(self, endpoint, email, data, expected_status=200):
+        """POST request with auth"""
+        token = self.login(email)
+        r = requests.post(f"{BASE_URL}{endpoint}", json=data, headers={"Authorization": f"Bearer {token}"})
+        if expected_status:
+            assert r.status_code == expected_status, f"Expected {expected_status}, got {r.status_code}: {r.text}"
+        return r
+
+    # ============================= TEST CASES =============================
+
+    def test_auth_all_roles(self):
+        """Test 1: AUTH - Login all roles"""
+        roles = [
+            "finance@sipro.co.id", "owner@sipro.co.id", "superadmin@sipro.co.id",
+            "pm@sipro.co.id", "sales@sipro.co.id", "site@sipro.co.id"
+        ]
+        for email in roles:
+            token = self.login(email)
+            assert len(token) > 20, f"Invalid token for {email}"
+        self.log(f"All {len(roles)} roles logged in successfully")
+
+    def test_coa_list_19_accounts(self):
+        """Test 2: CoA - GET /api/gl/accounts returns 19 seeded accounts"""
+        r = self.get("/gl/accounts", "finance@sipro.co.id")
+        data = r.json()["data"]
+        assert len(data) == 19, f"Expected 19 accounts, got {len(data)}"
+        # Check a few key accounts
+        codes = [a["code"] for a in data]
+        assert "1-1200" in codes, "Bank account missing"
+        assert "2-1400" in codes, "Uang Muka Penjualan missing"
+        assert "4-1100" in codes, "Pendapatan missing"
+        # Check balances are present
+        assert all("balance" in a for a in data), "Some accounts missing balance"
+        self.log(f"Found 19 accounts with balances")
+
+    def test_coa_create_new_account(self):
+        """Test 3: CoA - POST /api/gl/accounts creates new account"""
+        new_code = f"9-TEST-{int(time.time()) % 10000}"
+        r = self.post("/gl/accounts", "finance@sipro.co.id", {
+            "code": new_code,
+            "name": "Test Account",
+            "type": "expense",
+            "parent_code": None
+        }, expected_status=200)
+        data = r.json()["data"]
+        assert data["code"] == new_code
+        assert data["name"] == "Test Account"
+        self.log(f"Created new account: {new_code}")
+
+    def test_coa_duplicate_code_400(self):
+        """Test 4: CoA - POST duplicate code returns 400"""
+        r = self.post("/gl/accounts", "finance@sipro.co.id", {
+            "code": "1-1200",  # Bank (already exists)
+            "name": "Duplicate Bank",
+            "type": "asset",
+            "parent_code": None
+        }, expected_status=400)
+        assert "sudah dipakai" in r.json()["detail"].lower() or "duplicate" in r.json()["detail"].lower()
+        self.log("Duplicate code correctly rejected with 400")
+
+    def test_coa_invalid_type_400(self):
+        """Test 5: CoA - POST invalid type returns 400"""
+        r = self.post("/gl/accounts", "finance@sipro.co.id", {
+            "code": "9-INVALID",
+            "name": "Invalid Type",
+            "type": "invalid_type",
+            "parent_code": None
+        }, expected_status=400)
+        assert "tidak valid" in r.json()["detail"].lower() or "invalid" in r.json()["detail"].lower()
+        self.log("Invalid type correctly rejected with 400")
+
+    def test_journals_list_seed(self):
+        """Test 6: JOURNALS - GET /api/gl/journals lists seed entries"""
+        r = self.get("/gl/journals", "finance@sipro.co.id")
+        data = r.json()["data"]
+        assert len(data) >= 4, f"Expected at least 4 seed journals, got {len(data)}"
+        # Check for opening balance journal
+        opening = [j for j in data if "opening" in j.get("source_type", "").lower() or "saldo awal" in j.get("memo", "").lower()]
+        assert len(opening) > 0, "Opening balance journal not found"
+        # Check for auto-posted journals
+        auto = [j for j in data if j.get("auto") == True]
+        assert len(auto) >= 3, f"Expected at least 3 auto-posted journals, got {len(auto)}"
+        self.log(f"Found {len(data)} journals ({len(auto)} auto-posted)")
+
+    def test_journals_post_balanced(self):
+        """Test 7: JOURNALS - POST balanced entry succeeds"""
+        r = self.post("/gl/journals", "finance@sipro.co.id", {
+            "memo": f"Test balanced journal {int(time.time())}",
+            "date": None,
+            "lines": [
+                {"account_code": "6-1300", "debit": 1000000, "credit": 0},
+                {"account_code": "1-1200", "debit": 0, "credit": 1000000}
+            ]
+        }, expected_status=200)
+        data = r.json()["data"]
+        assert data["total_debit"] == 1000000
+        assert data["total_credit"] == 1000000
+        assert data["auto"] == False
+        self.log(f"Balanced journal posted: {data['entry_no']}")
+
+    def test_journals_post_unbalanced_400(self):
+        """Test 8: JOURNALS - POST unbalanced entry returns 400"""
+        r = self.post("/gl/journals", "finance@sipro.co.id", {
+            "memo": "Test unbalanced journal",
+            "date": None,
+            "lines": [
+                {"account_code": "6-1300", "debit": 1000000, "credit": 0},
+                {"account_code": "1-1200", "debit": 0, "credit": 500000}  # Unbalanced!
+            ]
+        }, expected_status=400)
+        detail = r.json()["detail"].lower()
+        assert "tidak seimbang" in detail or "unbalanced" in detail or "balance" in detail
+        self.log("Unbalanced journal correctly rejected with 400")
+
+    def test_journals_get_by_id(self):
+        """Test 9: JOURNALS - GET /api/gl/journals/{id} returns detail"""
+        # First get a journal ID
+        r = self.get("/gl/journals?limit=1", "finance@sipro.co.id")
+        journals = r.json()["data"]
+        assert len(journals) > 0, "No journals found"
+        jid = journals[0]["id"]
+        # Get detail
+        r = self.get(f"/gl/journals/{jid}", "finance@sipro.co.id")
+        data = r.json()["data"]
+        assert data["id"] == jid
+        assert "lines" in data
+        assert len(data["lines"]) >= 2
+        assert "total_debit" in data
+        assert "total_credit" in data
+        self.log(f"Journal detail retrieved: {data['entry_no']}")
+
+    def test_ledger_account_1_1200(self):
+        """Test 10: LEDGER - GET /api/gl/ledger?account_code=1-1200"""
+        r = self.get("/gl/ledger?account_code=1-1200", "finance@sipro.co.id")
+        data = r.json()["data"]
+        assert data["account"] is not None
+        assert data["account"]["code"] == "1-1200"
+        assert data["account"]["name"] == "Bank"
+        assert "lines" in data
+        assert len(data["lines"]) > 0, "Bank ledger should have transactions"
+        # Check running balance
+        for line in data["lines"]:
+            assert "balance" in line, "Ledger line missing running balance"
+        assert "balance" in data, "Ending balance missing"
+        self.log(f"Bank ledger: {len(data['lines'])} transactions, ending balance: Rp {data['balance']:,}")
+
+    def test_trial_balance_balanced(self):
+        """Test 11: TRIAL BALANCE - GET /api/gl/trial-balance is balanced"""
+        r = self.get("/gl/trial-balance", "finance@sipro.co.id")
+        data = r.json()["data"]
+        assert data["balanced"] == True, f"Trial balance NOT balanced: Dr={data['total_debit']:,} Cr={data['total_credit']:,}"
+        assert data["total_debit"] == data["total_credit"]
+        assert data["total_debit"] > 0, "Trial balance totals are zero"
+        assert len(data["rows"]) > 0, "No accounts in trial balance"
+        self.log(f"Trial balance BALANCED: Dr=Cr=Rp {data['total_debit']:,} ({len(data['rows'])} accounts)")
+
+    def test_income_statement(self):
+        """Test 12: STATEMENTS - GET /api/gl/income-statement"""
+        r = self.get("/gl/income-statement", "finance@sipro.co.id")
+        data = r.json()["data"]
+        assert "revenue" in data
+        assert "expenses" in data
+        assert "total_revenue" in data
+        assert "total_expense" in data
+        assert "net_income" in data
+        net = data["net_income"]
+        self.log(f"Income statement: Revenue={data['total_revenue']:,}, Expense={data['total_expense']:,}, Net={net:,}")
+
+    def test_balance_sheet_balanced(self):
+        """Test 13: STATEMENTS - GET /api/gl/balance-sheet is balanced"""
+        r = self.get("/gl/balance-sheet", "finance@sipro.co.id")
+        data = r.json()["data"]
+        assert data["balanced"] == True, f"Balance sheet NOT balanced: Assets={data['total_assets']:,} vs Liab+Equity+NI={data['total_liab_equity']:,}"
+        assert data["total_assets"] == data["total_liab_equity"]
+        assert "assets" in data
+        assert "liabilities" in data
+        assert "equity" in data
+        assert "net_income" in data
+        self.log(f"Balance sheet BALANCED: Assets=Liab+Equity+NI=Rp {data['total_assets']:,}")
+
+    def test_rbac_sales_denied(self):
+        """Test 14: RBAC - sales@sipro.co.id gets 403 on GL endpoints"""
+        r = self.get("/gl/accounts", "sales@sipro.co.id", expected_status=403)
+        assert "akses ditolak" in r.json()["detail"].lower() or "forbidden" in r.json()["detail"].lower()
+        r = self.get("/gl/trial-balance", "sales@sipro.co.id", expected_status=403)
+        self.log("Sales correctly denied access (403)")
+
+    def test_rbac_pm_denied(self):
+        """Test 15: RBAC - pm@sipro.co.id gets 403 on GL endpoints"""
+        r = self.get("/gl/accounts", "pm@sipro.co.id", expected_status=403)
+        r = self.get("/gl/trial-balance", "pm@sipro.co.id", expected_status=403)
+        self.log("PM correctly denied access (403)")
+
+    def test_rbac_site_denied(self):
+        """Test 16: RBAC - site@sipro.co.id gets 403 on GL endpoints"""
+        r = self.get("/gl/accounts", "site@sipro.co.id", expected_status=403)
+        r = self.get("/gl/trial-balance", "site@sipro.co.id", expected_status=403)
+        self.log("Site engineer correctly denied access (403)")
+
+    def test_rbac_owner_allowed(self):
+        """Test 17: RBAC - owner@sipro.co.id gets 200 on GL endpoints"""
+        r = self.get("/gl/accounts", "owner@sipro.co.id", expected_status=200)
+        r = self.get("/gl/trial-balance", "owner@sipro.co.id", expected_status=200)
+        self.log("Owner correctly allowed access (200)")
+
+    def test_auto_posting_integration(self):
+        """Test 18: AUTO-POSTING - Approve pending AP bill, verify new journal + TB still balanced"""
+        # Get pending AP bills
+        r = self.get("/finance/ap/bills?status=pending", "finance@sipro.co.id")
+        bills = r.json()["data"]
+        if len(bills) == 0:
+            self.log("⚠️  No pending AP bills found, skipping auto-posting test", "INFO")
+            return
         
-    def login(self, email="admin@kainnusantara.id", password="demo12345"):
-        """Login with specified credentials"""
-        try:
-            r = self.session.post(
-                f"{API}/auth/login",
-                json={"email": email, "password": password},
-                timeout=30
-            )
-            if r.status_code != 200:
-                bad(f"Login failed for {email}: {r.status_code} {r.text[:100]}")
-                return False
-            data = r.json()
-            self.token = data.get("token")
-            if not self.token:
-                bad(f"Login response missing token for {email}")
-                return False
-            self.session.headers.update({"Authorization": f"Bearer {self.token}"})
-            ok(f"Login {email}")
-            return True
-        except Exception as e:
-            bad(f"Login exception for {email}: {e}")
-            return False
-    
-    def setup_references(self):
-        """Get entity, product references"""
-        try:
-            # Get entity
-            r = self.session.get(f"{API}/entities", timeout=30)
-            if r.status_code == 200:
-                entities = r.json()
-                if entities:
-                    self.entity_id = entities[0]["id"]
-            
-            # Get a product for recipe testing
-            r = self.session.get(f"{API}/products?limit=1", timeout=30)
-            if r.status_code == 200:
-                products = r.json()
-                if products:
-                    self.product_id = products[0]["id"]
-            
-            # Get a supplier for 360 testing
-            r = self.session.get(f"{API}/suppliers?limit=1", timeout=30)
-            if r.status_code == 200:
-                suppliers = r.json()
-                if suppliers:
-                    self.supplier_id = suppliers[0]["id"]
-            
-            ok(f"Setup references: entity={self.entity_id[:8] if self.entity_id else 'N/A'}, product={self.product_id[:8] if self.product_id else 'N/A'}")
-            return True
-        except Exception as e:
-            bad(f"Setup references exception: {e}")
-            return False
-    
-    # ========== MAKLOON TESTS ==========
-    
-    def test_list_makloons(self):
-        """Test GET /api/makloons - should return 3 seeded makloons"""
-        info("Test: GET /api/makloons (list)")
-        try:
-            r = self.session.get(f"{API}/makloons", timeout=30)
-            if r.status_code != 200:
-                bad(f"GET /makloons failed: {r.status_code}")
-                return False
-            
-            data = r.json()
-            if not isinstance(data, list):
-                bad(f"GET /makloons should return array, got {type(data)}")
-                return False
-            
-            if len(data) < 3:
-                bad(f"Expected at least 3 seeded makloons, got {len(data)}")
-                return False
-            
-            # Check for seeded makloons
-            codes = [m.get("code") for m in data]
-            if "MAK-00001" in codes and "MAK-00002" in codes and "MAK-00003" in codes:
-                ok(f"GET /makloons returns {len(data)} makloons (3 seeded found)")
-            else:
-                bad(f"Seeded makloons not found. Codes: {codes[:5]}")
-                return False
-            
-            # Save a makloon ID for later tests
-            if data:
-                self.makloon_id = data[0]["id"]
-            
-            return True
-        except Exception as e:
-            bad(f"GET /makloons exception: {e}")
-            return False
-    
-    def test_list_makloons_with_filters(self):
-        """Test GET /api/makloons with status and entity_id filters"""
-        info("Test: GET /api/makloons with filters")
-        try:
-            # Test status filter
-            r = self.session.get(f"{API}/makloons?status=active", timeout=30)
-            if r.status_code != 200:
-                bad(f"GET /makloons?status=active failed: {r.status_code}")
-                return False
-            
-            data = r.json()
-            if not isinstance(data, list):
-                bad(f"GET /makloons?status=active should return array")
-                return False
-            
-            ok(f"GET /makloons?status=active returns {len(data)} makloons")
-            
-            # Test entity_id filter if we have one
-            if self.entity_id:
-                r = self.session.get(f"{API}/makloons?entity_id={self.entity_id}", timeout=30)
-                if r.status_code == 200:
-                    ok(f"GET /makloons?entity_id filter works")
-            
-            return True
-        except Exception as e:
-            bad(f"GET /makloons filters exception: {e}")
-            return False
-    
-    def test_create_makloon(self):
-        """Test POST /api/makloons - create new makloon"""
-        info("Test: POST /api/makloons (create)")
-        try:
-            payload = {
-                "name": f"QA Test Makloon {datetime.now().strftime('%H%M%S')}",
-                "city": "Jakarta",
-                "process_types": ["celup", "finishing"],
-                "default_tariff": 2500,
-                "lead_time_days": 7,
-                "capacity_per_month": 1000
-            }
-            
-            r = self.session.post(f"{API}/makloons", json=payload, timeout=30)
-            if r.status_code != 200:
-                bad(f"POST /makloons failed: {r.status_code} {r.text[:200]}")
-                return False
-            
-            data = r.json()
-            if not data.get("id") or not data.get("code"):
-                bad(f"POST /makloons response missing id or code")
-                return False
-            
-            if not data["code"].startswith("MAK-"):
-                bad(f"Makloon code should start with MAK-, got {data['code']}")
-                return False
-            
-            ok(f"POST /makloons created {data['code']}")
-            self.makloon_id = data["id"]  # Save for later tests
-            return True
-        except Exception as e:
-            bad(f"POST /makloons exception: {e}")
-            return False
-    
-    def test_create_makloon_validation(self):
-        """Test POST /api/makloons validation (missing name, negative values)"""
-        info("Test: POST /api/makloons validation")
-        try:
-            # Test missing name
-            r = self.session.post(f"{API}/makloons", json={"name": ""}, timeout=30)
-            if r.status_code != 400:
-                bad(f"POST /makloons with empty name should return 400, got {r.status_code}")
-                return False
-            ok("POST /makloons validates empty name (400)")
-            
-            # Test negative default_tariff (should be rejected or coerced to 0)
-            r = self.session.post(
-                f"{API}/makloons",
-                json={"name": "Test", "default_tariff": -100},
-                timeout=30
-            )
-            if r.status_code == 422:
-                ok("POST /makloons rejects negative default_tariff (422)")
-            elif r.status_code == 200:
-                data = r.json()
-                if data.get("default_tariff", 0) >= 0:
-                    ok("POST /makloons coerces negative default_tariff to 0")
-                else:
-                    bad(f"POST /makloons accepted negative default_tariff")
-            else:
-                bad(f"POST /makloons with negative tariff unexpected status: {r.status_code}")
-            
-            return True
-        except Exception as e:
-            bad(f"POST /makloons validation exception: {e}")
-            return False
-    
-    def test_get_makloon_360(self):
-        """Test GET /api/makloons/{id} - Makloon 360 view"""
-        info("Test: GET /api/makloons/{id} (360 view)")
-        if not self.makloon_id:
-            bad("No makloon_id available for 360 test")
-            return False
+        # Get initial journal count and TB
+        r1 = self.get("/gl/journals", "finance@sipro.co.id")
+        initial_count = r1.json()["total"]
+        r2 = self.get("/gl/trial-balance", "finance@sipro.co.id")
+        initial_tb = r2.json()["data"]
+        assert initial_tb["balanced"] == True, "TB not balanced before test"
         
-        try:
-            r = self.session.get(f"{API}/makloons/{self.makloon_id}", timeout=30)
-            if r.status_code != 200:
-                bad(f"GET /makloons/{{id}} failed: {r.status_code}")
-                return False
-            
-            data = r.json()
-            
-            # Check required 360 fields
-            required_fields = ["id", "name", "code", "recipes", "orders", "service_bills", "scorecard"]
-            missing = [f for f in required_fields if f not in data]
-            if missing:
-                bad(f"Makloon 360 missing fields: {missing}")
-                return False
-            
-            # Check scorecard structure
-            scorecard = data.get("scorecard", {})
-            if not isinstance(scorecard, dict):
-                bad(f"Scorecard should be dict, got {type(scorecard)}")
-                return False
-            
-            if "has_data" not in scorecard:
-                bad("Scorecard missing has_data field")
-                return False
-            
-            # Scorecard should have has_data=false until M3 (no orders yet)
-            if scorecard.get("has_data") == False:
-                ok(f"GET /makloons/{{id}} returns 360 view with scorecard (has_data=false, correct for M1)")
-            else:
-                ok(f"GET /makloons/{{id}} returns 360 view with scorecard (has_data={scorecard.get('has_data')})")
-            
-            return True
-        except Exception as e:
-            bad(f"GET /makloons/{{id}} exception: {e}")
-            return False
-    
-    def test_update_makloon(self):
-        """Test PATCH /api/makloons/{id}"""
-        info("Test: PATCH /api/makloons/{id}")
-        if not self.makloon_id:
-            bad("No makloon_id available for update test")
-            return False
+        # Approve first pending bill
+        bill_id = bills[0]["id"]
+        self.log(f"Approving AP bill {bill_id} (vendor: {bills[0].get('vendor', 'N/A')})...", "INFO")
+        r = self.post(f"/finance/ap/bills/{bill_id}/approve", "finance@sipro.co.id", {}, expected_status=200)
         
-        try:
-            payload = {
-                "data": {
-                    "city": "Bandung Updated",
-                    "default_tariff": 3000
-                }
-            }
-            
-            r = self.session.patch(f"{API}/makloons/{self.makloon_id}", json=payload, timeout=30)
-            if r.status_code != 200:
-                bad(f"PATCH /makloons/{{id}} failed: {r.status_code} {r.text[:200]}")
-                return False
-            
-            data = r.json()
-            if data.get("city") != "Bandung Updated":
-                bad(f"PATCH /makloons/{{id}} city not updated")
-                return False
-            
-            ok(f"PATCH /makloons/{{id}} updated successfully")
-            return True
-        except Exception as e:
-            bad(f"PATCH /makloons/{{id}} exception: {e}")
-            return False
-    
-    def test_get_makloon_scorecard(self):
-        """Test GET /api/makloons/{id}/scorecard"""
-        info("Test: GET /api/makloons/{id}/scorecard")
-        if not self.makloon_id:
-            bad("No makloon_id available for scorecard test")
-            return False
+        # Wait for scheduler to dispatch event (~10s)
+        self.log("Waiting 12s for auto-posting scheduler...", "INFO")
+        time.sleep(12)
         
-        try:
-            r = self.session.get(f"{API}/makloons/{self.makloon_id}/scorecard", timeout=30)
-            if r.status_code != 200:
-                bad(f"GET /makloons/{{id}}/scorecard failed: {r.status_code}")
-                return False
-            
-            data = r.json()
-            if "has_data" not in data:
-                bad("Scorecard missing has_data field")
-                return False
-            
-            ok(f"GET /makloons/{{id}}/scorecard returns scorecard (has_data={data.get('has_data')})")
-            return True
-        except Exception as e:
-            bad(f"GET /makloons/{{id}}/scorecard exception: {e}")
-            return False
-    
-    def test_delete_makloon(self):
-        """Test DELETE /api/makloons/{id} - soft delete"""
-        info("Test: DELETE /api/makloons/{id} (soft delete)")
-        if not self.makloon_id:
-            bad("No makloon_id available for delete test")
-            return False
+        # Check new journal created
+        r3 = self.get("/gl/journals", "finance@sipro.co.id")
+        new_count = r3.json()["total"]
+        assert new_count > initial_count, f"No new journal created (before={initial_count}, after={new_count})"
+        self.log(f"New journal created: count increased from {initial_count} to {new_count}")
         
-        try:
-            r = self.session.delete(f"{API}/makloons/{self.makloon_id}", timeout=30)
-            if r.status_code != 200:
-                bad(f"DELETE /makloons/{{id}} failed: {r.status_code}")
-                return False
-            
-            data = r.json()
-            if data.get("status") != "inactive":
-                bad(f"DELETE /makloons/{{id}} should set status=inactive, got {data.get('status')}")
-                return False
-            
-            ok(f"DELETE /makloons/{{id}} soft-deactivated (status=inactive)")
-            return True
-        except Exception as e:
-            bad(f"DELETE /makloons/{{id}} exception: {e}")
-            return False
-    
-    # ========== PROCESS RECIPE TESTS ==========
-    
-    def test_list_recipes(self):
-        """Test GET /api/process-recipes - should return 2 seeded recipes"""
-        info("Test: GET /api/process-recipes (list)")
-        try:
-            r = self.session.get(f"{API}/process-recipes", timeout=30)
-            if r.status_code != 200:
-                bad(f"GET /process-recipes failed: {r.status_code}")
-                return False
-            
-            data = r.json()
-            if not isinstance(data, list):
-                bad(f"GET /process-recipes should return array, got {type(data)}")
-                return False
-            
-            if len(data) < 2:
-                bad(f"Expected at least 2 seeded recipes, got {len(data)}")
-                return False
-            
-            # Check enriched fields
-            if data:
-                recipe = data[0]
-                enriched_fields = ["input_sku", "input_unit", "output_sku", "output_unit", "default_makloon_name"]
-                missing = [f for f in enriched_fields if f not in recipe]
-                if missing:
-                    bad(f"Recipe missing enriched fields: {missing}")
-                    return False
-                
-                ok(f"GET /process-recipes returns {len(data)} recipes with enriched data")
-                self.recipe_id = recipe["id"]
-            
-            return True
-        except Exception as e:
-            bad(f"GET /process-recipes exception: {e}")
-            return False
-    
-    def test_list_recipes_with_filters(self):
-        """Test GET /api/process-recipes with filters"""
-        info("Test: GET /api/process-recipes with filters")
-        try:
-            # Test process_type filter
-            r = self.session.get(f"{API}/process-recipes?process_type=tenun", timeout=30)
-            if r.status_code != 200:
-                bad(f"GET /process-recipes?process_type failed: {r.status_code}")
-                return False
-            ok("GET /process-recipes?process_type filter works")
-            
-            # Test status filter
-            r = self.session.get(f"{API}/process-recipes?status=active", timeout=30)
-            if r.status_code != 200:
-                bad(f"GET /process-recipes?status failed: {r.status_code}")
-                return False
-            ok("GET /process-recipes?status filter works")
-            
-            return True
-        except Exception as e:
-            bad(f"GET /process-recipes filters exception: {e}")
-            return False
-    
-    def test_create_recipe(self):
-        """Test POST /api/process-recipes"""
-        info("Test: POST /api/process-recipes (create)")
-        if not self.product_id:
-            info("No product_id available, skipping recipe creation")
-            return True
-        
-        try:
-            payload = {
-                "name": f"QA Test Recipe {datetime.now().strftime('%H%M%S')}",
-                "process_type": "celup",
-                "input_product_id": self.product_id,
-                "output_product_id": self.product_id,
-                "yield_factor": 0.95,
-                "waste_pct": 5,
-                "byproduct_pct": 2
-            }
-            
-            r = self.session.post(f"{API}/process-recipes", json=payload, timeout=30)
-            if r.status_code != 200:
-                bad(f"POST /process-recipes failed: {r.status_code} {r.text[:200]}")
-                return False
-            
-            data = r.json()
-            if not data.get("id"):
-                bad(f"POST /process-recipes response missing id")
-                return False
-            
-            ok(f"POST /process-recipes created recipe")
-            self.recipe_id = data["id"]
-            return True
-        except Exception as e:
-            bad(f"POST /process-recipes exception: {e}")
-            return False
-    
-    def test_create_recipe_validation(self):
-        """Test POST /api/process-recipes validation"""
-        info("Test: POST /api/process-recipes validation")
-        try:
-            # Test missing name
-            r = self.session.post(f"{API}/process-recipes", json={"name": ""}, timeout=30)
-            if r.status_code != 400:
-                bad(f"POST /process-recipes with empty name should return 400, got {r.status_code}")
-                return False
-            ok("POST /process-recipes validates empty name (400)")
-            
-            # Test out-of-range waste_pct (should be 0-100)
-            r = self.session.post(
-                f"{API}/process-recipes",
-                json={"name": "Test", "waste_pct": 150},
-                timeout=30
-            )
-            if r.status_code == 422:
-                ok("POST /process-recipes rejects waste_pct > 100 (422)")
-            elif r.status_code == 200:
-                bad(f"POST /process-recipes should reject waste_pct=150")
-            
-            return True
-        except Exception as e:
-            bad(f"POST /process-recipes validation exception: {e}")
-            return False
-    
-    def test_update_recipe(self):
-        """Test PATCH /api/process-recipes/{id}"""
-        info("Test: PATCH /api/process-recipes/{id}")
-        if not self.recipe_id:
-            info("No recipe_id available, skipping update test")
-            return True
-        
-        try:
-            payload = {
-                "data": {
-                    "yield_factor": 0.98,
-                    "waste_pct": 2
-                }
-            }
-            
-            r = self.session.patch(f"{API}/process-recipes/{self.recipe_id}", json=payload, timeout=30)
-            if r.status_code != 200:
-                bad(f"PATCH /process-recipes/{{id}} failed: {r.status_code}")
-                return False
-            
-            ok(f"PATCH /process-recipes/{{id}} updated successfully")
-            return True
-        except Exception as e:
-            bad(f"PATCH /process-recipes/{{id}} exception: {e}")
-            return False
-    
-    def test_delete_recipe(self):
-        """Test DELETE /api/process-recipes/{id}"""
-        info("Test: DELETE /api/process-recipes/{id}")
-        if not self.recipe_id:
-            info("No recipe_id available, skipping delete test")
-            return True
-        
-        try:
-            r = self.session.delete(f"{API}/process-recipes/{self.recipe_id}", timeout=30)
-            if r.status_code != 200:
-                bad(f"DELETE /process-recipes/{{id}} failed: {r.status_code}")
-                return False
-            
-            data = r.json()
-            if data.get("status") != "inactive":
-                bad(f"DELETE /process-recipes/{{id}} should set status=inactive")
-                return False
-            
-            ok(f"DELETE /process-recipes/{{id}} soft-deactivated")
-            return True
-        except Exception as e:
-            bad(f"DELETE /process-recipes/{{id}} exception: {e}")
-            return False
-    
-    # ========== FORECAST TESTS ==========
-    
-    def test_forecast_basic(self):
-        """Test POST /api/process-recipes/forecast - basic calculation"""
-        info("Test: POST /api/process-recipes/forecast (basic)")
-        try:
-            payload = {
-                "input_qty": 100,
-                "yield_factor": 0.95,
-                "waste_pct": 5,
-                "byproduct_pct": 2
-            }
-            
-            r = self.session.post(f"{API}/process-recipes/forecast", json=payload, timeout=30)
-            if r.status_code != 200:
-                bad(f"POST /process-recipes/forecast failed: {r.status_code}")
-                return False
-            
-            data = r.json()
-            required = ["expected_output", "expected_byproduct", "formula_used", "warnings"]
-            missing = [f for f in required if f not in data]
-            if missing:
-                bad(f"Forecast response missing fields: {missing}")
-                return False
-            
-            # Check calculation: expected_output = 100 * 0.95 * (1 - 5/100) = 90.25
-            expected_output = data.get("expected_output")
-            if abs(expected_output - 90.25) > 0.01:
-                bad(f"Forecast calculation incorrect: expected ~90.25, got {expected_output}")
-                return False
-            
-            ok(f"POST /process-recipes/forecast returns correct calculation (output={expected_output})")
-            return True
-        except Exception as e:
-            bad(f"POST /process-recipes/forecast exception: {e}")
-            return False
-    
-    def test_forecast_with_formula(self):
-        """Test POST /api/process-recipes/forecast with custom formula"""
-        info("Test: POST /api/process-recipes/forecast (with formula)")
-        try:
-            payload = {
-                "input_qty": 100,
-                "yield_factor": 0.95,
-                "waste_pct": 5,
-                "byproduct_pct": 2,
-                "formula": "input_qty * yield_factor * (1 - waste_pct/100)"
-            }
-            
-            r = self.session.post(f"{API}/process-recipes/forecast", json=payload, timeout=30)
-            if r.status_code != 200:
-                bad(f"POST /process-recipes/forecast with formula failed: {r.status_code}")
-                return False
-            
-            data = r.json()
-            if data.get("formula_used") != payload["formula"]:
-                bad(f"Forecast should use provided formula")
-                return False
-            
-            ok(f"POST /process-recipes/forecast with formula works")
-            return True
-        except Exception as e:
-            bad(f"POST /process-recipes/forecast with formula exception: {e}")
-            return False
-    
-    def test_forecast_invalid_formula(self):
-        """Test POST /api/process-recipes/forecast with invalid formula"""
-        info("Test: POST /api/process-recipes/forecast (invalid formula)")
-        try:
-            payload = {
-                "input_qty": 100,
-                "yield_factor": 0.95,
-                "waste_pct": 5,
-                "formula": "__import__('os').system('ls')"  # Malicious formula
-            }
-            
-            r = self.session.post(f"{API}/process-recipes/forecast", json=payload, timeout=30)
-            if r.status_code != 200:
-                bad(f"POST /process-recipes/forecast with invalid formula failed: {r.status_code}")
-                return False
-            
-            data = r.json()
-            # Should have warnings and use fallback
-            if not data.get("warnings"):
-                bad(f"Forecast with invalid formula should have warnings")
-                return False
-            
-            if data.get("formula_used"):
-                bad(f"Forecast with invalid formula should use fallback (empty formula_used)")
-                return False
-            
-            ok(f"POST /process-recipes/forecast handles invalid formula safely (warnings + fallback)")
-            return True
-        except Exception as e:
-            bad(f"POST /process-recipes/forecast invalid formula exception: {e}")
-            return False
-    
-    def test_forecast_out_of_range(self):
-        """Test POST /api/process-recipes/forecast with out-of-range values"""
-        info("Test: POST /api/process-recipes/forecast (out-of-range)")
-        try:
-            payload = {
-                "input_qty": 100,
-                "waste_pct": 150  # Out of range (should be 0-100)
-            }
-            
-            r = self.session.post(f"{API}/process-recipes/forecast", json=payload, timeout=30)
-            if r.status_code == 422:
-                ok("POST /process-recipes/forecast rejects out-of-range waste_pct (422)")
-            elif r.status_code == 200:
-                bad(f"POST /process-recipes/forecast should reject waste_pct=150")
-            else:
-                bad(f"POST /process-recipes/forecast unexpected status: {r.status_code}")
-            
-            return True
-        except Exception as e:
-            bad(f"POST /process-recipes/forecast out-of-range exception: {e}")
-            return False
-    
-    # ========== SUPPLIER 360 TESTS ==========
-    
-    def test_supplier_360(self):
-        """Test GET /api/suppliers/{id}/360"""
-        info("Test: GET /api/suppliers/{id}/360")
-        if not self.supplier_id:
-            info("No supplier_id available, skipping 360 test")
-            return True
-        
-        try:
-            r = self.session.get(f"{API}/suppliers/{self.supplier_id}/360", timeout=30)
-            if r.status_code != 200:
-                bad(f"GET /suppliers/{{id}}/360 failed: {r.status_code}")
-                return False
-            
-            data = r.json()
-            
-            # Check required 360 fields
-            required = ["id", "name", "purchase_orders", "vendor_bills", "returns", "scorecard", 
-                       "po_count", "bill_count", "return_count"]
-            missing = [f for f in required if f not in data]
-            if missing:
-                bad(f"Supplier 360 missing fields: {missing}")
-                return False
-            
-            ok(f"GET /suppliers/{{id}}/360 returns complete 360 view (PO count={data.get('po_count')})")
-            return True
-        except Exception as e:
-            bad(f"GET /suppliers/{{id}}/360 exception: {e}")
-            return False
-    
-    # ========== PERMISSION TESTS ==========
-    
-    def test_warehouse_permissions(self):
-        """Test warehouse role permissions (can GET but not POST/PATCH/DELETE)"""
-        info("Test: Warehouse role permissions")
-        
-        # Login as warehouse
-        if not self.login("warehouse@kainnusantara.id", "demo12345"):
-            return False
-        
-        try:
-            # Should be able to GET
-            r = self.session.get(f"{API}/makloons", timeout=30)
-            if r.status_code != 200:
-                bad(f"Warehouse should be able to GET /makloons, got {r.status_code}")
-                return False
-            ok("Warehouse can GET /makloons")
-            
-            # Should NOT be able to POST
-            r = self.session.post(
-                f"{API}/makloons",
-                json={"name": "Test"},
-                timeout=30
-            )
-            if r.status_code != 403:
-                bad(f"Warehouse POST /makloons should return 403, got {r.status_code}")
-                return False
-            ok("Warehouse cannot POST /makloons (403)")
-            
-            # Should NOT be able to PATCH
-            if self.makloon_id:
-                r = self.session.patch(
-                    f"{API}/makloons/{self.makloon_id}",
-                    json={"data": {"city": "Test"}},
-                    timeout=30
-                )
-                if r.status_code != 403:
-                    bad(f"Warehouse PATCH /makloons should return 403, got {r.status_code}")
-                    return False
-                ok("Warehouse cannot PATCH /makloons (403)")
-            
-            # Should NOT be able to DELETE
-            if self.makloon_id:
-                r = self.session.delete(f"{API}/makloons/{self.makloon_id}", timeout=30)
-                if r.status_code != 403:
-                    bad(f"Warehouse DELETE /makloons should return 403, got {r.status_code}")
-                    return False
-                ok("Warehouse cannot DELETE /makloons (403)")
-            
-            return True
-        except Exception as e:
-            bad(f"Warehouse permissions exception: {e}")
-            return False
-        finally:
-            # Re-login as admin
-            self.login("admin@kainnusantara.id", "demo12345")
-    
-    def test_sales_permissions(self):
-        """Test sales role permissions (no makloon access)"""
-        info("Test: Sales role permissions")
-        
-        # Login as sales
-        if not self.login("sales@kainnusantara.id", "demo12345"):
-            return False
-        
-        try:
-            # Should NOT have access to makloons
-            r = self.session.get(f"{API}/makloons", timeout=30)
-            if r.status_code != 403:
-                bad(f"Sales GET /makloons should return 403, got {r.status_code}")
-                return False
-            ok("Sales has no access to /makloons (403)")
-            
-            return True
-        except Exception as e:
-            bad(f"Sales permissions exception: {e}")
-            return False
-        finally:
-            # Re-login as admin
-            self.login("admin@kainnusantara.id", "demo12345")
-    
-    # ========== UNAUTHENTICATED TESTS ==========
-    
-    def test_unauthenticated_access(self):
-        """Test unauthenticated access returns 401/403"""
-        info("Test: Unauthenticated access")
-        
-        # Save current token
-        saved_token = self.session.headers.get("Authorization")
-        
-        try:
-            # Remove auth header
-            self.session.headers.pop("Authorization", None)
-            
-            r = self.session.get(f"{API}/makloons", timeout=30)
-            if r.status_code not in [401, 403]:
-                bad(f"Unauthenticated GET /makloons should return 401/403, got {r.status_code}")
-                return False
-            
-            ok(f"Unauthenticated access returns {r.status_code}")
-            return True
-        except Exception as e:
-            bad(f"Unauthenticated access exception: {e}")
-            return False
-        finally:
-            # Restore auth header
-            if saved_token:
-                self.session.headers["Authorization"] = saved_token
-    
-    # ========== MAIN TEST RUNNER ==========
-    
-    def run_all_tests(self):
-        """Run all tests in sequence"""
+        # Check TB still balanced
+        r4 = self.get("/gl/trial-balance", "finance@sipro.co.id")
+        final_tb = r4.json()["data"]
+        assert final_tb["balanced"] == True, f"TB NOT balanced after auto-posting: Dr={final_tb['total_debit']:,} Cr={final_tb['total_credit']:,}"
+        self.log(f"Trial balance still BALANCED after auto-posting: Rp {final_tb['total_debit']:,}")
+
+    def run_all(self):
+        """Run all tests"""
         print("\n" + "="*70)
-        print("  BACKEND API TEST — M1 Makloon/Subcon")
-        print("="*70)
+        print("Phase 13 EPIC 3.4 — General Ledger Backend Test Suite")
+        print("="*70 + "\n")
         
-        # Login and setup
-        if not self.login():
-            return False
+        # AUTH
+        self.test("AUTH: All roles login", self.test_auth_all_roles)
         
-        if not self.setup_references():
-            return False
+        # CoA
+        self.test("CoA: List 19 seeded accounts", self.test_coa_list_19_accounts)
+        self.test("CoA: Create new account", self.test_coa_create_new_account)
+        self.test("CoA: Duplicate code returns 400", self.test_coa_duplicate_code_400)
+        self.test("CoA: Invalid type returns 400", self.test_coa_invalid_type_400)
         
-        print("\n--- MAKLOON TESTS ---")
-        self.test_list_makloons()
-        self.test_list_makloons_with_filters()
-        self.test_create_makloon()
-        self.test_create_makloon_validation()
-        self.test_get_makloon_360()
-        self.test_update_makloon()
-        self.test_get_makloon_scorecard()
-        # Note: Delete test is last as it deactivates the makloon
+        # Journals
+        self.test("Journals: List seed entries", self.test_journals_list_seed)
+        self.test("Journals: Post balanced entry", self.test_journals_post_balanced)
+        self.test("Journals: Post unbalanced returns 400", self.test_journals_post_unbalanced_400)
+        self.test("Journals: Get by ID", self.test_journals_get_by_id)
         
-        print("\n--- PROCESS RECIPE TESTS ---")
-        self.test_list_recipes()
-        self.test_list_recipes_with_filters()
-        self.test_create_recipe()
-        self.test_create_recipe_validation()
-        self.test_update_recipe()
-        # Note: Delete test is last
+        # Ledger
+        self.test("Ledger: Get Bank account ledger", self.test_ledger_account_1_1200)
         
-        print("\n--- FORECAST TESTS ---")
-        self.test_forecast_basic()
-        self.test_forecast_with_formula()
-        self.test_forecast_invalid_formula()
-        self.test_forecast_out_of_range()
+        # Trial Balance
+        self.test("Trial Balance: Balanced", self.test_trial_balance_balanced)
         
-        print("\n--- SUPPLIER 360 TESTS ---")
-        self.test_supplier_360()
+        # Statements
+        self.test("Income Statement: Returns data", self.test_income_statement)
+        self.test("Balance Sheet: Balanced", self.test_balance_sheet_balanced)
         
-        print("\n--- PERMISSION TESTS ---")
-        self.test_warehouse_permissions()
-        self.test_sales_permissions()
-        self.test_unauthenticated_access()
+        # RBAC
+        self.test("RBAC: Sales denied (403)", self.test_rbac_sales_denied)
+        self.test("RBAC: PM denied (403)", self.test_rbac_pm_denied)
+        self.test("RBAC: Site denied (403)", self.test_rbac_site_denied)
+        self.test("RBAC: Owner allowed (200)", self.test_rbac_owner_allowed)
         
-        print("\n--- CLEANUP TESTS (DELETE) ---")
-        self.test_delete_recipe()
-        self.test_delete_makloon()
+        # Auto-posting integration
+        self.test("Auto-posting: Approve AP bill → new journal + TB balanced", self.test_auto_posting_integration)
         
-        return True
-
-
-def main():
-    tester = MakloonTester()
-    tester.run_all_tests()
-    
-    print("\n" + "="*70)
-    print(f"  HASIL: {len(PASS)} PASS | {len(FAIL)} FAIL")
-    print("="*70)
-    
-    if FAIL:
-        print("\n❌ FAILED TESTS:")
-        for f in FAIL:
-            print(f"   - {f}")
-        return 1
-    
-    print("\n✅ SEMUA TEST BACKEND LULUS")
-    return 0
-
+        # Summary
+        print("\n" + "="*70)
+        print(f"RESULTS: {self.tests_passed}/{self.tests_run} tests passed")
+        print("="*70 + "\n")
+        
+        if self.tests_passed == self.tests_run:
+            print("✅ ALL TESTS PASSED")
+            return 0
+        else:
+            print(f"❌ {self.tests_run - self.tests_passed} TESTS FAILED")
+            return 1
 
 if __name__ == "__main__":
-    sys.exit(main())
+    tester = GLTester()
+    sys.exit(tester.run_all())

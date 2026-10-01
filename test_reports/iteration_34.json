@@ -1,22 +1,23 @@
 {
-  "summary": "Iter34 retest — notification audience/relevance sinkron dengan Peran & Hak Akses. Backend 10/10 pytest LULUS pada /app/backend/tests/test_notifications_iter33.py. Fix cabang admin di services/notification_scope.py:relevance_filter (meloloskan segala recipient_role, hanya menyaring recipient_user null/''/exists:false/==admin.id) TERBUKTI benar: admin melihat A(manager,reorder), B(finance,ar-aging), C(all,fixed-assets), D(all,'') dan TIDAK melihat E (recipient_user=penag). Penagihan melihat B/C/D/E tidak A. Sales melihat hanya D. unread-count konsisten; /read visible→200 non-relevan→404; read-all→200. turn_alerts finance/warehouse/cr_staf_penagihan expected; turn_roles(sales_orders.shipped)={cr_staf_penagihan,finance}. Frontend smoke: admin @ ?view=entities-access&entity=ent_ksc → tab role → role-card-finance → drawer terbuka; [data-testid=role-editor-turn-alerts] tampil dengan teks 'Notifikasi giliran yang diterima peran ini (1) • Terbitkan faktur & tagih' → OK. Login penagihan@ → klik ikon lonceng → panel NotificationCenter terbuka menampilkan 'Tidak ada notifikasi. Sistem dalam kondisi baik.' tanpa error console/DOM.",
+  "summary": "ITER34 — Uji toggle approval manajer untuk kupon/promo/skema diskon pada tabel Pusat Konfigurasi › Harga & Promo, plus sinkronisasi Switch↔Select di dialog ubah aturan. Backend PUT /api/pricing/{coupons|promos}/{id} untuk approval_mode dan validasi nilai. Semua alur lulus. RBAC untuk sales: sales tidak bisa membuka Pusat Konfigurasi sama sekali (redirect ke /) — dicatat sesuai instruksi.",
   "backend_issues": {"critical": [], "minor": []},
   "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
   "test_report_links": [
-    "/app/backend/tests/test_notifications_iter33.py",
+    "/app/backend/tests/test_pricing_approval_toggle_iter34.py",
     "/app/test_reports/pytest/iter34.xml"
   ],
   "action_items": [],
   "critical_code_review_comments": [
-    "notification_scope.relevance_filter cabang admin sekarang benar: hanya menyaring recipient_user milik user lain, semua audiens lolos.",
-    "Fixture seed_notifs pytest module-scoped — pastikan tetap dijalankan tanpa xdist (-o addopts=''), sudah didokumentasikan dalam file uji."
+    "PricingRuleTable.toggleApproval mengirim body {approval_mode, requires_approval}; server mengabaikan requires_approval bila approval_mode diberikan (models_p69 memaksa konsistensi) — aman, tetapi frontend sebaiknya hanya kirim approval_mode untuk mengurangi duplikasi.",
+    "Toast pada toggle switch menggunakan '${r.code}: selalu perlu persetujuan manajer.' untuk ON dan 'ikut ambang organisasi.' untuk OFF — konsisten dengan permintaan.",
+    "Dialog memakai Switch (form-approval-toggle) sinkron dua-arah dengan Select (form-approval); memilih 'never' pada select menonaktifkan switch — verified."
   ],
   "updated_files": [],
-  "success_rate": {"backend": "100% (10/10)", "frontend": "100%"},
-  "test_credentials": "admin@kainnusantara.id / penagihan@kainnusantara.id / sales@kainnusantara.id (demo12345)",
-  "seed_data_creation": "5 notifikasi type='qa' + 1 type='qa_gl' disisipkan via pymongo pada fixture module-scope dan dibersihkan pada teardown; level accounting cr_staf_penagihan dikembalikan ke 'view' di finally block.",
+  "success_rate": {"backend": "100% (3/3)", "frontend": "100% (semua alur inti + persistensi setelah reload)"},
+  "test_credentials": "Sesuai /app/memory/test_credentials.md (Sipro#2026).",
+  "seed_data_creation": "Tidak ada. Kupon SIPRO2026 dan promo PROMO-LAUNCH dikembalikan ke approval_mode 'global' setelah uji. DISC-CASH juga dikembalikan ke 'global' setelah pengujian sub Skema diskon.",
   "retest_needed": false,
   "main_agent_can_self_test": true,
-  "context_for_next_testing_agent": "Iter33 selesai; regression suite di test_notifications_iter33.py tetap referensi untuk perubahan notification_scope / turn_notification_service berikutnya. Jalankan: export REACT_APP_BACKEND_URL=<url>; pytest tests/test_notifications_iter33.py -o addopts=''.",
-  "rca of the issue": "Bug iter33 sudah diperbaiki oleh main agent di services/notification_scope.py:relevance_filter — cabang admin kini mengembalikan `{'$or':[{'recipient_user':{'$in':[None,'',uid]}},{'recipient_user':{'$exists':False}}]}` tanpa membatasi recipient_role, sehingga admin melihat notifikasi ke peran apa pun namun tidak melihat notifikasi yang ditujukan langsung ke user lain. Verifikasi via test_admin_sees_ABCD_not_E PASS."
+  "context_for_next_testing_agent": "Toggle approval manajer bekerja pada 3 sub-tab (Skema diskon, Promo, Kupon). Test IDs yang dikonfirmasi: pricing-rule-approval-toggle-{CODE}, pricing-rule-approval-{CODE} (data-mode=global|always|never), pricing-rule-form-approval-toggle, pricing-rule-form-approval, pricing-rule-form-approval-opt-{global|always|never}. Backend: PUT /api/pricing/{slug}/{id} dengan approval_mode; nilai invalid → 422 (pydantic). Sales user tidak punya akses ke /config (redirect ke /), sehingga kondisi 'switch disabled untuk sales' tidak dapat diuji melalui UI.",
+  "rca of the issue": "N/A — tidak ada bug ditemukan."
 }

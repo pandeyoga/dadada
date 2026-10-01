@@ -1,419 +1,255 @@
-"""P1 — Performance indexes (idempotent, non-fatal).
+"""Index unik untuk natural key (temuan audit: 23 natural key tanpa proteksi DB).
 
-Membuat index untuk koleksi terpanas agar query umum menjadi IXSCAN
-(bukan COLLSCAN). Dipanggil saat startup via bootstrap.run_bootstrap().
+Sebelum ini duplikat hanya dicegah oleh pengecekan aplikasi (`find_one` lalu `insert`),
+yang bocor saat dua request datang bersamaan (race condition) atau saat data masuk lewat
+jalur lain. Index unik menutup celah tersebut di level MongoDB.
 
-Aman dijalankan berulang: setiap index diberi nama deterministik; bila
-sudah ada (atau field belum ada di data) proses tidak menggagalkan startup.
-Semua index dibuat non-unique (kecuali yang sudah ada di tempat lain, mis.
-products.sku) agar tidak bentrok dengan data seed/legacy.
+Dipisah dari seed.py karena seed.py sudah menyentuh batas ukuran file (gate compliance).
+Dijalankan idempoten di lifespan; index yang gagal (karena data duplikat lama) dilaporkan
+tanpa menggagalkan startup.
 """
-from __future__ import annotations
-
 import logging
-from typing import Dict, List, Tuple
 
-from pymongo import ASCENDING, DESCENDING
+from pymongo.errors import DuplicateKeyError, OperationFailure
 
 from db import db
 
-logger = logging.getLogger("indexes")
+logger = logging.getLogger("sipro.indexes")
 
-# Tipe: daftar spesifikasi index per koleksi. Setiap index = list (field, arah).
-IndexKeys = List[Tuple[str, int]]
-A = ASCENDING
-D = DESCENDING
+# (koleksi, keys, nama index)
+UNIQUE_INDEXES = [
+    ("orgs", [("id", 1)], "uq_orgs_id"),
+    ("projects", [("org_id", 1), ("code", 1)], "uq_projects_code"),
+    ("units", [("org_id", 1), ("project_id", 1), ("code", 1)], "uq_units_code"),
+    ("materials", [("org_id", 1), ("project_id", 1), ("code", 1)], "uq_materials_code"),
+    ("wa_templates", [("org_id", 1), ("code", 1)], "uq_wa_templates_code"),
+    ("document_templates", [("org_id", 1), ("code", 1)], "uq_doc_templates_code"),
+    ("channel_accounts", [("org_id", 1), ("code", 1)], "uq_channels_code"),
+    ("spk", [("org_id", 1), ("spk_number", 1)], "uq_spk_number"),
+    ("purchase_orders", [("org_id", 1), ("po_number", 1)], "uq_po_number"),
+    ("grns", [("org_id", 1), ("grn_number", 1)], "uq_grn_number"),
+    ("progress_claims", [("org_id", 1), ("claim_number", 1)], "uq_claim_number"),
+    ("change_orders", [("org_id", 1), ("co_number", 1)], "uq_co_number"),
+    ("inspections", [("org_id", 1), ("inspection_number", 1)], "uq_inspection_number"),
+    ("material_requisitions", [("org_id", 1), ("req_number", 1)], "uq_req_number"),
+    ("journal_entries", [("org_id", 1), ("entry_no", 1)], "uq_entry_no"),
+    ("documents", [("org_id", 1), ("doc_number", 1)], "uq_doc_number"),
+    ("leads", [("org_id", 1), ("phone", 1)], "uq_leads_phone"),
+    ("boq_items", [("org_id", 1), ("project_id", 1), ("cost_code", 1)], "uq_boq_cost_code"),
+    ("construction_phases", [("org_id", 1), ("project_id", 1), ("name", 1)], "uq_phase_name"),
+    ("commission_schemes", [("org_id", 1), ("name", 1)], "uq_comm_scheme_name"),
+    ("payment_schemes", [("org_id", 1), ("name", 1)], "uq_pay_scheme_name"),
+    ("faktur_pajak", [("org_id", 1), ("number", 1)], "uq_faktur_number"),
+    ("inspection_templates", [("org_id", 1), ("code", 1)], "uq_qc_template_code"),
+    ("subcontractors", [("org_id", 1), ("code", 1)], "uq_subcon_code"),
+    # ---------------- Fase 48: pengadaan & subkon lanjutan ----------------
+    # Satu kode vendor hanya boleh dipakai satu master (sebelumnya vendor cuma teks bebas).
+    ("vendors", [("org_id", 1), ("code", 1)], "uq_vendor_code"),
+    # Satu harga per (vendor, barang, satuan, berlaku sejak): pengiriman ulang = KOREKSI.
+    ("vendor_prices", [("org_id", 1), ("vendor_id", 1), ("item_key", 1), ("valid_from", 1)],
+     "uq_vendor_price"),
+    ("grn_returns", [("org_id", 1), ("return_number", 1)], "uq_grn_return_number"),
+    ("material_transfers", [("org_id", 1), ("transfer_number", 1)], "uq_material_transfer_number"),
+    ("subcon_advances", [("org_id", 1), ("advance_number", 1)], "uq_subcon_advance_number"),
+    # Satu tagihan termin hanya melahirkan SATU baris retensi (anti retensi kembar).
+    ("subcon_retentions", [("org_id", 1), ("ap_bill_id", 1)], "uq_subcon_retention_bill"),
+    ("vendor_assessments",
+     [("org_id", 1), ("target_type", 1), ("target_id", 1), ("period", 1), ("assessor", 1)],
+     "uq_vendor_assessment"),
+    ("customers", [("org_id", 1), ("nik", 1)], "uq_customers_nik"),
+    ("portal_users", [("org_id", 1), ("phone", 1)], "uq_portal_phone"),
+    # ---------------- Fase 27 ----------------
+    ("cash_advances", [("org_id", 1), ("no", 1)], "uq_cashbon_no"),
+    ("fixed_assets", [("org_id", 1), ("code", 1)], "uq_asset_code"),
+    # Kunci idempotensi penyusutan di level DB: satu aset hanya boleh punya SATU
+    # entri penyusutan per periode (mencegah jurnal dobel bila tombol diklik dua kali).
+    ("asset_depreciations", [("org_id", 1), ("asset_id", 1), ("period", 1)], "uq_asset_depr"),
+    ("loans", [("org_id", 1), ("no", 1)], "uq_loan_no"),
+    ("agents", [("org_id", 1), ("name", 1)], "uq_agent_name"),
+    ("marketing_fees", [("org_id", 1), ("no", 1)], "uq_marketing_fee_no"),
+    # ---------------- Fase 31: jadwal pembangunan per unit ----------------
+    ("build_templates", [("org_id", 1), ("code", 1)], "uq_build_template_code"),
+    # Template tahapan fase proyek & konfigurasi tahapan survey: satu per kode / per org.
+    ("phase_templates", [("org_id", 1), ("code", 1)], "uq_phase_template_code"),
+    ("survey_stage_configs", [("org_id", 1)], "uq_survey_stage_config_org"),
+    # Satu unit hanya boleh punya SATU jadwal aktif (mencegah progres ganda).
+    ("build_schedules", [("org_id", 1), ("unit_id", 1)], "uq_build_schedule_unit"),
+    ("build_items", [("org_id", 1), ("schedule_id", 1), ("step_code", 1)], "uq_build_item_step"),
+    # ---------------- Fase 47: uang masuk & upah harian ----------------
+    # Satu rekening hanya sekali terdaftar (nomor rekening = kunci alami).
+    ("bank_accounts", [("org_id", 1), ("account_no", 1)], "uq_bank_account_no"),
+    # Kunci alami mutasi: impor ulang berkas yang sama TIDAK boleh melahirkan mutasi kembar
+    # (mutasi kembar = pelunasan kembar = laporan kas yang salah).
+    ("bank_transactions", [("org_id", 1), ("fingerprint", 1)], "uq_bank_txn_fingerprint"),
+    # Satu orang hanya boleh punya SATU catatan absensi per proyek per hari; absensi ganda
+    # langsung menjadi upah ganda, jadi dijaga di level database.
+    ("labor_attendance", [("org_id", 1), ("project_id", 1), ("work_date", 1),
+                          ("worker_id", 1)], "uq_labor_attendance"),
+    ("workers", [("org_id", 1), ("name", 1)], "uq_worker_name"),
+    ("labor_payrolls", [("org_id", 1), ("no", 1)], "uq_labor_payroll_no"),
+    ("quotations", [("org_id", 1), ("no", 1), ("version", 1)], "uq_quotation_version"),
+    # Fase 53 — SATU kontrak per deal. Dijaga DATABASE, bukan hanya pemeriksaan aplikasi:
+    # dua permintaan "Jadikan Pembeli" yang datang hampir bersamaan (klik ganda / dua tab)
+    # bisa lolos pemeriksaan idempoten di kode, dan pembeli dengan dua kontrak berarti dua
+    # rencana bayar untuk satu rumah.
+    ("contracts", [("org_id", 1), ("deal_id", 1)], "uq_contract_deal"),
+    # ---------------- Fase 39: hierarki proyek + master baru ----------------
+    ("clusters", [("org_id", 1), ("project_id", 1), ("code", 1)], "uq_cluster_code"),
+    ("blocks", [("org_id", 1), ("cluster_id", 1), ("code", 1)], "uq_block_code"),
+    ("unit_types", [("org_id", 1), ("code", 1)], "uq_unit_type_code"),
+    ("addon_items", [("org_id", 1), ("code", 1)], "uq_addon_code"),
+    ("price_components", [("org_id", 1), ("code", 1)], "uq_price_component_code"),
+    ("doc_requirements", [("org_id", 1), ("code", 1)], "uq_doc_requirement_code"),
+    # Satu setting = satu nilai per scope (org/project/cluster).
+    ("settings", [("org_id", 1), ("scope", 1), ("scope_id", 1), ("key", 1)], "uq_setting_scope"),
+    # Satu berkas hanya boleh diserahkan sekali untuk syarat & entitas yang sama.
+    ("doc_submissions", [("org_id", 1), ("entity_type", 1), ("entity_id", 1),
+                         ("requirement_code", 1), ("file_id", 1)], "uq_doc_submission"),
+    # ---------------- Fase 43: kampanye, biaya iklan, CAPI ----------------
+    # Nama kampanye per platform unik supaya baris CSV bisa dicocokkan tanpa ambigu.
+    ("campaigns", [("org_id", 1), ("platform", 1), ("name", 1)], "uq_campaign_name"),
+    ("campaigns", [("org_id", 1), ("code", 1)], "uq_campaign_code"),
+    # KUNCI IDEMPOTENSI BIAYA IKLAN. Laporan platform sering diunduh dengan rentang
+    # tanggal bertumpuk; tanpa index ini impor kedua akan MELIPATGANDAKAN biaya dan
+    # semua metrik (CPL/CAC/ROAS) menjadi salah tanpa ada yang sadar.
+    ("ad_spend", [("org_id", 1), ("platform", 1), ("campaign_id", 1), ("adset_id", 1),
+                  ("ad_id", 1), ("date", 1)], "uq_ad_spend_natural"),
+    # Satu peristiwa konversi = satu event_id (platform juga men-dedup dengan field ini).
+    ("conversion_events", [("org_id", 1), ("event_id", 1)], "uq_conversion_event_id"),
+    # ---------------- Fase 44: snapshot metrik BI ----------------
+    # Satu metrik = satu baris per periode. Tanpa index ini, job harian yang berjalan dua kali
+    # (atau tombol "hitung ulang") akan menumpuk baris snapshot dan grafik tren menampilkan
+    # titik ganda untuk hari yang sama.
+    ("metric_snapshots", [("org_id", 1), ("code", 1), ("period_key", 1)], "uq_metric_snapshot"),
+    # ---------------- Fase 45: target & master anggaran ----------------
+    # Satu kode anggaran hanya boleh muncul SEKALI per proyek. Tanpa index ini, dua orang yang
+    # menambah item "OPS-GAJI" bersamaan akan membuat anggaran yang sama terhitung dua kali di
+    # laporan overbudget (pengecekan aplikasi saja bocor saat request datang serentak).
+    ("budget_items", [("org_id", 1), ("project_id", 1), ("code", 1)], "uq_budget_item_code"),
+    # Satu nama target per proyek+cakupan: mencegah "Target 2026" kembar yang membuat dua
+    # rencana resmi berbeda untuk proyek yang sama.
+    ("project_targets", [("org_id", 1), ("project_id", 1), ("name", 1)], "uq_project_target_name"),
+    # ---------------- Fase 50: serah terima, garansi & antrean perangkat ----------------
+    # Satu nomor BAST hanya boleh dipakai satu dokumen (nomor dokumen resmi).
+    ("unit_handovers", [("org_id", 1), ("number", 1)], "uq_handover_number"),
+    ("warranty_claims", [("org_id", 1), ("number", 1)], "uq_warranty_claim_number"),
+    # Kunci idempotensi antrean perangkat: satu `client_ref` per jenis kiriman hanya boleh
+    # menghasilkan SATU dokumen. Tanpa index ini, dua tab yang mengirim bersamaan sama-sama
+    # lolos pemeriksaan aplikasi dan absensi ganda menjadi upah ganda.
+    ("offline_intake", [("org_id", 1), ("kind", 1), ("client_ref", 1)], "uq_offline_intake_ref"),
+    # Fase 51B: satu pengingat per (jenis + sasaran + periode). Dedup HARUS dijaga database,
+    # bukan hanya oleh pemeriksaan aplikasi: scheduler harian, tombol "Jalankan sekarang",
+    # dan percobaan ulang bisa berjalan bersamaan — dan pembeli yang menerima tiga pesan
+    # identik akan berhenti mempercayai pengingatnya.
+    ("wa_reminders", [("org_id", 1), ("dedup_key", 1)], "uq_wa_reminder_dedup"),
+    # Fase 65: preferensi notifikasi hanya boleh SATU baris per pemakai. Tanpa index ini,
+    # dua tab yang menyimpan bersamaan bisa membuat dua dokumen dan pembacaan berikutnya
+    # memungut yang mana saja — pemakai akan melihat sakelarnya "kembali sendiri".
+    ("notification_prefs", [("org_id", 1), ("user_email", 1)], "uq_notif_prefs_user"),
+    # Master Produk KPR: satu nama produk per bank per org (pemeriksaan 409 di router
+    # tidak cukup untuk dua permintaan simpan yang bersamaan).
+    ("kpr_products", [("org_id", 1), ("bank_name", 1), ("name", 1)], "uq_kpr_product_bank_name"),
+]
 
-INDEX_SPECS: Dict[str, List[IndexKeys]] = {
-    # ── Inventory (paling panas) ──────────────────────────────────────────
-    "inventory_rolls": [
-        [("product_id", A), ("warehouse_id", A), ("owner_entity_id", A), ("status", A)],
-        [("status", A), ("length_remaining", A)],
-        [("warehouse_id", A), ("status", A)],
-        [("owner_entity_id", A), ("status", A)],
-        [("product_id", A), ("status", A)],
-        [("reserved_ref", A)],
-        [("earmarked_for", A)],
-        [("rfid_tag_id", A)],
-        [("roll_no", A)],
-        [("dye_lot", A)],
-        [("lot_id", A)],
-        [("created_at", D)],
-        [("line_code", A), ("status", A)],   # FASE L — penyaring lini di Daftar Roll
-    ],
-    # ── Fase C — Lot kelas satu (D-10/D-26) ───────────────────────────────
-    "inventory_lots": [
-        [("lot_number", A)],
-        [("owner_entity_id", A), ("created_at", D)],
-        [("product_id", A), ("owner_entity_id", A)],
-        [("source_ref.id", A), ("product_id", A)],
-        [("legacy_lot_codes", A)],
-        [("dye_lot", A)],
-        [("supplier_lot", A)],
-        [("lot_status", A)],
-        [("parent_lot_ids", A)],
-        [("child_lot_ids", A)],
-    ],
-    # ── Fase D/E — Kontrak mitra & supplier (D-05/D-07/D-09) ──────────────
-    "supplier_contracts": [
-        [("contract_number", A)],
-        [("entity_id", A), ("created_at", D)],
-        [("contract_type", A), ("partner_id", A), ("status", A)],
-        [("partner_id", A), ("process_type", A), ("product_id", A)],
-        [("status", A), ("valid_to", A)],
-    ],
-    # ── Fase E — Barang Supplier (katalog versi supplier · E-01/E-02/E-03) ─
-    "supplier_items": [
-        [("supplier_id", A), ("supplier_sku", A)],
-        [("entity_id", A), ("created_at", D)],
-        [("supplier_id", A), ("product_id", A), ("status", A)],
-        [("product_id", A)],
-        [("supplier_sku", A)],
-        [("barcode", A)],
-    ],
-    "inventory_movements": [
-        [("product_id", A), ("warehouse_id", A), ("timestamp", D)],
-        [("owner_entity_id", A), ("timestamp", D)],
-        [("roll_id", A)],
-        [("lot_id", A)],
-        [("movement_type", A), ("timestamp", D)],
-        [("timestamp", D)],
-    ],
-    "inventory_balances": [
-        [("product_id", A), ("warehouse_id", A), ("owner_entity_id", A)],
-        [("warehouse_id", A)],
-        [("owner_entity_id", A)],
-    ],
-    # ── Sales & Purchase Orders ───────────────────────────────────────────
-    "sales_orders": [
-        [("entity_id", A), ("status", A), ("created_at", D)],
-        [("customer_id", A), ("created_at", D)],
-        [("status", A), ("created_at", D)],
-        [("number", A)],
-        [("stage", A)],
-        [("payment_status", A)],
-        [("created_at", D)],
-        # FASE L — penyaring lini di daftar & papan. `line_codes` adalah array
-        # turunan dari baris; index multikey dipakai chip `?line=` supaya
-        # penyaringan tidak COLLSCAN pada daftar terpanas.
-        [("line_codes", A)],
-    ],
-    "purchase_orders": [
-        [("entity_id", A), ("status", A), ("created_at", D)],
-        [("supplier_id", A), ("created_at", D)],
-        [("status", A), ("created_at", D)],
-        [("warehouse_id", A), ("status", A)],
-        [("line_codes", A)],   # FASE L
-        [("po_number", A)],
-        [("payment_status", A)],
-        [("created_at", D)],
-    ],
-    "wms_tasks": [
-        [("flow_type", A), ("status", A)],
-        [("entity_id", A), ("status", A)],
-        [("warehouse_id", A), ("status", A)],
-        [("po_id", A)],
-        [("product_id", A)],
-        [("source_type", A), ("status", A)],
-        [("created_at", D)],
-    ],
-    # ── Finance / GL ──────────────────────────────────────────────────────
-    "journal_entries": [
-        [("entity_id", A), ("date", D)],
-        [("source_type", A), ("source_id", A)],
-        [("status", A), ("date", D)],
-        [("number", A)],
-        [("date", D)],
-    ],
-    "gl_accounts": [
-        [("entity_id", A), ("code", A)],
-        [("type", A), ("is_active", A)],
-        [("parent_code", A)],
-    ],
-    "gl_postings": [
-        [("entity_id", A), ("account_code", A), ("date", D)],
-        [("source_type", A), ("source_id", A)],
-        [("date", D)],
-    ],
-    "vendor_bills": [
-        [("entity_id", A), ("status", A), ("created_at", D)],
-        [("supplier_id", A)],
-        [("po_id", A)],
-        [("makloon_order_id", A)],
-        [("bill_number", A)],
-        [("bill_date", D)],
-    ],
-    "ar_receipts": [
-        [("entity_id", A), ("status", A), ("created_at", D)],
-        [("customer_id", A)],
-        [("number", A)],
-        [("receipt_date", D)],
-    ],
-    "tax_invoices": [
-        [("entity_id", A), ("status", A)],
-        [("customer_id", A)],
-        [("order_id", A)],
-        [("number", A)],
-        [("faktur_date", D)],
-    ],
-    # ── Master data ───────────────────────────────────────────────────────
-    "customers": [
-        [("entity_id", A), ("status", A)],
-        [("assigned_sales_id", A)],
-        [("customer_group_id", A)],
-        [("code", A)],
-        [("segment", A)],
-    ],
-    "suppliers": [
-        [("entity_id", A), ("status", A)],
-        [("code", A)],
-        [("goods_type", A)],
-    ],
-    "products": [
-        [("status", A)],
-        [("category", A)],
-        [("template_id", A)],
-        [("stage", A)],
-        [("supplier", A)],
-        # FASE L — pagar & penyaring lini dipakai di SETIAP daftar produk
-        # (katalog, POS, Master Produk), jadi ini index terpanas fase ini.
-        [("line_code", A), ("status", A)],
-    ],
-    # ── FASE L — master lini produk (berlapis global → badan usaha) ────────
-    # `(entity_id, code)` melayani `resolve_list_scope_inherit` + keunikan kunci
-    # per lapisan; `(sort, code)` melayani urutan tampilan master & dropdown.
-    "product_lines": [
-        [("entity_id", A), ("code", A)],
-        [("sort", A), ("code", A)],
-        [("active", A)],
-    ],
-    # ── FASE T — master tahapan proses (berlapis global → badan usaha) ────
-    # `(entity_id, code)` melayani `resolve_list_scope_inherit` + keunikan kunci per
-    # lapisan; `(seq, code)` melayani urutan papan & dropdown langkah SPK;
-    # `(process_type)` melayani gate INV-DOMAIN-06 (mencari tahap per jenis proses).
-    "process_stages": [
-        [("entity_id", A), ("code", A)],
-        [("seq", A), ("code", A)],
-        [("active", A)],
-        [("process_type", A)],
-        [("kind", A)],
-    ],
-    # ── FASE S — master jenis sampling (berlapis global → badan usaha) ────
-    # `(entity_id, code)` melayani `resolve_list_scope_inherit` + keunikan kunci per
-    # lapisan; `(seq, code)` melayani urutan form & pemilih jenis; `(requires_design)`
-    # melayani gate INV-SAMPLE-01 (mencari jenis yang menuntut kode desain).
-    "sample_types": [
-        [("entity_id", A), ("code", A)],
-        [("seq", A), ("code", A)],
-        [("active", A)],
-        [("requires_design", A)],
-    ],
-    # ── Returns / Requisitions / Transfers / Cycle Count ──────────────────
-    "purchase_returns": [
-        [("entity_id", A), ("status", A), ("created_at", D)],
-        [("supplier_id", A)],
-        [("po_id", A)],
-        [("number", A)],
-    ],
-    "sales_returns": [
-        [("entity_id", A), ("status", A), ("created_at", D)],
-        [("customer_id", A)],
-        [("order_id", A)],
-        [("number", A)],
-    ],
-    "purchase_requisitions": [
-        [("entity_id", A), ("status", A), ("created_at", D)],
-        [("approval_status", A)],
-        [("po_id", A)],
-        [("number", A)],
-        [("line_codes", A)],   # FASE L
-    ],
-    "special_orders": [
-        [("entity_id", A), ("status", A), ("created_at", D)],
-        [("customer_id", A)],
-        [("number", A)],
-    ],
-    "warehouse_transfers": [
-        [("entity_id", A), ("status", A), ("created_at", D)],
-        [("source_warehouse_id", A)],
-        [("dest_warehouse_id", A)],
-        [("code", A)],
-    ],
-    "cycle_count_sessions": [
-        [("entity_id", A), ("status", A)],
-        [("warehouse_id", A)],
-        [("number", A)],
-    ],
-    "makloon_orders": [
-        [("entity_id", A), ("status", A)],
-        [("po_id", A)],
-        [("mko_number", A)],
-    ],
-    # ── Audit & Notifications ─────────────────────────────────────────────
-    "audit_logs": [
-        [("entity_id", A), ("timestamp", D)],
-        [("resource", A), ("resource_id", A)],
-        [("user_id", A)],
-        [("timestamp", D)],
-    ],
-    "notifications": [
-        [("recipient_user", A), ("read", A)],
-        [("recipient_role", A), ("read", A)],
-        [("entity_id", A), ("created_at", D)],
-        [("created_at", D)],
-        [("dedupe_key", A)],          # R6.5 — dedupe notifikasi per (type, ref, hari)
-        [("type", A), ("ref", A), ("read", A)],
-    ],
-    # ── R6.5 Scheduler & Outbox WhatsApp ──────────────────────────────────
-    "sys_scheduler_runs": [
-        [("job_id", A), ("started_at", D)],
-        [("started_at", D)],
-        [("status", A), ("started_at", D)],
-    ],
-    "sys_wa_outbox": [
-        [("dedupe_key", A)],
-        [("status", A), ("created_at", D)],
-        [("created_at", D)],
-        [("notification_id", A)],
-    ],
-    # FASE F — R&D: spesifikasi & permintaan sample (labdip/proofing)
-    "md_specs": [
-        [("entity_id", A), ("created_at", D)],
-        [("status", A), ("created_at", D)],
-        [("number", A)],
-        [("product_id", A)],
-    ],
-    "md_samples": [
-        [("entity_id", A), ("created_at", D)],
-        [("status", A), ("created_at", D)],
-        [("spec_id", A)],
-        [("number", A)],
-        # FASE S — `sample_types` adalah ARRAY (satu permintaan boleh menempuh
-        # labdip + handfeel). Index multikey ini melayani penyaring jenis di layar
-        # Permintaan Sample; index lama `sample_type` dibuang bersama fieldnya
-        # supaya tidak ada index yang menunjuk field yang tak pernah ada lagi.
-        [("sample_types", A), ("status", A)],
-        # FASE S — tautan pesanan (user story S.F-2: dari layar pesanan bisa
-        # melihat sample-nya) + penanda pelaksanaan.
-        [("so_id", A)],
-        [("delivered_at", D)],
-    ],
-    # ── FASE D — Permintaan Desain (papan kanban + rapor desainer) ─────────
-    "design_requests": [
-        [("entity_id", A), ("status", A)],
-        [("entity_id", A), ("created_at", D)],
-        [("assigned_to", A), ("status", A)],
-        [("so_id", A)],
-        [("number", A)],
-        [("line_code", A), ("status", A)],
-        [("due_date", A), ("status", A)],
-    ],
-    # ── FASE I — Inspeksi & QC sebagai dokumen (SPK + hasil warna/handfeel) ─
-    "inspections": [
-        [("entity_id", A), ("status", A)],
-        [("entity_id", A), ("created_at", D)],
-        [("kind", A), ("ref_doc_id", A)],
-        [("task_id", A)],
-        [("assigned_to", A), ("status", A)],
-        [("line_code", A), ("status", A)],
-        [("number", A)],
-        [("lines.roll_id", A)],
-    ],
-    # ── FASE I — master alasan keluhan retur (berlapis global→badan usaha) ───
-    "complaint_reasons": [
-        [("entity_id", A), ("code", A)],
-        [("entity_id", A), ("seq", A)],
-        [("active", A)],
-    ],
+# Natural key yang boleh kosong (partial index: hanya baris yang punya nilai dijaga).
+PARTIAL = {
+    "uq_boq_cost_code": "cost_code",
+    # Fase 43: baris `conversion_events` warisan (sebelum ada `event_id`) tidak punya field
+    # itu; index unik biasa akan menolak baris kedua yang `event_id`-nya null. Partial index
+    # menjaga keunikan HANYA untuk event yang benar-benar punya ID dedup.
+    "uq_conversion_event_id": "event_id",
+    "uq_doc_number": "doc_number",
+    "uq_leads_phone": "phone",
+    "uq_faktur_number": "number",
+    "uq_spk_number": "spk_number",
+    "uq_po_number": "po_number",
+    "uq_grn_number": "grn_number",
+    "uq_claim_number": "claim_number",
+    "uq_co_number": "co_number",
+    "uq_inspection_number": "inspection_number",
+    "uq_req_number": "req_number",
+    "uq_entry_no": "entry_no",
+    "uq_customers_nik": "nik",
+    "uq_portal_phone": "phone",
+    "uq_cashbon_no": "no",
+    "uq_asset_code": "code",
+    "uq_loan_no": "no",
+    "uq_marketing_fee_no": "no",
+    "uq_handover_number": "number",
+    "uq_warranty_claim_number": "number",
 }
 
 
-# KN-A12 — kolom nomor dokumen yang WAJIB unik (koleksi, field).
-UNIQUE_DOC_NUMBER_FIELDS = [
-    ("sales_orders", "number"), ("sales_returns", "number"), ("credit_notes", "number"),
-    ("purchase_orders", "po_number"), ("purchase_returns", "number"),
-    ("purchase_returns", "debit_note_number"), ("purchase_requisitions", "number"),
-    ("vendor_bills", "bill_number"), ("landed_cost_vouchers", "voucher_number"),
-    ("rfqs", "rfq_number"), ("makloon_orders", "mko_number"), ("mfg_work_orders", "wo_number"),
-    ("ar_receipts", "number"), ("cash_transactions", "number"), ("journal_entries", "number"),
-    ("contra_bons", "number"), ("special_orders", "number"), ("tax_invoices", "number"),
-    ("store_credit_redemptions", "number"), ("hr_employees", "code"),
-    ("suppliers", "code"), ("makloons", "code"),
-]
+async def ensure_unique_indexes() -> dict:
+    """Buat semua index unik. Kembalikan {created: [...], conflicts: [...]}
 
-
-def _index_name(keys: IndexKeys) -> str:
-    """Nama index deterministik & pendek (< 128 char)."""
-    parts = []
-    for field, direction in keys:
-        suffix = "1" if direction == ASCENDING else "-1"
-        parts.append(f"{field}_{suffix}")
-    name = "kn_" + "__".join(parts)
-    return name[:120]
-
-
-async def ensure_performance_indexes() -> dict:
-    """Buat semua index performa. Non-fatal & idempotent.
-
-    Return ringkasan {created, existed, failed} untuk logging/verifikasi.
+    Fase 43 menambah satu penanganan yang sebelumnya hilang: bila index dengan NAMA SAMA
+    sudah ada tetapi OPSInya berbeda (mis. dulu unik biasa, sekarang harus partial karena
+    ada baris lama tanpa field kunci), MongoDB menolak dengan `IndexKeySpecsConflict` dan
+    dulu itu hanya dicatat sebagai "sudah terlindungi". Akibatnya index versi lama tetap
+    dipakai selamanya \u2014 perbaikan tidak pernah benar-benar berlaku pada database yang sudah
+    jalan. Sekarang index lama dibuang lalu dibuat ulang; bila pembuatan ulang gagal karena
+    DATA memang duplikat, itu dilaporkan sebagai conflict (bukan disembunyikan).
     """
-    created = existed = failed = 0
-    for collection, specs in INDEX_SPECS.items():
-        coll = db[collection]
-        # Ambil daftar index yang sudah ada agar hemat & log akurat.
+    created, already, conflicts = [], [], []
+    for coll, keys, name in UNIQUE_INDEXES:
+        kwargs = {"unique": True, "name": name}
+        field = PARTIAL.get(name)
+        if field:
+            kwargs["partialFilterExpression"] = {field: {"$type": "string"}}
         try:
-            existing = set((await coll.index_information()).keys())
-        except Exception:  # noqa: BLE001
-            existing = set()
-        for keys in specs:
-            name = _index_name(keys)
-            if name in existing:
-                existed += 1
-                continue
+            await db[coll].create_index(keys, **kwargs)
+            created.append(name)
+            continue
+        except (DuplicateKeyError, OperationFailure) as e:
+            msg = str(e)
+        if "already exists with a different name" in msg:
+            already.append(name)  # sudah terlindungi index unik lain (nama berbeda)
+            continue
+        if "same name as the requested index" in msg or "IndexKeySpecsConflict" in msg \
+                or "IndexOptionsConflict" in msg:
             try:
-                await coll.create_index(keys, name=name, background=True)
-                created += 1
-            except Exception as exc:  # noqa: BLE001 — index bentrok / field issue
-                failed += 1
-                logger.warning("[indexes] %s.%s gagal: %s", collection, name, exc)
-    summary = {"created": created, "existed": existed, "failed": failed}
-    # D-01 — kunci UNIK pada sequence nomor: dua proses tak bisa membuat counter kembar.
+                await db[coll].drop_index(name)
+                await db[coll].create_index(keys, **kwargs)
+                created.append(name)
+                logger.info("Index %s.%s dibuat ulang dengan opsi baru", coll, name)
+                continue
+            except (DuplicateKeyError, OperationFailure) as e2:
+                msg = str(e2)
+        conflicts.append({"index": name, "collection": coll, "error": msg[:200]})
+    if conflicts:
+        logger.warning("Index unik gagal dibuat (ada data duplikat lama): %s",
+                       [c["index"] for c in conflicts])
+    return {"created": created, "already_protected": already, "conflicts": conflicts}
+
+
+async def ensure_optional_unique(coll: str, keys: list, name: str, field: str) -> None:
+    """Index unik untuk kunci yang BOLEH kosong (mis. `client_ref` antrean offline).
+
+    Jebakan nyata yang ditutup di sini: pada index GABUNGAN, `sparse=True` hanya melewati
+    dokumen yang tidak punya SELURUH field terindeks. Karena `org_id` selalu ada, dokumen
+    tanpa `client_ref` tetap terindeks sebagai `null`, sehingga baris KEDUA tanpa penanda
+    langsung bentrok (E11000 → HTTP 500). Ini sempat membuat pengajuan hasil kerja dari
+    layar biasa (tanpa antrean) gagal pada percobaan kedua. Yang benar adalah PARTIAL
+    index: hanya baris yang benar-benar punya nilai string yang dijaga keunikannya.
+
+    Index lama dengan pola kunci sama tapi opsi berbeda dibuang lebih dulu, supaya
+    perbaikan ini juga berlaku pada database yang sudah jalan.
+    """
+    want = {field: {"$type": "string"}}
+    pattern = [k[0] for k in keys]
     try:
-        await db.number_sequences.create_index(
-            [("entity_id", ASCENDING), ("doc_type", ASCENDING)],
-            name="uq_entity_doctype", unique=True, background=True)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[indexes] number_sequences unique gagal: %s", exc)
-    # KN-A12 / KN-B09 (audit 2026-09-21) — INDEKS UNIK pada nomor dokumen & idempotensi GL.
-    # Dulu hanya satu unique=True di seluruh berkas: nomor kembar dan jurnal ganda tersimpan
-    # tanpa ditolak. `partialFilterExpression` menjaga baris lama tanpa field / kosong tetap
-    # sah; bila data lama sudah kembar, pembuatan indeks GAGAL BERISIK di log (startup tidak
-    # mati) — duplikatnya harus dibereskan dulu, lalu indeks lahir di restart berikutnya.
-    uq_summary = {"created": 0, "failed": []}
-    for coll_name, field in UNIQUE_DOC_NUMBER_FIELDS:
-        try:
-            await db[coll_name].create_index(
-                [(field, ASCENDING)], name=f"uq_{field}", unique=True, background=True,
-                partialFilterExpression={field: {"$type": "string", "$gt": ""}})
-            uq_summary["created"] += 1
-        except Exception as exc:  # noqa: BLE001
-            uq_summary["failed"].append(f"{coll_name}.{field}")
-            logger.error("[indexes] UNIK %s.%s GAGAL (kemungkinan nomor kembar di data lama): %s",
-                         coll_name, field, exc)
-    try:
-        # KN-B09 — satu jurnal aktif per (source_type, source_id): posting ganda ditolak DB.
-        await db.journal_entries.create_index(
-            [("source_type", ASCENDING), ("source_id", ASCENDING)],
-            name="uq_je_source_active", unique=True, background=True,
-            partialFilterExpression={"source_type": {"$type": "string", "$gt": ""},
-                                     "source_id": {"$type": "string", "$gt": ""},
-                                     "status": {"$in": ["posted", "draft"]}})
-    except Exception as exc:  # noqa: BLE001
-        uq_summary["failed"].append("journal_entries.source")
-        logger.error("[indexes] UNIK journal_entries(source_type,source_id) GAGAL: %s", exc)
-    summary["unique"] = uq_summary
-    logger.info(
-        "[indexes] performance indexes → created=%d existed=%d failed=%d",
-        created, existed, failed,
-    )
-    return summary
+        info = await db[coll].index_information()
+    except OperationFailure:
+        info = {}
+    for iname, spec in (info or {}).items():
+        if iname == "_id_":
+            continue
+        if [k[0] for k in spec.get("key", [])] == pattern \
+                and spec.get("partialFilterExpression") != want:
+            try:
+                await db[coll].drop_index(iname)
+                logger.info("Index %s.%s dibuat ulang sebagai partial index", coll, iname)
+            except OperationFailure as e:
+                logger.warning("Gagal membuang index lama %s.%s: %s", coll, iname, str(e)[:120])
+    await db[coll].create_index(keys, unique=True, name=name, partialFilterExpression=want)

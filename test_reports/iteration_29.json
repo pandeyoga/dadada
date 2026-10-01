@@ -1,26 +1,16 @@
 {
-  "summary": "Full backend+frontend regression of the new RND Samples (Labdip/Handfeel/Proofing) board+studio flow on ent_ksc. Backend pytest 5/5 pass (list w/ stats, sample-types meta, create labdip+handfeel, PATCH add proofing => 400 expected 'requires design', cancel). Frontend flows all pass: rnd-samples-view + KPIs (Total 34, Terkirim 4, Dikerjakan 1, Ada ACC 2, Pemenang 21, Overdue 5) match stats API; board 5 columns + counts + cards; type filter (proofing => 1 sample => 4 nested testids), status chips, list tab (34 rows), search, create modal 3 sections with type-gated save (disabled when no type chosen), auto-open detail after create (KSC/SMP-00035), tabs labdip/handfeel/proofing rendered, add-proofing button PATCHes and shows expected error notice 'Proofing WAJIB merujuk kode desain', send modal opens with types + supplier list + confirm (status -> 'Terkirim ke supplier', 1 round row created), cancel flow via confirm-modal + reason => status 'Dibatalkan' + stepper pill. MD role: sees view, create button, and send button on detail. Cleanup: cancelled all TEST_QA3 leftover samples.",
+  "summary": "Iter29 backend + UI verification for SPK→opname→AP→retention & AR→BAST GL flows. Ran official probe_ar_ap_gl.py and verify_business_invariants.py — both LULUS (exit 0). All requested invariants passed: SPK from RAB, opname gating, claim verify/approve with immediate GL entries (Dr 1-1600 / Cr 2-1100 / Cr 2-1200 balanced), partial→paid AP payment with over-pay rejection, retention request-release→release setting retention_released=true on origin bills and 2-1200 reduction, ap_outstanding & ap_pending_value split, aging pending_value/pending_count, AR reserve→book with addon_total, receipts with overpay→customer_deposits (2-1450), BAST revrec revenue == ar total (with add-ons), balanced revrec journal splitting COGS between 1-1600 WIP and 2-1700 accrual, non-negative WIP. Force-delete deal cascade removes revrec journals. COA includes 2-1700 & 2-1450. GL trial-balance & balance-sheet balanced=true. Finance dashboard AP card hint '= Utang Usaha 2-1100 · N menunggu approval' visible. Subcon & Buku Besar pages load and show journals. No fixes applied — everything green.",
   "backend_issues": {"critical": [], "minor": []},
-  "frontend_issues": {
-    "ui_bugs": [],
-    "integration_issues": [],
-    "design_issues": []
-  },
-  "test_report_links": [
-    "/app/backend/tests/test_rnd_samples_qa3.py",
-    "/app/test_reports/pytest/qa3_rnd_samples.xml"
-  ],
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/scripts/probe_ar_ap_gl.py", "/app/scripts/verify_business_invariants.py"],
   "action_items": [],
-  "critical_code_review_comments": [
-    "SampleSendModal exposes a single testid 'sample-send-supplier-list' rather than per-supplier 'sample-send-supplier-<id>' as the spec/testids doc mentions. Selection still works (auto-picked when 1 supplier), but per-item testids would improve test targeting when multiple suppliers exist.",
-    "Initial KPI render shows 0 for total/sent for ~200ms before stats API resolves; consider showing skeleton or dashes rather than 0 to avoid confusing snapshots (screenshot captured 0 momentarily during automation)."
-  ],
-  "updated_files": ["/app/backend/tests/test_rnd_samples_qa3.py"],
+  "critical_code_review_comments": [],
+  "updated_files": [],
   "success_rate": {"backend": "100%", "frontend": "100%"},
-  "test_credentials": "admin@kainnusantara.id/demo12345, md@kainnusantara.id/demo12345 (from /app/memory/test_credentials.md)",
-  "seed_data_creation": "Created and cancelled TEST_QA3 samples (KSC/SMP-00033..00035). All cancelled at end of testing; no residual live TEST_ samples remain.",
+  "test_credentials": "finance@/pm@/site@/sales@/owner@/superadmin@sipro.co.id, pw Sipro#2026",
+  "seed_data_creation": "None. probe_ar_ap_gl.py self-cleans its own TEST_ data.",
   "retest_needed": false,
   "main_agent_can_self_test": true,
-  "context_for_next_testing_agent": "RND sample board+studio flow verified end-to-end. Note SampleSendModal uses supplier-list testid (not per-supplier). Add-proofing on labdip+handfeel sample deliberately returns 400 (requires design) and error is surfaced via sample-detail-error notice. Round-level submit/assess/decide/finish paths not fully exercised (require complex master data); the round-row+upload+submit testids do render after send.",
-  "rca of the issue": "N/A — no bugs found. Both backend routes and rebuilt static frontend bundle are working as designed."
+  "context_for_next_testing_agent": "All Flow A (SPK/opname/AP/retention/payment), Flow B (AR/receipts/deposit/BAST), tie-out, and force-delete revrec journal cleanup pass. Backend endpoints of note: /api/finance/summary returns ap_pending_value; /api/finance/ap/aging returns pending_value & pending_count; /api/gl/accounts includes 2-1700 and 2-1450. UI hint text 'Utang Usaha 2-1100 · N menunggu approval' verified on /finance dashboard.",
+  "rca of the issue": "n/a — all fixes in this iteration already effective and validated by probe+invariants scripts."
 }

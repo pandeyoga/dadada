@@ -1,87 +1,76 @@
-# Deploy Kain Nusantara ERP ke VPS (Ubuntu 22.04 / 24.04 / 26.04)
+# Deploy SIPRO ke VPS (Ubuntu 22.04 / 24.04 / 26.04)
 
-Domain: **kainnusantara.cloud** · VPS: **187.77.116.148** · Repo: `github.com/pandeyoga/KNHOST`
+Arsitektur di VPS (Docker Compose, folder `deploy/`):
 
 ```
-Internet ──443──> edge HTTPS (otomatis dipilih deploy/edge.sh, sertifikat Let's Encrypt auto-renew)
-                    └── kn-web (nginx)  ── /*     → build React (SPA)
-                                        ── /api/* → kn-backend (FastAPI :8001)
-                  kn-mongo (MongoDB 7, volume kn_mongo_data, TIDAK dipublikasikan ke host)
-                  volume kn_uploads (berkas unggahan; storage disk lokal)
+Internet ──443──> Caddy (HTTPS Let's Encrypt otomatis + auto-renew)
+                    ├── /api/*  → backend  (FastAPI :8001)   ← webhook Meta: /api/webhooks/wa
+                    └── /*      → frontend (nginx, build React)
+                  MongoDB 7 (volume mongo_data)
 ```
 
-Tidak ada pustaka Emergent di produksi: `emergentintegrations`/`litellm` dibuang saat `pip install`
-(Dockerfile.backend) dan `@emergentbase/visual-edits` dibuang saat `yarn install` (Dockerfile.frontend).
-`backend/.env` & `frontend/.env` preview tidak ikut ke image; semua konfigurasi dari `deploy/.env`.
+Tidak ada nilai yang di-hardcode: domain, rahasia, dan kredensial WhatsApp semuanya dari
+`deploy/.env` (dibuat otomatis) dan dari UI Pusat Konfigurasi.
 
 ## 1. Syarat
 
 | Item | Nilai |
 |---|---|
-| VPS | Ubuntu LTS, ≥2 vCPU, ≥4 GB RAM (skrip menambah swap 4 GB bila RAM kurang), CPU dengan AVX (MongoDB 7) |
-| Akses | `ssh root@187.77.116.148` |
-| DNS | A record `kainnusantara.cloud` → `187.77.116.148` (opsional `www` juga), **tanpa proxy Cloudflare** (DNS only) |
-| Port | 22, 80, 443 terbuka (skrip mengatur ufw tanpa menghapus aturan yang ada) |
+| VPS | Ubuntu LTS, ≥2 vCPU, ≥4 GB RAM (build frontend butuh RAM), CPU dengan AVX (MongoDB 7) |
+| Akses | `ssh root@IP` |
+| DNS | A record subdomain → IP VPS, **tanpa proxy Cloudflare** (awan abu-abu / DNS only) |
+| Port | 22, 80, 443 terbuka (skrip mengatur ufw) |
 
-## 2. Pasang sekali jalan (dari komputer Anda)
+Contoh: `hl5.portalsipro.com` → A → `187.77.116.100`, TTL 3600.
 
-Pastikan kode terbaru sudah di-push ke GitHub, lalu:
+## 2. Pasang sekali jalan
+
+Pastikan kode terbaru sudah di-push ke GitHub (Emergent → *Save to GitHub*). Lalu dari komputer Anda:
 
 ```bash
-ssh root@187.77.116.148 'apt-get update -qq && apt-get install -y -qq git && \
-  { [ -d /opt/kainnusantara/.git ] || git clone https://github.com/pandeyoga/KNHOST.git /opt/kainnusantara; } && \
-  cd /opt/kainnusantara && \
-  DOMAIN=kainnusantara.cloud ACME_EMAIL=pk.yogaswastika@gmail.com bash deploy/install_vps.sh'
+ssh root@187.77.116.100 'apt-get update -qq && apt-get install -y -qq git && \
+  git clone https://github.com/pandeyoga/dadada.git /opt/sipro && cd /opt/sipro && \
+  DOMAIN=hl5.portalsipro.com ACME_EMAIL=email-anda@gmail.com bash deploy/install_vps.sh'
 ```
 
-Skrip: paket dasar (+swap) → Docker → firewall → cek DNS → `deploy/.env` (sandi admin acak) → build & up →
-tunggu backend sehat → ganti sandi admin → **edge HTTPS tanpa bentrok** → cron backup harian. Di akhir
-tercetak URL, login admin, dan mode edge.
-
-### Bagaimana "tidak bentrok" dengan proyek yang sudah ada?
-
-Semua container KN bernama `kn-*`, jaringan `kn`, volume `kn_*`; Mongo tidak membuka port host; `kn-web`
-hanya terbuka di `127.0.0.1:<port bebas ≥18080>`. Untuk port 80/443, `deploy/edge.sh` mendeteksi:
-
-| Yang memegang 80/443 | Tindakan | `EDGE_MODE` |
-|---|---|---|
-| kosong | Caddy milik KN (`kn-caddy`) — HTTPS otomatis | `caddy` |
-| container Caddy proyek lain (mis. SIPRO/`dadada`) | Container Caddy itu disambungkan ke jaringan `kn`, blok situs `kainnusantara.cloud → kn-web:80` ditambahkan ke Caddyfile-nya di antara marker, lalu `caddy reload`. Situs lama tidak disentuh. | `attach` |
-| nginx di host | vhost `/etc/nginx/sites-available/kainnusantara` + `certbot --nginx` (auto-renew `certbot.timer`) | `nginx` |
-| lainnya | berhenti dengan instruksi manual (reverse proxy ke `127.0.0.1:KN_WEB_PORT`) | — |
-
-> Mode `attach`: bila proyek lain menjalankan `update.sh`-nya (`git reset --hard`) sehingga Caddyfile-nya
-> kembali ke versi repo, jalankan lagi `bash /opt/kainnusantara/deploy/edge.sh` (idempoten, ±2 detik).
-> `deploy/update.sh` KN juga memanggilnya otomatis.
+Skrip melakukan: paket dasar → Docker → firewall → cek DNS → buat `.env` (JWT_SECRET & OTP acak)
+→ build & up → tunggu backend sehat → tunggu HTTPS → cron backup harian. Di akhir tercetak URL,
+login awal, dan langkah WhatsApp.
 
 ## 3. Setelah terpasang
 
-1. Buka `https://kainnusantara.cloud`, login `admin@kainnusantara.id` dengan sandi yang tercetak
-   (tersimpan di `deploy/.env` → `ADMIN_PASSWORD`).
-2. Akun demo bawaan bootstrap (`md@`, `manager@`, `sales@`, `finance@`, `warehouse@` … `/demo12345`)
-   → **ganti sandi atau nonaktifkan** lewat Admin → Pengguna.
-3. Data demo (`seed_realistic.py`) **tidak** dijalankan di produksi (`SEED_DEMO_ENABLED=false`); hanya
-   fondasi bootstrap (COA, satuan, konfigurasi, entitas).
+1. Buka `https://hl5.portalsipro.com`, login `superadmin@sipro.co.id / Sipro#2026` → **ganti sandi semua akun demo**.
+2. Pusat Konfigurasi → **Integrasi WhatsApp**: isi 5 kredensial Meta → Simpan → **Tes koneksi** → **Diagnosa**.
+3. **Uji handshake URL publik** → harus hijau (membuktikan Caddy/DNS benar).
+4. **Daftarkan nomor** (PIN 6 digit) → **Langganankan app**.
+5. Dashboard Meta → WhatsApp → Configuration → Webhook: Callback URL `https://hl5.portalsipro.com/api/webhooks/wa`
+   + verify token (tombol mata di panel) → *Verify and save* → subscribe field yang tertera.
+6. Kirim pesan uji → balas dari HP → checklist go-live hijau → Mode **Live**.
 
 ## 4. Operasional
 
 ```bash
-cd /opt/kainnusantara && bash deploy/update.sh              # tarik kode baru + rebuild + restart + edge
-cd /opt/kainnusantara/deploy && docker compose ps            # status
-cd /opt/kainnusantara/deploy && docker compose logs -f backend
-bash /opt/kainnusantara/deploy/backup.sh                     # backup manual (otomatis 02:30 WIB, 14 hari)
-bash /opt/kainnusantara/deploy/backup.sh restore deploy/backups/kainnusantara-YYYY-MM-DD_HHMM.archive.gz
+cd /opt/sipro && bash deploy/update.sh            # tarik kode baru + rebuild + restart
+cd /opt/sipro/deploy && docker compose ps         # status
+cd /opt/sipro/deploy && docker compose logs -f backend   # log
+bash /opt/sipro/deploy/backup.sh                  # backup manual (otomatis 02:00 WIB, 14 hari)
+bash /opt/sipro/deploy/backup.sh restore deploy/backups/sipro-YYYY-MM-DD_HHMM.archive.gz
 ```
 
-SSL: Caddy memperbarui sertifikat otomatis; mode nginx memakai `certbot.timer`. Email notifikasi
-Let's Encrypt: `pk.yogaswastika@gmail.com`.
+SSL: Caddy memperbarui sertifikat otomatis (±30 hari sebelum habis). Tidak ada cron certbot.
 
-## 5. Masalah umum
+## 5. Pindah domain / server
+
+- Ganti domain: ubah `DOMAIN=` di `deploy/.env` → `bash deploy/update.sh` → perbarui Callback URL di Meta.
+- Pindah server: salin `deploy/.env` (JWT_SECRET **harus sama** agar kredensial WA terenkripsi bisa dibuka)
+  dan arsip backup → `install_vps.sh` → `backup.sh restore`.
+
+## 6. Masalah umum
 
 | Gejala | Penyebab / solusi |
 |---|---|
-| HTTPS tidak aktif | DNS belum mengarah / masih di-proxy Cloudflare; ulangi `bash deploy/edge.sh` setelah DNS benar |
-| `kn-mongo` restart terus, log `AVX` | CPU tanpa AVX → ganti image `mongo:4.4` di `deploy/docker-compose.yml` |
-| Build frontend `Killed` | RAM kurang → skrip sudah menambah swap; bila masih, tambah RAM VPS |
-| Backend menolak start "CORS_ORIGINS wajib" | `CORS_ORIGINS` di `deploy/.env` kosong → jalankan ulang `install_vps.sh` |
-| `edge.sh` berhenti "dipegang container … bukan Caddy" | Tambahkan reverse proxy manual di proxy tersebut ke `http://127.0.0.1:$(grep KN_WEB_PORT deploy/.env)` |
+| HTTPS tidak aktif, `logs caddy` menyebut `acme` gagal | DNS belum mengarah / masih di-proxy Cloudflare; port 80 tertutup |
+| `mongo` restart terus, log `AVX` | CPU tanpa AVX → ganti image `mongo:4.4` di `docker-compose.yml` |
+| Build frontend `Killed` | RAM kurang → tambah swap 2 GB: `fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile` |
+| Login gagal setelah pindah server | JWT_SECRET berubah → pakai `.env` lama |
+| Uji handshake merah | Path `/api` tidak sampai backend → cek `docker compose ps`, `logs caddy` |

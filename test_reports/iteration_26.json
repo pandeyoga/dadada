@@ -1,41 +1,23 @@
 {
-  "summary": "REVISI KLIEN 17 Sep master data pelanggan — verifikasi backend + frontend. Backend: 8/8 pytest passed (test_iter26_customer_revision_klien_17sep.py) — admin tanpa assigned_sales_id → 400 'Pilih Sales penanggung jawab (PIC internal)…', admin pic_name kosong → 400 'Nama PIC toko…', admin phone kosong → 400, admin address '-' → 400 'Alamat toko wajib diisi.', admin address '' → 400 'Alamat toko wajib diisi.', admin lengkap + assigned_sales_id=user_sales_01 → 200 (assigned_sales_id=user_sales_01, terlihat di list), sales dgn assigned_sales_id palsu 'user_sales_99' → 200 tapi backend mengabaikan payload → assigned_sales_id = id akun sales login (user_sales_01), sales tanpa assigned_sales_id → 200 assigned=akun sendiri. Frontend (?view=customers-crm&entity=ent_ksc): SALES login → modal tampil 3 seksi (customer-section-store/pic/sales), kotak customer-assigned-sales-self berisi 'Otomatis: Ayu Permatasari (akun Anda)…', TIDAK ada select customer-assigned-sales; segment memuat hint 'Klasifikasi untuk laporan BI & analitik…'; validasi klien: nama saja → error 'Nama PIC toko…' muncul, isi PIC+phone kosongkan alamat → 'Alamat toko wajib diisi.'. ADMIN login → modal tampil select customer-assigned-sales (wajib), TIDAK ada customer-assigned-sales-self; submit tanpa sales → 'Pilih Sales penanggung jawab (PIC internal).'. Customer 360: seksi Profil memuat label 'PIC Toko (pihak pelanggan)'; seksi Tim Sales menulis 'Sales penanggung jawab tunggal: <nama>' (bukan 'PIC tunggal'). POS CreateCustomerModal diverifikasi lewat source: label 'PIC toko (pihak pelanggan)', 'Alamat toko', catatan new-customer-sales-note ('Sales penanggung jawab: <nama> (akun Anda)' untuk sales, teks berbeda untuk non-sales), tombol create-customer-button disabled sampai nama+PIC+phone+city+lokasi lengkap+alamat≥3 karakter terpenuhi. Tidak ada error konsol saat buka/tutup modal & detail.",
+  "summary": "Iteration 26: verified SP3K flow with KprTermsPicker + installment sim, Excel import (template + upload) for Master Produk KPR, docgen tokens (kpr_terms, kpr_terms_line, dp_line), and financing dialog installment. Backend: 10/10 pytest passed (template download, template roundtrip import, mixed-rows import with error reporting, non-xlsx rejection, sales 403, list, duplicate 409, SP3K stage persist, docgen tokens via in-process import). Frontend: SP3K dialog on demo contract — product auto-select 'KPR Subsidi FLPP', tenor 240, rate 5 readonly, installment @240 = Rp 1.649.889/bln (exact spec), @180 = Rp 1.976.984/bln (spec ≈1.977.030, ±46 rp rounding), submit → toast 'Tahap KPR diperbarui.', header 'Produk KPR Subsidi FLPP · bunga 5%/th · est. angsuran Rp 1.649.889/bln'. Master Data → Produk KPR: template download filename SIPRO_Template_Produk_KPR.xlsx, upload → report '1 baru · 0 diperbarui · 0 baris bermasalah' + toast '1 produk baru, 0 diperbarui.' and table refreshed with Mandiri row. Financing dialog for BTN plafon 300jt → installment Rp 1.979.867/bulan (exact spec). No defects found.",
   "backend_issues": {"critical": [], "minor": []},
   "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
-  "verified_scenarios": [
-    "POST /api/customers admin tanpa assigned_sales_id → 400 'Pilih Sales penanggung jawab (PIC internal)…'",
-    "POST /api/customers admin pic_name='' → 400 'Nama PIC toko (pihak pelanggan) wajib diisi.'",
-    "POST /api/customers admin phone='' → 400 'Nomor HP/WhatsApp PIC toko wajib diisi.'",
-    "POST /api/customers admin address='-' → 400 'Alamat toko wajib diisi.'",
-    "POST /api/customers admin address='' → 400 'Alamat toko wajib diisi.'",
-    "POST /api/customers admin lengkap + assigned_sales_id=user_sales_01 → 200, assigned_sales_id=user_sales_01, persist ke list",
-    "POST /api/customers sales + assigned_sales_id palsu 'user_sales_99' → 200, assigned_sales_id=akun sales (user_sales_01), server override sesuai kode create_customer()",
-    "POST /api/customers sales tanpa assigned_sales_id → 200, assigned_sales_id=akun sales sendiri",
-    "UI SALES customer-form-modal: 3 seksi (store/pic/sales), customer-assigned-sales-self visible='Otomatis: Ayu Permatasari (akun Anda)…', customer-assigned-sales SELECT tidak ada",
-    "UI SALES segment hint 'Klasifikasi untuk laporan BI & analitik…' terpasang",
-    "UI SALES validasi klien: submit hanya isi nama → 'Nama PIC toko (pihak pelanggan) wajib diisi.'",
-    "UI SALES validasi klien: isi PIC+phone kosong alamat → 'Alamat toko wajib diisi.'",
-    "UI ADMIN modal: customer-assigned-sales-self TIDAK ada, customer-assigned-sales (KNSelect wajib) ada",
-    "UI ADMIN submit nama+PIC+phone+alamat tanpa memilih sales → 'Pilih Sales penanggung jawab (PIC internal).'",
-    "Customer 360 profil menampilkan 'PIC Toko (pihak pelanggan)' dan Tim Sales menulis 'Sales penanggung jawab tunggal: <nama>'",
-    "POS CreateCustomerModal (source): label 'PIC toko (pihak pelanggan)' & 'Alamat toko'; new-customer-sales-note untuk sales berisi 'Sales penanggung jawab: <nama> (akun Anda)'; create-customer-button disabled sampai form.name+pic_name+phone+city+lokasi lengkap+address≥3 terpenuhi"
-  ],
   "test_report_links": [
-    "/app/backend/tests/test_iter26_customer_revision_klien_17sep.py",
+    "/app/backend/tests/test_kpr_iter26.py",
     "/app/test_reports/pytest/iter26_results.xml"
   ],
   "action_items": [],
   "critical_code_review_comments": [
-    "backend/routers/customers.py create_customer(): assigned_id = actor['id'] saat actor.role=='sales' — payload assigned_sales_id sepenuhnya diabaikan (aman terhadap spoofing) — sudah benar.",
-    "CustomerFormModal.jsx: pada mode EDIT, validasi 'Alamat toko wajib diisi' tidak berlaku (alamat hanya di address subdocument), konsisten dgn PATCH; namun pertimbangkan validasi alamat juga pada edit bila ingin konsistensi (bukan cakupan tugas ini).",
-    "Backend TIDAK mengekspos GET /api/customers/{id} (hanya /360) — test menggunakan verifikasi via list untuk konfirmasi persist."
+    "KprPanel: valid_until field uses DatePickerField which is a button (not text input) — for a11y/tests, adding an aria-label with the expected date format would help. Not a bug.",
+    "monthlyInstallment @180/5% differs by 46 rupiah from the expected value in the problem statement (1.976.984 vs 1.977.030). This is due to rounding (Math.round of annuity formula). Not a defect; documentation nit.",
+    "kpr_products_router.import_products: duplicate detection within a single file relies on lowercased (bank_name, name) tuple — good. Row numbers in error messages correctly refer to the 1-based sheet rows including header."
   ],
-  "updated_files": ["/app/backend/tests/test_iter26_customer_revision_klien_17sep.py"],
-  "success_rate": {"backend": "100% (8/8)", "frontend": "100%"},
-  "test_credentials": "admin@kainnusantara.id / demo12345, sales@kainnusantara.id / demo12345 (Ayu Permatasari, id=user_sales_01 verified via /api/auth/me)",
-  "seed_data_creation": "3 pelanggan TEST_ dibuat selama backend test; sudah dibersihkan lewat fixture cleanup (delete_many pada koleksi customers oleh id + regex ^TEST_).",
+  "updated_files": ["/app/backend/tests/test_kpr_iter26.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "superadmin@sipro.co.id / Sipro#2026 (super_admin); sales@sipro.co.id / Sipro#2026 (sales)",
+  "seed_data_creation": "Ran /app/scripts/seed_kpr_sp3k_demo.py once (fresh SP3K-gate contract: id 48c5ec2e-ff8f-4a06-ad04-a28dfaaaa034, customer b63337fc-28e1-4ad2-a8f8-87a5de11e5d2). Backend pytest advanced original demo (c3e19de7…) past SP3K. Some ephemeral test products under bank_name='Mandiri' (TEST names with unix timestamp) were archived by tests; one 'Mandiri UI Test 1789042870' from UI test remains (aktif) — cosmetic pollution.",
   "retest_needed": false,
-  "main_agent_can_self_test": true,
-  "context_for_next_testing_agent": "Test data pelanggan gunakan prefix TEST_ dan lokasi Kota Bandung: province_code='32', city_code='32.73', district_code='32.73.19', postal_code='40111'. GET /api/customers/{id} tidak ada — gunakan /360 atau list. Testid frontend: customer-form-modal, customer-section-{store,pic,sales}, customer-assigned-sales-self, customer-assigned-sales, customer-name/pic/phone/address, customer-form-submit. POS: create-customer-modal, new-customer-{name,pic,phone,address}-input, new-customer-sales-note, create-customer-button.",
-  "rca of the issue": "N/A — feature verification only, no bugs found."
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Original demo contract c3e19de7… now past SP3K (was advanced by test_sp3k_record_updates_application). The seed script re-run created 48c5ec2e-ff8f-4a06-ad04-a28dfaaaa034 which was used for UI SP3K test and is now also past SP3K. To retest, re-run `python3 /app/scripts/seed_kpr_sp3k_demo.py` to get a fresh contract. All features working end-to-end.",
+  "rca of the issue": "N/A — no defects."
 }

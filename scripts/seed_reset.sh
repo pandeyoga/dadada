@@ -1,65 +1,50 @@
 #!/usr/bin/env bash
-###############################################################################
-# seed_reset.sh — Kain Nusantara (KN3) seed + INTEGRITY GATE
-# ----------------------------------------------------------------------------
-# Reset DB ke data realistis YANG BERSIH, lalu jalankan gate integritas.
-# Pelajaran kunci CASE_STUDY_INTENT_DRIFT (torado60):
-#   Verifikasi WAJIB di DB clean-seed — DB dev yang kotor MENUTUPI drift.
-#   Maka blok [GATE] di bawah SELALU jalan setelah seed dan bisa GAGAL.
-###############################################################################
-set -uo pipefail
-CYAN='\033[96m'; GREEN='\033[92m'; RED='\033[91m'; YELLOW='\033[93m'; BOLD='\033[1m'; RESET='\033[0m'
-cd "$(dirname "$0")/.." || exit 1
+# Reset DB to a clean seeded state, then run gates. Usage: bash scripts/seed_reset.sh
+set -e
+cd "$(dirname "$0")/.."
 
-echo -e "${CYAN}${BOLD}"
-echo "=============================================================="
-echo "  KN3 SEED RESET + INTEGRITY GATE"
-echo "=============================================================="
-echo -e "${RESET}"
+echo "[seed_reset] Dropping application database..."
+python3 - <<'PY'
+import os
+from pymongo import MongoClient
+from dotenv import load_dotenv
+load_dotenv('/app/backend/.env')
+c = MongoClient(os.environ['MONGO_URL'])
+c.drop_database(os.environ['DB_NAME'])
+print('  dropped', os.environ['DB_NAME'])
+PY
 
-# 1) SEED (seed_realistic.py meng-clear koleksi operasional lalu mengisi ulang)
-echo -e "${CYAN}[1/3] Seeding realistic data...${RESET}"
-python seed_realistic.py
-SEED_RC=$?
-if [ $SEED_RC -ne 0 ]; then
-  echo -e "${RED}${BOLD}SEED GAGAL (rc=$SEED_RC) — batalkan.${RESET}"
-  exit $SEED_RC
-fi
+echo "[seed_reset] Restarting backend (re-seeds on startup)..."
+# Pastikan MongoDB menjawab dulu (drop database pernah membuat mongod SIGABRT & di-spawn ulang
+# supervisor; backend yang start di celah itu gagal startup dan reloader-nya diam selamanya).
+for i in $(seq 1 60); do
+  python3 -c "import os;from pymongo import MongoClient;from dotenv import load_dotenv;load_dotenv('/app/backend/.env');MongoClient(os.environ['MONGO_URL'],serverSelectionTimeoutMS=2000).admin.command('ping')" >/dev/null 2>&1 && break
+  sleep 1
+done
+sudo supervisorctl restart backend >/dev/null 2>&1 || true
+# Seed Fase 28b/31/33 mengunggah foto contoh & membangkitkan jadwal: butuh lebih dari
+# beberapa detik. Dulu skrip ini tidur 7s lalu langsung menjalankan gate, sehingga gate
+# runtime gagal HANYA karena backend belum siap (bukan karena kode salah).
+for i in $(seq 1 240); do
+  if curl -sf http://localhost:8001/api/health >/dev/null 2>&1; then
+    echo "  backend siap setelah ${i}s"
+    break
+  fi
+  # Startup gagal (mis. Mongo belum siap) tidak dipulihkan reloader: coba restart sekali lagi.
+  if [ "$i" -eq 90 ] && grep -q "Application startup failed" <(tail -n 5 /var/log/supervisor/backend.err.log); then
+    echo "  startup gagal, restart ulang backend"
+    sudo supervisorctl restart backend >/dev/null 2>&1 || true
+  fi
+  sleep 1
+done
+# Antrean peristiwa seed harus kosong sebelum gate membaca buku besar.
+for i in $(seq 1 60); do
+  p=$(curl -sf http://localhost:8001/api/health | python3 -c "import sys,json;print(json.load(sys.stdin).get('events_pending',0))" 2>/dev/null || echo 1)
+  [ "$p" = "0" ] && echo "  antrean peristiwa kosong" && break
+  sleep 2
+done
+sleep 3
 
-# 2) CONTRACT GATE (statik: nama koleksi seed/kode)
-echo -e "\n${CYAN}[2/5] [GATE] Contract verifier (nama koleksi)...${RESET}"
-python scripts/verify_contract.py --all
-CONTRACT_RC=$?
-
-# 3) FE↔BE CONTRACT GATE (duplicate route + FE call exist + field drift)
-echo -e "\n${CYAN}[3/5] [GATE] FE↔BE API contract...${RESET}"
-python scripts/verify_api_contract.py
-APIC_RC=$?
-
-# 4) DATA-INTEGRITY GATE (di DB yang BARU di-seed = bersih)
-echo -e "\n${CYAN}[4/5] [GATE] Data-integrity verifier (clean seed)...${RESET}"
-python scripts/verify_data_integrity.py
-INTEG_RC=$?
-
-# 5) F0-C ENTITY-SCOPING GATE (static scope usage + DB: setiap dok koleksi SCOPED ber-entity)
-echo -e "\n${CYAN}[5/5] [GATE] Entity-scoping verifier (F0-C)...${RESET}"
-python backend/scripts/verify_entity_scoping.py
-F0C_RC=$?
-
-echo -e "\n${CYAN}${BOLD}==============================================================${RESET}"
-if [ $CONTRACT_RC -eq 0 ] && [ $INTEG_RC -eq 0 ] && [ $APIC_RC -eq 0 ] && [ $F0C_RC -eq 0 ]; then
-  echo -e "  ${GREEN}${BOLD}✓ SEED + GATE LULUS — DB siap & invarian valid.${RESET}"
-  RC=0
-else
-  echo -e "  ${RED}${BOLD}✗ GATE GAGAL — contract=$CONTRACT_RC api_contract=$APIC_RC integrity=$INTEG_RC entity_scoping=$F0C_RC${RESET}"
-  echo -e "  ${YELLOW}Perbaiki drift/invarian SEBELUM melanjutkan development.${RESET}"
-  RC=1
-fi
-echo -e "${CYAN}${BOLD}==============================================================${RESET}\n"
-echo -e "Audit lanjutan (opsional):"
-echo -e "  ${CYAN}python scripts/health_check.py${RESET}            # sweep endpoint kritis"
-echo -e "  ${CYAN}python scripts/audit_endpoint_sweep.py${RESET}    # sweep SEMUA GET /api"
-echo -e "  ${CYAN}python scripts/ux_audit.py${RESET}                # baseline UX"
-echo -e "  ${CYAN}python scripts/audit_collection_drift.py${RESET}  # koleksi dibaca tapi kosong"
-echo ""
-exit $RC
+echo "[seed_reset] Running gates..."
+bash scripts/run_all_gates.sh
+echo "[seed_reset] DONE"

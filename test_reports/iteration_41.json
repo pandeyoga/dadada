@@ -1,45 +1,64 @@
 {
-  "summary": "Iteration 41 frontend-only verification of unified FormModal shells on 5 R&D modals + Supplier Color Variants modal. All target modals open with expected testids, correct disabled/label states, and close cleanly via `${testId}-close`. Supplier color variants badge & navigation to sample also verified. No overflow observed on 1920x900 or 390x844.",
-  "backend_issues": {"critical": [], "minor": []},
+  "summary": "Tested Iter 41 — build action-button RBAC bug fix, RAB granular per-section access (backend + frontend), and friendly per-role permission editor. 11/11 backend tests pass; frontend UI verified end-to-end. RAB sections reset to empty at end of run.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin/rab-sections", "issue": "When tests run under pytest-xdist parallel workers, PUT rab-sections in one worker (reset) can race with in-flight GETs in another worker (restriction test), producing intermittent 200 where 403 was expected. Not a product bug — but note that rab_section_access has no per-request cache and is globally visible immediately."}
+    ]
+  },
   "frontend_issues": {
     "ui_bugs": [],
     "integration_issues": [],
     "design_issues": []
   },
-  "verifications": {
-    "manager_smp_00007": {
-      "decide_modal": {"opens": true, "fields_present": ["decide-supplier","decide-reason","decide-note","decide-price","decide-supplier-sku","decide-impact","decide-confirm","decide-modal-close"], "decide_confirm_disabled_no_price": true, "closes_via_close_testid": true},
-      "sample_send_modal": {"opens": true, "fields_present": ["sample-send-types","sample-send-search","sample-send-supplier-list","sample-send-due","sample-send-note","sample-send-count","sample-send-confirm","sample-send-modal-close"], "confirm_disabled_no_supplier": true, "confirm_label_after_pick": "Kirim · 1 round", "closes_via_close_testid": true},
-      "issue_material_modal": {"opens": true, "fields_present": ["issue-roll","issue-qty","issue-note","issue-confirm","issue-material-modal-close"], "confirm_disabled_initial": true, "closes_via_close_testid": true},
-      "sample_finish_modal": {"opens": true, "fields_present": ["sample-finish-date","sample-finish-note","sample-finish-confirm","sample-finish-modal-close"], "closes_via_close_testid": true}
-    },
-    "admin_smp_00008_round_action": {"opens": true, "fields_present": ["round-attach-hint","round-note-input","round-cost-input","round-modal-confirm","round-action-modal-close","round-meas-fields"], "closes_via_close_testid": true},
-    "color_library": {
-      "badge_text": "1 versi supplier",
-      "modal_title": "KN-BLU-01 · Biru Indigo",
-      "row_sup_a05908473e52_content_contains": ["Palembang Silk House","Navy 07","NV-07","KSC/SMP-00031"],
-      "sample_button_navigates_and_opens_sample_detail": true
-    },
-    "responsive": {"desktop_1920x900": "no overflow", "mobile_390x844": "send & issue modals render cleanly"}
-  },
   "test_report_links": [
-    "/app/test_reports/iter41-decide-1920.jpeg",
-    "/app/test_reports/iter41-send-1920.jpeg",
-    "/app/test_reports/iter41-issue-1920.jpeg",
-    "/app/test_reports/iter41-finish-1920.jpeg",
-    "/app/test_reports/iter41-round-1920.jpeg",
-    "/app/test_reports/iter41-variants-1920.jpeg",
-    "/app/test_reports/iter41-send-mobile.jpeg",
-    "/app/test_reports/iter41-issue-mobile.jpeg"
+    "/app/backend/tests/test_iter41_rbac_and_rab_sections.py",
+    "/app/test_reports/pytest/iter41.xml"
   ],
   "action_items": [],
-  "critical_code_review_comments": [],
-  "updated_files": [],
-  "success_rate": {"backend": "n/a (skipped)", "frontend": "100%"},
-  "test_credentials": "manager@kainnusantara.id / demo12345, admin@kainnusantara.id / demo12345",
-  "seed_data_creation": "none",
+  "critical_code_review_comments": [
+    "backend/routers/build_router.py `_can()` correctly derives capabilities from the effective RBAC matrix via `rbac.can()` — good separation of hint vs enforcement.",
+    "backend/rab_sections.py properly implements backward-compatible default (no entry = all sections) and validates payloads before persisting; save() correctly drops entries equal to the full section set to keep the doc lean.",
+    "boq_router.list_items only enforces section gating when `scope` query is present and in SECTION_CODES — legacy calls with no scope are unaffected. That is the intended backward-compat behavior; frontend must pass scope when relying on the gate.",
+    "admin_router.get_permissions now returns `rab_sections` block used by RolePermissionEditor — clean single-payload approach.",
+    "RolePermissionEditor renders 4 RAB toggles + all resource/action chips using data-testid — good testability."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter41_rbac_and_rab_sections.py (new)"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100%"},
+  "test_credentials": "superadmin@sipro.co.id / Sipro#2026 ; site@sipro.co.id / Sipro#2026 ; pm@sipro.co.id / Sipro#2026 ; sales@sipro.co.id / Sipro#2026",
+  "seed_data_creation": "None; used existing demo seed. PUT /api/admin/rab-sections was called with {'sections': {}} at end of tests to reset restrictions.",
   "retest_needed": false,
   "should_main_agent_self_test": false,
-  "context_for_next_testing_agent": "All 5 R&D FormModal shells (DecideModal, RoundActionModal, SampleSendModal, SampleFinishModal, IssueMaterialModal) and Supplier Color Variants modal verified via testids. `${testId}-close` convention consistently works across all. Sample KSC/SMP-00031 opens as sample-detail-modal after clicking color-variant-sample button. No mutations were confirmed (per instruction).",
-  "rca of the issue": "n/a - all requested UI verifications passed"
+  "context_for_next_testing_agent": "Iter 41 regression test lives at /app/backend/tests/test_iter41_rbac_and_rab_sections.py. Run sequentially (`-o addopts=''`) to avoid pytest-xdist inter-worker race on the shared rab_section_access document. UI-side: /admin/permissions defaults to 'Per Peran' mode with data-testid admin-permissions-mode-role selected; admin-role-editor-select, admin-role-editor-resource, admin-role-editor-action, admin-rab-sections-card (4 admin-rab-section-toggle), admin-permissions-save all present; admin-permissions-mode-matrix switches to admin-permissions-matrix table.",
+  "verification_evidence": {
+    "backend": {
+      "login_super": "PASS",
+      "login_site": "PASS",
+      "auth_me_default_rab_sections": "['unit','fasum','umum','summary']",
+      "auth_me_restricted": "['umum'] after PUT",
+      "build_unit_can_site_engineer": "can.submit=true, can.verify=false",
+      "build_unit_can_pm": "can.verify=true",
+      "start_endpoint_sales_no_update": "403",
+      "start_endpoint_site_has_update": "not 403",
+      "boq_scope_fasum_restricted": "403",
+      "boq_scope_umum_restricted": "200",
+      "rab_templates_unit_restricted": "403",
+      "rab_summary_restricted": "403",
+      "reset_all_200": "PASS"
+    },
+    "frontend": {
+      "admin_permissions_default_per_peran": "PASS",
+      "role_editor_select_present": "PASS",
+      "rab_sections_card_4_toggles": "PASS",
+      "resources_rendered": 66,
+      "action_chips_rendered": 253,
+      "matrix_mode_shows_admin_permissions_matrix": "PASS",
+      "super_admin_boq_all_4_subtabs": "RAB Unit + Fasum + Umum + Ringkasan visible",
+      "site_engineer_restricted_boq_only_umum_subtab": "Only 'Umum' visible; RAB Unit / Fasum / Ringkasan hidden",
+      "site_engineer_work_hub_action_buttons": "'Buka & ajukan hasil' buttons visible on tasks — confirms build_router `_can()` RBAC fix reaches UI"
+    }
+  },
+  "rca of the issue": "Previous build UI hid Mulai kerjakan / Ajukan hasil for non-supervisor roles because `_can()` was hardcoded to specific role names, ignoring RBAC matrix grants. Fix: derive `can` from `rbac.can(role, 'construction', action)`. Verified: site_engineer with construction:update permission now sees can.submit=true from GET /api/build/unit/{uid} and the UI (Work Hub + BuildItemCard) renders the action buttons."
 }

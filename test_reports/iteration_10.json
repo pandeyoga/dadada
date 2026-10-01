@@ -1,43 +1,25 @@
 {
-  "summary": "Verifikasi K-8 (rebrand entitas + CV Cipta Sandang Textile), Giliran Anda (SO/PO/Retur/Sample), dan Kebersihan Data (backend + UI). Semua backend smoke (smoke_turn_hygiene_entities.py) ALL PASS setelah reset log (unset hygiene_locked & reverted=false). smoke_feedback_klien_2026_09.py ALL PASS. Normalisasi satu-pintu POST /api/customers ✓ ('PT Test_x3883 Tbk' / 'Andi Wijaya' / '6281234567890'). POST /api/hr/employees ✓ ('Siti Aminah Test_xxxx'). UI admin: entity picker header memuat 3 entitas (Sukacita Textile · Kanda Fabric · CV Cipta Sandang Textile). Panel data-hygiene-* lengkap: panel/headline/table/preview/run/collection-select/rows(38)/badges(4)/revert-buttons(37). Headline: '37 record dirapikan otomatis · 1 dikembalikan · 0 dikunci'. Konfirmasi dialog hygiene-revert-confirm & hygiene-run-confirm hadir. Manager: tab hygiene tampil tapi tanpa tombol run/revert (RBAC 403 ✓). Warehouse: bell menampilkan label 'Giliran Anda' (bukan 'turn') dengan tautan operations. Turn scheduler job 'turn_scan' aktif, resolusi 'tahap → cancelled' saat sample dibatalkan bekerja.",
-  "backend_issues": {
-    "critical": [],
-    "minor": [
-      {"endpoint": "smoke_audit_2026_09_07.py", "issue": "Test smoke hardcode sup[0] sebagai target Blanket PO; setelah K-8, sup[0] menjadi 'CV Cipta Sandang Textile' (badan usaha grup) sehingga API menolak dengan 409 (intercompany) sebelum sempat mengenai rnd_gate 400. Bukan bug kode aplikasi — file smoke perlu di-update: pilih supplier eksternal (bukan is_group_entity=true) atau filter out CST/KSC/KANDA sebelum blanket."},
-      {"endpoint": "test_f0b_entity_scoping.py::test_list_view_all_via_query_admin[/suppliers]", "issue": "Assertion {ENT_KSC, ENT_KANDA, 'all'} tidak memuat entitas baru CST (ent_aa51619768d7). Test data drift — perlu ekstensi set (mis. ambil daftar entities dari API) atau tambah ID CST."}
+  "summary": "Iterasi 10 — Verifikasi fix RolePreviewButton (prop label) di AdminUsers.js. Semua 5 skenario review_request HIJAU. (1) /admin/users → user-add-btn → user-form-role=Finance → klik user-form-role-preview: judul admin-role-preview-dialog SEGERA (dibaca <300ms) menampilkan 'Pratinjau menu: Finance' (bukan 'finance'); setelah 3s tetap 'Pratinjau menu: Finance' dan admin-role-preview-item count = 17 (sesuai harapan). (2) Ubah baris site@sipro.co.id → user-edit-role-preview: judul segera 'Pratinjau menu: Site Engineer' (no substring 'site_engineer' pada snippet). Ganti user-edit-role ke Sales → klik lagi: judul 'Pratinjau menu: Sales'. (3) Regresi /admin/permissions: admin-permissions-matrix tampil; klik admin-roles-preview[data-role=admin_gudang] → admin-role-preview-count = '12 menu akan tampil di sidebar · struktur menu mengikuti peran induk Site Engineer.'. (4) Login gudang@sipro.co.id / Sipro#2026 sukses masuk Beranda tanpa error (sidebar peran kustom admin_gudang termuat: Beranda, Master Proyek, Pembangunan, Material & Opname, Site Plan, RAB/BoQ, Subkontraktor & SPK, Pengadaan & Vendor, Kas Bon, Analitik & BI, dll). (5) Backend smoke: GET /api/health → {status:ok}; POST /api/auth/login superadmin & finance & gudang semuanya 200 dgn data user valid. Warning Radix 'Missing Description/aria-describedby' pre-existing, non-blocking.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Radix DialogContent (multiple admin dialogs)", "issues": ["Warning konsol 'Missing Description or aria-describedby={undefined} for {DialogContent}' — pre-existing, aksesibilitas minor."]}
     ]
   },
-  "frontend_issues": {
-    "ui_bugs": [
-      {"component": "DataHygienePanel", "issue": "data-testid 'data-hygiene-preview-count' TIDAK ditemukan di DOM (panel data-hygiene-preview ada, tetapi elemen count-nya belum diberi testid). Spec eksplisit meminta testid ini.", "selector": "[data-testid=\"data-hygiene-preview-count\"]", "priority": "MEDIUM"}
-    ],
-    "integration_issues": [],
-    "design_issues": []
-  },
-  "test_report_links": [
-    "/app/backend/tests/smoke_turn_hygiene_entities.py",
-    "/app/backend/tests/smoke_feedback_klien_2026_09.py",
-    "/app/backend/tests/smoke_audit_2026_09_07.py",
-    "/app/backend/tests/test_f0b_entity_scoping.py"
-  ],
-  "action_items": [
-    "Tambahkan atribut data-testid=\"data-hygiene-preview-count\" pada elemen jumlah pratinjau di DataHygienePanel.jsx (sesuai spec review).",
-    "(Opsional) Perbarui smoke_audit_2026_09_07.py: pilih supplier eksternal (skip supplier yang is_group_entity/entity_owned) sebelum uji Blanket PO rnd_gate. K-8 rebrand memasukkan entitas grup 'CV Cipta Sandang Textile' ke daftar suppliers dan API dengan tepat menolak sebagai intercompany.",
-    "(Opsional) Perbarui test_f0b_entity_scoping.test_list_view_all_via_query_admin agar set ENT valid dinamis (fetch /api/entities) atau tambah 'ent_aa51619768d7' (CST) ke whitelist."
-  ],
+  "test_report_links": [],
+  "action_items": [],
   "critical_code_review_comments": [
-    "K-8 apply_entity_rebrand_2026_09 di bootstrap.py idempoten via flag migrations.entity_rebrand_2026_09 — bagus. Kode dokumen lama (KSC/KANDA) dipertahankan sesuai spec, prefix baru 'CST' dengan default_tax_mode='ppn' (PKP).",
-    "turn_notification_service.after_audit fire-and-forget setelah audit(): efek pada latency minimal, tapi tidak ada retry bila insert notif gagal — jeda 2-3 detik cukup untuk konsumsi UI (dikonfirmasi via smoke).",
-    "data_hygiene_service.run melewati dokumen dengan hygiene_locked=true — perilaku benar. revert 2x menghasilkan 409 (idempotency), unlock membuka kunci dan run berikutnya menerapkan lagi — flow lengkap.",
-    "NotificationCenter TYPE_LABEL.turn = 'Giliran Anda' terverifikasi di UI (tidak lagi menampilkan raw 'turn').",
-    "DataHygienePanel: testid 'data-hygiene-preview-count' hilang — kemungkinan lupa ditambahkan (spec review menyebutnya)."
+    "Fix diterapkan tepat: AdminUsers.js baris 66 & 155 meneruskan prop label={labelOf('user_role', form.role) || roleLabel(form.role)} ke RolePreviewButton, dan RoleMenuPreview.js baris 85 menghormati label={label || perms?.roleMeta?.[role]?.label || role}. Alhasil judul dialog tidak lagi menampilkan kode peran mentah selama fetch /admin/permissions berjalan (2-3 detik).",
+    "Tidak ada regresi terlihat pada /admin/permissions atau login peran kustom admin_gudang."
   ],
   "updated_files": [],
-  "success_rate": {"backend": "98%", "frontend": "95%"},
-  "test_credentials": "admin@ / manager@ / warehouse@ / sales@ / salesadmin@ kainnusantara.id — semua 'demo12345'",
-  "seed_data_creation": "Sample request KSC/SMP-00037 (dibatalkan via API) untuk uji notifikasi giliran. Customer 'PT Test_x3883 Tbk' & Employee 'Siti Aminah Test_xxxx' untuk uji normalisasi (prefix TEST_).",
+  "success_rate": {"backend": "100% (health + 3 login)", "frontend": "100% (5/5 skenario)"},
+  "test_credentials": "superadmin@sipro.co.id / Sipro#2026; site@sipro.co.id / Sipro#2026; gudang@sipro.co.id / Sipro#2026; finance@sipro.co.id / Sipro#2026",
+  "seed_data_creation": "Tidak ada.",
   "retest_needed": false,
-  "main_agent_can_self_test": true,
-  "context_for_next_testing_agent": "Sebelum menjalankan smoke_turn_hygiene_entities.py, reset dua field: db.data_hygiene_log.update_many({'collection':'customers'},{'$set':{'reverted':False}}) dan db.customers.update_many({'hygiene_locked':True},{'$unset':{'hygiene_locked':''}}). Skrip dijalankan dari /app. Entity picker header pada admin menampilkan 3 opsi (Semua Entitas + Sukacita Textile + Kanda Fabric + CV Cipta Sandang Textile). Warehouse bell testid = notification-bell. Confirm dialog untuk revert menggunakan data-testid='hygiene-revert-confirm', run='hygiene-run-confirm'.",
-  "rca of the issue": "1) smoke_audit blanket PO fail — sup[0] setelah K-8 adalah entitas grup CST, ditolak sebagai intercompany (409) sebelum bisa cek rnd_gate (400). Solusi: filter supplier eksternal di skrip smoke. 2) test_f0b /suppliers — hardcode whitelist entitas tidak memasukkan CST. Solusi: tambahkan ENT_CST atau ambil daftar dari /api/entities. Keduanya adalah drift test, BUKAN bug pada kode aplikasi."
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Fix label RolePreviewButton verified end-to-end. Judul dialog tampil label ramah sejak render pertama (immediate <300ms) untuk skenario add-Finance, edit-site_engineer→Site Engineer, edit-Sales. Perms fetch tetap 2-3 detik untuk mengisi item list; count final untuk Finance=17. admin_gudang preview mencantumkan warisan Site Engineer. Login gudang sukses. Radix DialogContent aria-describedby masih pre-existing warning.",
+  "rca of the issue": "N/A — fix sudah efektif."
 }

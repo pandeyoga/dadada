@@ -3,9 +3,11 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 const Card = React.forwardRef(({ className, ...props }, ref) => (
+  // Fase 67: kartu WAJIB terangkat dari kanvas — garis batas penuh + bayangan halus.
+  // Sebelumnya `shadow` bawaan shadcn di atas latar krem membuat kartu menyatu dengan latar.
   <div
     ref={ref}
-    className={cn("rounded-xl border bg-card text-card-foreground shadow", className)}
+    className={cn("rounded-xl border border-border bg-card text-card-foreground shadow-[var(--shadow-card)]", className)}
     {...props} />
 ))
 Card.displayName = "Card"
