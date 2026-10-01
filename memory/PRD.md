@@ -65,3 +65,10 @@ Lihat `/app/memory/test_credentials.md`.
 - Endpoint: `GET /api/leads/import-template.xlsx`, `POST /api/leads/import-file` (multipart, dry_run). Sales cakupan-sendiri → lead ditugaskan ke dirinya.
 - Menerima template Leads, CSV (Nama;No. HP), dan sheet `leads` dari ekspor Semua Data.
 - Diverifikasi testing agent (iteration_43): backend 8/8 + UI superadmin & sales lulus.
+
+## 2026-10-01 — Pemulihan dari branch `recovery/vps-2026-10-01`
+- Repo pandeyoga/dadada (branch `recovery/vps-2026-10-01`; tidak ada branch bernama `recovery` saja) di-clone ke /app.
+- Deps backend (tanpa pin emergentintegrations 0.2.0 yang bentrok; 0.2.2 sudah terpasang) + yarn terpasang.
+- backend/.env: JWT_SECRET, SUPERADMIN_*, SEED_DEMO_USERS=true, DEFAULT_ORG_ID=org-sipro, PORTAL_MASTER_OTP=000000, STORAGE_PROVIDER=mongo, BACKUP_DIR.
+- Smoke test iteration_44: backend 18/18, frontend semua halaman inti + 2 dashboard peran LULUS.
+- Backlog terbuka (dari plan.md §11 dan PRD): pulihkan tes lama yang bergantung pada data seed lama; tes WA di-skip bila kredensial Meta kosong; audit GL/BI non-lead/portal pembeli; ringkasan notifikasi harian (email/WA); amandemen komponen biaya manual dari UI; impor leads: deteksi duplikat pelanggan, kolom tahap, riwayat impor.

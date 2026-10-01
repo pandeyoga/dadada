@@ -1,0 +1,24 @@
+{
+  "summary": "Smoke/regression after fresh env restore of recovery/vps-2026-10-01. Backend: /api/health=200, login OK for all 9 demo roles with /api/auth/me returning permissions+role_scope+resource_labels. Core list endpoints 200 for superadmin: /api/leads, /api/customers, /api/projects, /api/units, /api/deals, /api/finance/ar/aging, /api/build/summary, /api/notifications. Frontend: superadmin login -> Beranda Control Tower loads with KPI cards + Pembangunan rumah + Seluruh Divisi; sidebar navigation to Pipeline Lead, Customer & Kontrak, Master Proyek, Pembangunan, Keuangan AR, Admin Permissions all render with no console errors and no error-boundary text. Leads page Impor Excel: data-testid=lead-import-button present and dialog opens. Admin Permissions page renders. sales@sipro.co.id logs in, shows role-scoped menu (CRM + Proyek-read + Kas Bon/Pengajuan + Analitik, no PENGADAAN/finance management). site@sipro.co.id logs in, shows Proyek/Pengadaan/Material/RAB/Kas-Bon menus; Beranda shows site-engineer dashboard (Proyek/QC Hold/Punch/Terlambat KPIs). Environment restore is clean.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter44_smoke.py",
+    "/app/test_reports/pytest/iter44_smoke.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Login response payload uses `access_token` (OAuth2-style) not `token` — previous tests that referenced body['token'] would miss it; test fixture updated. Document the field in README/openapi so new tests use access_token consistently.",
+    "/api/finance/ar/schedules (no deal_id) returns 404 'Jadwal AR tidak ditemukan untuk deal ini' — endpoint is deal-scoped by design; aging/deposits are the list-level entrypoints. OK but a 400 or a top-level listing would be more intuitive for monitoring.",
+    "/api/construction has no project-less list endpoint; all GETs require {project_id}. Fine for RBAC, but consider adding a lightweight /api/construction/summary for Beranda widgets so UI doesn't need per-project fan-out.",
+    "WA/Meta/Google-Ads credentials intentionally absent in preview — endpoints behind them should return 503/'not configured' rather than 500. Not re-verified this run."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter44_smoke.py"],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "100% (all 7 superadmin pages + 2 role dashboards)"},
+  "test_credentials": "All demo users use Sipro#2026; superadmin@sipro.co.id and site@sipro.co.id used for UI; sales@/sales2@/finance@/pm@/manager@/marketing@/owner@ exercised via API.",
+  "seed_data_creation": "None. Lead import dialog opened and closed without submission.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_iter44_smoke.py is a 60-sec regression suite covering health + 9-role login + 8 core list endpoints. Reuse body['access_token'] when extracting JWT. Known business-logic 404s (not bugs): /api/finance/ar/schedules without ?deal_id=, /api/construction/project/{id}/* with fake id. Build has /api/build/summary (list-safe) and /api/build/aging. SEED_DEMO_USERS=true and demo project seeded as org-sipro. Do NOT run purge tests.",
+  "rca of the issue": "N/A — no bugs; environment restore completed successfully."
+}
