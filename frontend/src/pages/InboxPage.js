@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { MessagesSquare, Send, Zap, Clock, ShieldAlert, UserPlus } from "lucide-react";
+import { MessagesSquare, Pencil, Send, Zap, Clock, ShieldAlert, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -12,10 +12,12 @@ import EmptyState from "@/components/patterns/EmptyState";
 import { LoadingCards, ErrorState } from "@/components/patterns/StateViews";
 import InboxContextPanel from "@/components/omni/InboxContextPanel";
 import MessageBubble from "@/components/omni/MessageBubble";
+import EditConvContactDialog from "@/components/omni/EditConvContactDialog";
+import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import { fromNow } from "@/utils/formatters";
 import api from "@/services/apiClient";
-import { INBOX, P94, P97 } from "@/constants/testIds";
+import { INBOX, P94, P97, CONTACT_EDIT } from "@/constants/testIds";
 
 const FILTERS = [
   { v: "all", l: "Semua", tid: INBOX.filterAll },
@@ -25,6 +27,8 @@ const FILTERS = [
 
 export default function InboxPage() {
   const navigate = useNavigate();
+  const { can } = useAuth();
+  const [editOpen, setEditOpen] = useState(false);
   const [convs, setConvs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -98,6 +102,7 @@ export default function InboxPage() {
 
   return (
     <div data-testid={INBOX.page} className="space-y-4">
+      <EditConvContactDialog conversation={thread?.conversation} open={editOpen} onOpenChange={setEditOpen} onDone={refresh} />
       <div className="flex flex-wrap items-center gap-2">
         <MessagesSquare className="h-5 w-5 text-primary" />
         <h1 className="page-title">Inbox WhatsApp</h1>
@@ -153,9 +158,17 @@ export default function InboxPage() {
               {thread ? (
                 <>
                   <div className="flex items-center justify-between border-b px-4 py-2.5">
-                    <div>
-                      <p className="font-medium">{thread.conversation.contact_name || thread.conversation.contact_phone}</p>
-                      <p className="text-xs text-muted-foreground">{thread.conversation.contact_phone}</p>
+                    <div className="flex items-center gap-2">
+                      <div>
+                        <p className="font-medium">{thread.conversation.contact_name || thread.conversation.contact_phone}</p>
+                        <p className="text-xs text-muted-foreground">{thread.conversation.contact_phone}</p>
+                      </div>
+                      {can("leads", "update") ? (
+                        <Button data-testid={CONTACT_EDIT.inboxBtn} size="icon" variant="ghost" className="h-7 w-7"
+                          onClick={() => setEditOpen(true)} title="Edit kontak">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      ) : null}
                     </div>
                     <span data-testid={INBOX.windowBadge} className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
                       windowOpen ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>

@@ -342,3 +342,41 @@ async def set_status(org_id: str, cid: str, status: str, *, actor: str, reason: 
         upd["skip_reason"] = reason
     r = await db[COLL].update_one({"id": cid, "org_id": org_id}, {"$set": upd})
     return {"matched": r.matched_count}
+
+
+EDITABLE = ("name", "phone", "email", "notes", "first_message", "opt_out")
+
+
+async def update_contact(org_id: str, cid: str, patch: dict, *, actor: str) -> dict:
+    """Ubah data kontak; nomor baru dinormalisasi E.164 + dicocokkan ulang ke lead/customer."""
+    ex = await db[COLL].find_one({"id": cid, "org_id": org_id}, {"_id": 0})
+    if not ex:
+        return None
+    ts = now_iso()
+    upd = {k: patch[k] for k in EDITABLE if k in patch}
+    for k in ("name", "email", "notes", "first_message"):
+        if k in upd:
+            upd[k] = (upd[k] or "").strip() or None
+    if "phone" in upd:
+        phone = gw.valid_phone(upd["phone"] or "")
+        if not phone:
+            raise ValueError("Nomor tidak valid (harus nomor Indonesia +62).")
+        if phone != ex.get("phone"):
+            if await db[COLL].find_one({"org_id": org_id, "phone": phone, "id": {"$ne": cid}}):
+                raise LookupError(f"Nomor {phone} sudah ada di antrean kontak.")
+            item = (await analyze(org_id, [{"phone": phone}]))[0]
+            upd.update(_match_fields(item))
+            if ex.get("status") == "invalid":
+                upd.update({"status": "new", "invalid_reason": None})
+        upd["phone"] = phone
+    upd.update({"updated_at": ts, "updated_by": actor})
+    await db[COLL].update_one({"id": cid}, {"$set": upd})
+    conv_set = {}
+    if "name" in upd:
+        conv_set["contact_name"] = upd["name"]
+    if upd.get("phone") and upd["phone"] != ex.get("phone"):
+        conv_set["contact_phone"] = upd["phone"]
+    if conv_set and ex.get("phone"):
+        conv_set["updated_at"] = ts
+        await db.conversations.update_many({"org_id": org_id, "contact_phone": ex["phone"]}, {"$set": conv_set})
+    return await db[COLL].find_one({"id": cid}, {"_id": 0})

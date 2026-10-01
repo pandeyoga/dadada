@@ -365,6 +365,9 @@ async def update_lead(lead_id: str, payload: LeadUpdate,
     fresh = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     # SSOT: nama lead yang dikopi ke tagihan/agenda/survey ikut disamakan.
     synced = await cascade_master_change("leads", lead_id, fresh)
+    if "name" in updates:
+        await db.conversations.update_many({"org_id": org, "lead_id": lead_id},
+                                           {"$set": {"contact_name": fresh.get("name")}})
     return {"data": serialize_doc(fresh), "denorm_synced": synced}
 
 

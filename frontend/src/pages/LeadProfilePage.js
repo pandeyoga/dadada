@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   CalendarCheck2, ClipboardList, FileOutput, FileSignature, FileText, Handshake, History,
-  MessageSquare, Phone, ShieldCheck, ShieldOff, UserCircle2,
+  MessageSquare, Pencil, Phone, ShieldCheck, ShieldOff, UserCircle2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import DocChecklist from "@/components/patterns/DocChecklist";
 import IssuedDocsTab from "@/components/docs/IssuedDocsTab";
 import LeadWaPanel from "@/components/sales/LeadWaPanel";
 import LeadSummaryTab from "@/components/leads/LeadSummaryTab";
+import EditLeadDialog from "@/components/leads/EditLeadDialog";
 import LeadTimelineTab from "@/components/leads/LeadTimelineTab";
 import LeadSurveyTab from "@/components/leads/LeadSurveyTab";
 import LeadUnitsTab from "@/components/leads/LeadUnitsTab";
@@ -25,7 +26,7 @@ import api from "@/services/apiClient";
 import DeleteEntityButton from "@/components/patterns/DeleteEntityButton";
 import { useAuth } from "@/context/AuthContext";
 import { honestBadge, loadPanels, omittedSources, panelRows } from "@/utils/panelLoad";
-import { LEADPROFILE, TABPAGE } from "@/constants/testIds";
+import { LEADPROFILE, TABPAGE, CONTACT_EDIT } from "@/constants/testIds";
 
 /**
  * LeadProfilePage (`/leads/:id`) — HALAMAN kanonik lead (US-40-2, CR-10).
@@ -86,6 +87,7 @@ export default function LeadProfilePage() {
   const [lead, setLead] = useState(null);
   const [panels, setPanels] = useState({});
   const [waKey, setWaKey] = useState(0);
+  const [editOpen, setEditOpen] = useState(false);
 
   const load = useCallback(async () => {
     setState({ loading: true, error: "" });
@@ -195,6 +197,11 @@ export default function LeadProfilePage() {
           <Button data-testid={LEADPROFILE.waBtn} size="sm" onClick={() => goTab("percakapan")}>
             <MessageSquare className="mr-1.5 h-4 w-4" /> WhatsApp
           </Button>
+          {can("leads", "update") ? (
+            <Button data-testid={CONTACT_EDIT.leadBtn} size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+              <Pencil className="mr-1.5 h-4 w-4" /> Edit kontak
+            </Button>
+          ) : null}
           {can("leads", "delete") ? (
             <DeleteEntityButton entity="Lead" name={lead.name} testId="lead-delete"
               checkUrl={`/leads/${id}/delete-check`} deleteUrl={`/leads/${id}`}
@@ -206,6 +213,7 @@ export default function LeadProfilePage() {
 
   return (
     <div data-testid={LEADPROFILE.page} className="space-y-4">
+      <EditLeadDialog lead={lead} open={editOpen} onOpenChange={setEditOpen} onDone={refresh} />
       {omitted.length ? (
         // Spanduk jujur: pemakai berhak tahu bahwa halaman ini TIDAK LENGKAP dan mengapa —
         // tanpa itu ia mengira datanya hilang dan mulai mencari-cari.

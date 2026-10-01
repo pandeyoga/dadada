@@ -10,6 +10,7 @@ import WaImportPanel from "@/components/wa/WaImportPanel";
 import WaCaptureDialog from "@/components/wa/WaCaptureDialog";
 import WaSimulateInboundDialog from "@/components/wa/WaSimulateInboundDialog";
 import WaQuickReplyDialog from "@/components/wa/WaQuickReplyDialog";
+import EditWaContactDialog from "@/components/wa/EditWaContactDialog";
 import api from "@/services/apiClient";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
@@ -42,6 +43,7 @@ export default function WaCapturePage() {
   const [captureFor, setCaptureFor] = useState(null);
   const [simOpen, setSimOpen] = useState(false);
   const [replyFor, setReplyFor] = useState(null);
+  const [editFor, setEditFor] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const load = useCallback(async () => {
@@ -106,7 +108,7 @@ export default function WaCapturePage() {
         <TabsContent value="queue">
           <WaContactsTable rows={data?.data || []} total={data?.total || 0} loading={loading} error={error}
             filters={filters} onFilters={setFilters} onRefresh={load} canCreate={canCreate} canReply={canReply}
-            onReply={setReplyFor}
+            onReply={setReplyFor} canEdit={can("leads", "update")} onEdit={setEditFor}
             onCapture={(rows) => setCaptureFor({ ids: rows.map((r) => r.id), rows, count: rows.length })}
             onOpenLead={(id) => navigate(`/leads/${id}`)} />
         </TabsContent>
@@ -118,6 +120,7 @@ export default function WaCapturePage() {
       <WaCaptureDialog open={!!captureFor} onOpenChange={(v) => !v && setCaptureFor(null)}
         target={captureFor} onDone={() => { setCaptureFor(null); load(); }} />
       <WaSimulateInboundDialog open={simOpen} onOpenChange={setSimOpen} onDone={load} />
+      <EditWaContactDialog contact={editFor} onOpenChange={(v) => !v && setEditFor(null)} onDone={load} />
       <WaQuickReplyDialog contact={replyFor} onOpenChange={(v) => !v && setReplyFor(null)} onDone={load} />
     </div>
   );

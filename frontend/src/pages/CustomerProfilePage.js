@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  Building2, CreditCard, FileOutput, FileText, Headset, History, Receipt, ScrollText, ShieldOff,
+  Building2, CreditCard, FileOutput, FileText, Headset, History, Pencil, Receipt, ScrollText, ShieldOff,
   UserCircle2,
 } from "lucide-react";
 
@@ -25,9 +25,10 @@ import {
 import { LoadingCards, ErrorState, PanelStateView } from "@/components/patterns/StateViews";
 import api from "@/services/apiClient";
 import DeleteEntityButton from "@/components/patterns/DeleteEntityButton";
+import AddCustomerDialog from "@/components/customers/AddCustomerDialog";
 import { useAuth } from "@/context/AuthContext";
 import { honestBadge, loadPanels, omittedSources, panelRows } from "@/utils/panelLoad";
-import { CUSTPROFILE, PANELSTATE } from "@/constants/testIds";
+import { CUSTPROFILE, PANELSTATE, CONTACT_EDIT } from "@/constants/testIds";
 
 /**
  * CustomerProfilePage (`/customers/:id`) — HALAMAN kanonik pelanggan (US-40-2).
@@ -74,6 +75,7 @@ export default function CustomerProfilePage() {
   const [state, setState] = useState({ loading: true, error: "" });
   const [cust, setCust] = useState(null);
   const [panels, setPanels] = useState({});
+  const [editOpen, setEditOpen] = useState(false);
 
   const load = useCallback(async () => {
     setState({ loading: true, error: "" });
@@ -190,6 +192,11 @@ export default function CustomerProfilePage() {
       ]}
       actions={(
         <>
+          {can("customers", "update") ? (
+            <Button data-testid={CONTACT_EDIT.customerBtn} size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+              <Pencil className="mr-1.5 h-4 w-4" /> Edit kontak
+            </Button>
+          ) : null}
           {can("work_tasks", "create") ? (
             <CreateTaskDialog triggerLabel="Buat tugas" triggerVariant="outline"
               preset={{ type: "customer", id,
@@ -206,6 +213,7 @@ export default function CustomerProfilePage() {
 
   return (
     <div data-testid={CUSTPROFILE.page} className="space-y-4">
+      <AddCustomerDialog open={editOpen} onOpenChange={setEditOpen} customer={cust} onDone={load} />
       {omitted.length ? (
         <div data-testid={CUSTPROFILE.partial}
           className="rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-sm text-slate-700">

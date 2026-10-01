@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import api from "@/services/apiClient";
 import PhoneInput from "@/components/patterns/PhoneInput";
-import { CUSTOMERS } from "@/constants/testIds";
+import { CUSTOMERS, CONTACT_EDIT } from "@/constants/testIds";
 
 const EMPTY = {
   name: "", phone: "", email: "", nik: "", npwp: "", occupation: "",
@@ -17,10 +17,15 @@ const EMPTY = {
   heir_name: "", heir_relation: "", notes: "",
 };
 
-export default function AddCustomerDialog({ open, onOpenChange, onDone }) {
+const fromCustomer = (c) => Object.fromEntries(Object.keys(EMPTY).map((k) => [k, c?.[k] ?? ""]));
+
+export default function AddCustomerDialog({ open, onOpenChange, onDone, customer }) {
+  const editing = !!customer;
   const [form, setForm] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  useEffect(() => { if (open && customer) setForm(fromCustomer(customer)); }, [open, customer]);
 
   const submit = async () => {
     if (!form.name) { toast.error("Nama customer wajib diisi."); return; }
@@ -29,13 +34,15 @@ export default function AddCustomerDialog({ open, onOpenChange, onDone }) {
       const payload = { ...form };
       payload.monthly_income = form.monthly_income ? Number(form.monthly_income) : null;
       Object.keys(payload).forEach((k) => { if (payload[k] === "") payload[k] = null; });
-      await api.post("/customers", payload);
-      toast.success("Customer ditambahkan.");
+      if (editing) await api.put(`/customers/${customer.id}`, payload);
+      else await api.post("/customers", payload);
+      toast.success(editing ? "Data customer diperbarui." : "Customer ditambahkan.");
       onOpenChange(false);
       setForm(EMPTY);
       onDone && onDone();
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Gagal menambah customer.");
+      const d = e?.response?.data?.detail;
+      toast.error(typeof d === "string" ? d : (editing ? "Gagal menyimpan customer." : "Gagal menambah customer."));
     } finally { setBusy(false); }
   };
 
@@ -48,9 +55,9 @@ export default function AddCustomerDialog({ open, onOpenChange, onDone }) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent data-testid={editing ? CONTACT_EDIT.customerDialog : undefined} className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Tambah Customer</DialogTitle>
+          <DialogTitle>{editing ? "Edit Kontak Customer" : "Tambah Customer"}</DialogTitle>
           <DialogDescription>Data pembeli lengkap (KYC) untuk keperluan legal & KPR.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -79,8 +86,8 @@ export default function AddCustomerDialog({ open, onOpenChange, onDone }) {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Batal</Button>
-          <Button data-testid={CUSTOMERS.addSubmit} onClick={submit} disabled={busy}>
-            {busy ? "Menyimpan…" : "Simpan Customer"}
+          <Button data-testid={editing ? CONTACT_EDIT.customerSubmit : CUSTOMERS.addSubmit} onClick={submit} disabled={busy}>
+            {busy ? "Menyimpan…" : editing ? "Simpan Perubahan" : "Simpan Customer"}
           </Button>
         </DialogFooter>
       </DialogContent>

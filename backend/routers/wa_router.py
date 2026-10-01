@@ -52,6 +52,15 @@ class StatusIn(BaseModel):
     reason: Optional[str] = None
 
 
+class ContactUpdateIn(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    notes: Optional[str] = None
+    first_message: Optional[str] = None
+    opt_out: Optional[bool] = None
+
+
 class ReplyIn(BaseModel):
     body: Optional[str] = None
     template_code: Optional[str] = None
@@ -167,6 +176,23 @@ async def capture_contacts(p: CaptureIn, user: dict = Depends(require_permission
     await audit_log(user, "capture", "wa_contacts", None,
                     {k: res[k] for k in ("created", "linked", "skipped", "invalid")})
     return {"data": res}
+
+
+@router.put("/contacts/{cid}")
+async def update_contact(cid: str, p: ContactUpdateIn, user: dict = Depends(require_permission("leads", "update"))):
+    patch = p.model_dump(exclude_unset=True)
+    if "phone" in patch and not patch["phone"]:
+        raise HTTPException(400, "Nomor HP wajib diisi.")
+    try:
+        doc = await wc.update_contact(user.get("org_id", ORG_ID), cid, patch, actor=user.get("email"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except LookupError as e:
+        raise HTTPException(409, str(e))
+    if not doc:
+        raise HTTPException(404, "Kontak tidak ditemukan")
+    await audit_log(user, "update", "wa_contacts", cid, {"fields": sorted(patch)})
+    return {"data": serialize_doc(doc)}
 
 
 @router.post("/contacts/{cid}/skip")

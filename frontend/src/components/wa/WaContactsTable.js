@@ -1,13 +1,13 @@
 import React, { useMemo } from "react";
 import { toast } from "sonner";
-import { ExternalLink, MessageCircleReply, RotateCcw, SkipForward, UserPlus } from "lucide-react";
+import { ExternalLink, MessageCircleReply, Pencil, RotateCcw, SkipForward, UserPlus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import DataTable from "@/components/patterns/DataTable";
 import StatusPill from "@/components/patterns/StatusPill";
 import api from "@/services/apiClient";
 import { fromNow } from "@/utils/formatters";
-import { P94, P97 } from "@/constants/testIds";
+import { P94, P97, CONTACT_EDIT } from "@/constants/testIds";
 
 const STATUS_LABEL = {
   new: "Menunggu", captured: "Jadi lead", linked: "Ditautkan", skipped: "Dilewati", invalid: "Tidak valid",
@@ -44,7 +44,7 @@ export function DupBadge({ c }) {
 }
 
 export default function WaContactsTable({ rows, total, loading, error, filters, onFilters, onRefresh,
-  canCreate, canReply, onCapture, onOpenLead, onReply }) {
+  canCreate, canReply, canEdit, onCapture, onOpenLead, onReply, onEdit }) {
   const act = async (path, ok) => {
     try { await api.post(path); toast.success(ok); onRefresh(); }
     catch (e) { toast.error(e?.response?.data?.detail || "Gagal memproses kontak."); }
@@ -94,6 +94,11 @@ export default function WaContactsTable({ rows, total, loading, error, filters, 
       key: "actions", header: "Aksi", align: "right", sticky: true,
       render: (c) => (
         <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+          {canEdit ? (
+            <Button data-testid={CONTACT_EDIT.waBtn} size="sm" variant="ghost" onClick={() => onEdit(c)} title="Edit kontak">
+              <Pencil className="h-4 w-4" />
+            </Button>
+          ) : null}
           {canReply && c.status !== "invalid" ? (
             <Button data-testid={P97.replyBtn} size="sm" variant="outline" onClick={() => onReply(c)} title="Balas cepat via WhatsApp">
               <MessageCircleReply className="h-4 w-4" />
@@ -124,7 +129,7 @@ export default function WaContactsTable({ rows, total, loading, error, filters, 
         </div>
       ),
     },
-  ], [canCreate, canReply, onCapture, onOpenLead, onReply, onRefresh]); // eslint-disable-line react-hooks/exhaustive-deps
+  ], [canCreate, canReply, canEdit, onCapture, onOpenLead, onReply, onEdit, onRefresh]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filterBar = (
     <div className="flex flex-wrap gap-2">

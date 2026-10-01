@@ -12,6 +12,13 @@ from core_utils import new_id, now_iso, serialize_doc, parse_pagination, due_in
 from rbac import require_permission, scope_query, is_scoped_sales
 from engine import emit, dispatch_pending, add_activity
 from models import MessageCreate
+from pydantic import BaseModel
+from typing import Optional
+
+
+class ContactEditIn(BaseModel):
+    contact_name: Optional[str] = None
+    contact_phone: Optional[str] = None
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
 
@@ -81,6 +88,42 @@ async def get_conversation(conv_id: str, user: dict = Depends(require_permission
     msgs = await db.messages.find({"conversation_id": conv_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
     await db.conversations.update_one({"id": conv_id}, {"$set": {"unread": 0}})
     return {"data": {"conversation": _decorate(conv), "messages": serialize_doc(msgs)}}
+
+
+@router.put("/{conv_id}/contact")
+async def update_conv_contact(conv_id: str, p: ContactEditIn,
+                              user: dict = Depends(require_permission("leads", "update"))):
+    import wa_gateway as gw
+    conv = await _get_conv_scoped(conv_id, user)
+    org = conv.get("org_id") or user.get("org_id", ORG_ID)
+    patch = p.model_dump(exclude_unset=True)
+    upd = {}
+    if "contact_name" in patch:
+        upd["contact_name"] = (patch["contact_name"] or "").strip() or None
+    if "contact_phone" in patch:
+        phone = gw.valid_phone(patch["contact_phone"] or "")
+        if not phone:
+            raise HTTPException(400, "Nomor tidak valid (harus nomor Indonesia +62).")
+        if phone != conv.get("contact_phone") and await db.conversations.find_one(
+                {"org_id": org, "channel": conv.get("channel"), "contact_phone": phone, "id": {"$ne": conv_id}}):
+            raise HTTPException(409, f"Nomor {phone} sudah punya percakapan lain.")
+        upd["contact_phone"] = phone
+    if not upd:
+        return {"data": _decorate(conv)}
+    upd["updated_at"] = now_iso()
+    await db.conversations.update_one({"id": conv_id}, {"$set": upd})
+    wc_set = {"updated_at": upd["updated_at"]}
+    if "contact_name" in upd:
+        wc_set["name"] = upd["contact_name"]
+    if upd.get("contact_phone") and upd["contact_phone"] != conv.get("contact_phone"):
+        if not await db.wa_contacts.find_one({"org_id": org, "phone": upd["contact_phone"]}):
+            wc_set["phone"] = upd["contact_phone"]
+    if conv.get("contact_phone"):
+        await db.wa_contacts.update_one({"org_id": org, "phone": conv["contact_phone"]}, {"$set": wc_set})
+    from rbac import audit_log
+    await audit_log(user, "update", "conversations", conv_id, {"fields": sorted(upd)})
+    fresh = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    return {"data": _decorate(fresh)}
 
 
 @router.post("/{conv_id}/messages")
