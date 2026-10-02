@@ -86,3 +86,10 @@ Lihat `/app/memory/test_credentials.md`.
 - Matriks bawaan: sales_manager & project_manager `fund_request` view_all → view_own.
 - Respons list menambah `scope: all|own`; UI menampilkan lencana `fund-requests-scope`.
 - Diverifikasi curl: sales/pm hanya miliknya, manager/site 0, finance/owner/superadmin semua.
+
+## 2026-10-01 — Bukti Bayar Pengajuan
+- Dialog Cairkan: unggah foto/PDF bukti pembayaran WAJIB (UI); `proof_ids` → `payment_proofs` di dokumen pengajuan.
+- POST /api/fund-requests/{id}/payment-proof (fund_request:approve) menambah bukti untuk pengajuan yang sudah dicairkan (riwayat `proof_added`).
+- Detail sheet: `PaymentProofSection` (thumbnail, dilihat pemohon; approver bisa menambah). Daftar: "Lihat bukti bayar (n)".
+- Fix: `_files` kini mengembalikan `filename` (dari `original_filename`) — nama lampiran sebelumnya kosong.
+- Teruji iteration_46: backend + UI 100%.
