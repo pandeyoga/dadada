@@ -1,5 +1,9 @@
 # Deploy SIPRO ke VPS (Ubuntu 22.04 / 24.04 / 26.04)
 
+> **Multi-instance & domain estora.id**: lihat [DOMAIN_ESTORA.md](DOMAIN_ESTORA.md) — migrasi
+> `hl5.portalsipro.com → hl5.estora.id` + instance `demo`/`trial` (`deploy/migrate_estora.sh`).
+> Instalasi baru: `DOMAIN=hl5.estora.id ACME_EMAIL=... INSTANCE=hl5 bash deploy/install_vps.sh`.
+
 Arsitektur di VPS (Docker Compose, folder `deploy/`):
 
 ```

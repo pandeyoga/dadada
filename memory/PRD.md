@@ -93,3 +93,11 @@ Lihat `/app/memory/test_credentials.md`.
 - Detail sheet: `PaymentProofSection` (thumbnail, dilihat pemohon; approver bisa menambah). Daftar: "Lihat bukti bayar (n)".
 - Fix: `_files` kini mengembalikan `filename` (dari `original_filename`) — nama lampiran sebelumnya kosong.
 - Teruji iteration_46: backend + UI 100%.
+
+## 2026-10-02 — Pindah domain estora.id + multi-instance VPS
+- `deploy/compose.instance.yml` (mongo+backend+frontend per instance, alias `<inst>-backend/-frontend` di jaringan `sipro_edge`), `deploy/edge/` (Caddy bersama, Caddyfile dibangkitkan dari `deploy/instances/*.env`, volume sertifikat lama `sipro_caddy_data` dipakai ulang).
+- `deploy/lib.sh` (fungsi bersama), `migrate_estora.sh` (backup + hitung dokumen → cutover → verifikasi → rollback otomatis; `rollback` manual), `add_instance.sh` (instance baru, `--empty`), `update.sh` (build sekali, update semua instance; mode lama tetap didukung), `backup.sh` (per instance), `install_vps.sh` (instalasi baru multi-instance).
+- hl5.portalsipro.com → 308 ke hl5.estora.id; `/api/webhooks/*` domain lama tetap diproksikan.
+- Backend: env `START_EMPTY=true` → saat DB pertama kali di-seed, data operasional demo dihapus (purge semua grup); tidak berlaku untuk DB berisi.
+- Frontend: `BACKEND_URL` fallback `window.location.origin` → satu image frontend untuk semua domain.
+- Panduan: `docs/DOMAIN_ESTORA.md` (DNS A record, langkah, rollback). Simulasi skrip dengan docker tiruan: migrasi, ulang (idempoten), update, backup, rollback, guard data berkurang → semua sesuai.

@@ -1,0 +1,32 @@
+# Caddy bersama untuk SEMUA instance (HTTPS Let's Encrypt otomatis + auto-renew).
+# Caddyfile dibangkitkan oleh deploy/lib.sh (gen_caddyfile) dari deploy/instances/*.env.
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./caddy:/etc/caddy:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - edge
+
+networks:
+  edge:
+    external: true
+    name: sipro_edge
+
+# Volume sertifikat lama (sipro_caddy_data) dipakai ulang supaya sertifikat yang ada tidak hilang.
+volumes:
+  caddy_data:
+    external: true
+    name: sipro_caddy_data
+  caddy_config:
+    external: true
+    name: sipro_caddy_config

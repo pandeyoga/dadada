@@ -3,7 +3,8 @@ import {
   SESSION_STATE, emitSessionEnded, secondsLeft,
 } from "@/services/sessionBus";
 
-export const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+// Kosong saat build VPS multi-instance → pakai origin halaman (satu image untuk semua domain).
+export const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || window.location.origin;
 export const API = `${BACKEND_URL}/api`;
 export const TOKEN_KEY = "sipro_token";
 

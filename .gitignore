@@ -105,3 +105,10 @@ frontend/node_modules/.cache/default-development/9.pack
 frontend/node_modules/.cache/default-development/11.pack
 
 backend/backups/
+
+# Deploy multi-instance (rahasia & file hasil bangkitan di VPS)
+deploy/instances/
+deploy/instances.rollback-*/
+deploy/edge/caddy/
+deploy/edge/edge.env
+deploy/.env.legacy

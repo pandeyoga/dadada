@@ -8,7 +8,7 @@ import api from "@/services/apiClient";
 import { P100 } from "@/constants/testIds";
 import LegalUrlsCard from "@/components/legal/LegalUrlsCard";
 
-const PUBLIC_BASE = process.env.REACT_APP_BACKEND_URL;
+const PUBLIC_BASE = process.env.REACT_APP_BACKEND_URL || window.location.origin;
 
 const copy = async (text, label) => {
   try { await navigator.clipboard.writeText(text); toast.success(`${label} disalin.`); }

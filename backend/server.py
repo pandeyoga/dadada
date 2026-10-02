@@ -158,6 +158,12 @@ async def lifespan(app: FastAPI):
     seeded = await seed_if_empty()
     if seeded:
         logger.info("Database seeded with demo data.")
+    # Instance baru "kosong" (mis. demo/trial): akun & konfigurasi tetap, data operasional demo dihapus
+    # sekali saat DB pertama kali di-seed. Tidak pernah berlaku untuk DB yang sudah berisi.
+    if seeded and os.environ.get("START_EMPTY", "false").lower() == "true":
+        from data_mgmt_purge import purge as _purge, GROUPS as _PURGE_GROUPS
+        await _purge(ORG_ID, list(_PURGE_GROUPS), "system:start_empty")
+        logger.info("START_EMPTY: data demo operasional dihapus, instance dimulai kosong.")
     await ensure_superadmin()
     import rbac as _rbac
     await _rbac.ensure_matrix_migrations()
