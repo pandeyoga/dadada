@@ -28,8 +28,11 @@ logger = logging.getLogger("sipro.seed")
 TEST_PASSWORD = "Sipro#2026"
 
 # Akun super admin: email & sandi dari env (produksi). Tanpa env → nilai demo di bawah.
-SUPERADMIN_EMAIL = os.environ.get("SUPERADMIN_EMAIL", "superadmin@sipro.co.id").lower()
-SUPERADMIN_PASSWORD = os.environ.get("SUPERADMIN_PASSWORD", TEST_PASSWORD)
+SUPERADMIN_EMAIL = os.environ.get("SUPERADMIN_EMAIL", "superadmin@estora.id").lower()
+SUPERADMIN_PASSWORD = os.environ.get("SUPERADMIN_PASSWORD", "test1234")
+# Email super admin lama yang diganti namanya (riwayat & id akun tetap) bila email baru belum ada.
+SUPERADMIN_RENAME_FROM = [e.strip().lower() for e in os.environ.get(
+    "SUPERADMIN_RENAME_FROM", "superadmin@sipro.co.id").split(",") if e.strip()]
 # Akun staf demo (owner/sales/finance/...) hanya dibuat bila SEED_DEMO_USERS=true.
 SEED_DEMO_USERS = os.environ.get("SEED_DEMO_USERS", "false").lower() == "true"
 
@@ -54,6 +57,13 @@ async def ensure_superadmin():
     ts = now_iso()
     existing = await db.users.find_one({"email": SUPERADMIN_EMAIL})
     if not existing:
+        old = await db.users.find_one({"email": {"$in": SUPERADMIN_RENAME_FROM}, "role": "super_admin"})
+        if old:
+            await db.users.update_one({"_id": old["_id"]}, {"$set": {
+                "email": SUPERADMIN_EMAIL, "password_hash": hash_password(SUPERADMIN_PASSWORD),
+                "is_active": True, "updated_at": ts}})
+            logger.info("Super admin %s diganti menjadi %s", old["email"], SUPERADMIN_EMAIL)
+            return
         await db.users.insert_one({
             "id": new_id(), "org_id": ORG_ID, "name": "Super Admin", "email": SUPERADMIN_EMAIL,
             "role": "super_admin", "phone": None, "password_hash": hash_password(SUPERADMIN_PASSWORD),
@@ -745,7 +755,7 @@ async def seed_if_empty():
                        body="Sudah dihubungi, tertarik unit Tipe 45. Jadwalkan survey.",
                        actor="sales@sipro.co.id")
     for u in SEED_USERS:
-        await create_notification(user_email=u["email"], title="Selamat datang di SIPRO",
+        await create_notification(user_email=u["email"], title="Selamat datang di Estora",
                                   body="Buka 'Hari Saya' untuk melihat tugas & prioritas Anda.",
                                   type="info")
 

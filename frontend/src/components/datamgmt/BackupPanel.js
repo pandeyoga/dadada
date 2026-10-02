@@ -50,10 +50,10 @@ export default function BackupPanel({ snapshots, onChanged }) {
           </p>
           <div className="flex flex-wrap gap-2">
             <Button data-testid={DATAMGMT.downloadBackup}
-              onClick={() => downloadFile("/data-mgmt/backup.json", "SIPRO_Backup.json", { include_files: true })}>
+              onClick={() => downloadFile("/data-mgmt/backup.json", "Estora_Backup.json", { include_files: true })}>
               <Download className="h-4 w-4 mr-2" /> Backup JSON lengkap
             </Button>
-            <Button variant="outline" onClick={() => downloadFile("/data-mgmt/export.xlsx", "SIPRO_Master.xlsx")}>
+            <Button variant="outline" onClick={() => downloadFile("/data-mgmt/export.xlsx", "Estora_Master.xlsx")}>
               <FileSpreadsheet className="h-4 w-4 mr-2" /> Master (Excel)
             </Button>
           </div>

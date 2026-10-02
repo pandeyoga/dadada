@@ -33,7 +33,7 @@ def _write_index(ws, rows: list, org: str):
     ws.column_dimensions["B"].width = 34
     ws.column_dimensions["C"].width = 12
     ws.column_dimensions["D"].width = 28
-    ws["A1"] = "EKSPOR SEMUA DATA — SIPRO"
+    ws["A1"] = "EKSPOR SEMUA DATA — Estora"
     ws["A1"].font = Font(bold=True, size=14, color="0F766E")
     ws["A2"] = f"Organisasi {org} · dibuat {datetime.now():%d %b %Y %H:%M}"
     ws["A3"] = ("Setiap sheet = satu koleksi. Baris 1 = nama field (JANGAN diubah), baris 2 = tipe, "

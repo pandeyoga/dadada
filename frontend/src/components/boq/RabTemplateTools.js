@@ -67,7 +67,7 @@ export default function RabTemplateTools({ kind, target, candidates, onLoadRows 
         <span className="mx-1 h-5 w-px bg-border" />
         <input ref={fileRef} data-testid={P81.importFile} aria-label="Berkas Excel RAB" type="file" accept=".xlsx" className="hidden" disabled={busy === "import"} onChange={(e) => upload(e.target.files?.[0])} />
         <Button size="sm" variant="outline" disabled={busy === "import"} onClick={() => fileRef.current?.click()}><FileUp className="mr-1 h-3.5 w-3.5" /> {busy === "import" ? "Mengunggah…" : "Impor Excel"}</Button>
-        <Button data-testid={P81.importTemplateBtn} size="sm" variant="ghost" onClick={() => downloadFile("/rab/import-template.xlsx", "SIPRO_Template_RAB.xlsx", { kind })}><Download className="mr-1 h-3.5 w-3.5" /> Template Excel</Button>
+        <Button data-testid={P81.importTemplateBtn} size="sm" variant="ghost" onClick={() => downloadFile("/rab/import-template.xlsx", "Estora_Template_RAB.xlsx", { kind })}><Download className="mr-1 h-3.5 w-3.5" /> Template Excel</Button>
       </div>
       {report && (report.errors.length || report.warnings.length) ? (
         <ul data-testid={P81.importReport} className="max-h-24 space-y-0.5 overflow-y-auto text-[11px]">

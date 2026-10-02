@@ -1,7 +1,7 @@
 {
-  "short_name": "SIPRO",
-  "name": "SIPRO — Property Development OS",
-  "description": "Papan Mandor, jadwal pembangunan berbukti, dan operasi proyek PT SIPRO Land. Bisa dipakai di lokasi walau sinyal hilang.",
+  "short_name": "Estora",
+  "name": "Estora — Property Development OS",
+  "description": "Papan Mandor, jadwal pembangunan berbukti, dan operasi proyek properti. Bisa dipakai di lokasi walau sinyal hilang.",
   "icons": [
     { "src": "icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any" },
     { "src": "icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any" },

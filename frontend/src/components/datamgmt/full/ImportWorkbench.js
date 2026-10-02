@@ -111,7 +111,7 @@ export default function ImportWorkbench({ sessionId, onClose, onCommitted }) {
           <Stat l="Cek silang" v={t.checks || 0} c={t.checks ? "text-amber-700" : ""} />
         </div>
         <Button variant="outline" data-testid={FULLDATA.downloadReport} disabled={busy}
-          onClick={() => downloadFile(`/data-mgmt/full/sessions/${sessionId}/report.xlsx`, "SIPRO_LaporanValidasi.xlsx")}>
+          onClick={() => downloadFile(`/data-mgmt/full/sessions/${sessionId}/report.xlsx`, "Estora_LaporanValidasi.xlsx")}>
           <Download className="h-4 w-4 mr-2" /> Laporan validasi (Excel)
         </Button>
         <Button data-testid={FULLDATA.commitOpen} disabled={busy} onClick={() => setCommitOpen(true)}>

@@ -351,7 +351,7 @@ async def invoice_pdf(deal_id: str, user: dict = Depends(require_permission("fin
                           rows=rows, total_row=["TOTAL", "", _idr(inv.get("total")),
                                                 _idr(inv.get("paid")), ""],
                           org_name=ORG_NAME, layout=layout, intro=intro,
-                          note="Invoice diterbitkan otomatis oleh SIPRO dari jadwal termin yang tercatat.",
+                          note="Invoice diterbitkan otomatis oleh Estora dari jadwal termin yang tercatat.",
                           images=await dl.images(org, layout))
     name = f"invoice-{(deal.get('unit_code') or deal_id).replace('/', '-')}"
     return Response(content=pdf, media_type="application/pdf",

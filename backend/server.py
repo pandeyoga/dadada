@@ -405,7 +405,7 @@ async def lifespan(app: FastAPI):
 
 # Fase 94C — spesifikasi API tidak disajikan di produksi (bukan hanya mengandalkan reverse proxy).
 _PROD = os.environ.get("ENV") == "production"
-app = FastAPI(title="SIPRO API", version="0.1.0", lifespan=lifespan,
+app = FastAPI(title="Estora API", version="0.1.0", lifespan=lifespan,
               docs_url=None if _PROD else "/docs", redoc_url=None if _PROD else "/redoc",
               openapi_url=None if _PROD else "/openapi.json")
 api = APIRouter(prefix="/api")
@@ -429,7 +429,7 @@ async def readable_validation_error(_request, exc: RequestValidationError):
 
 @api.get("/")
 async def root():
-    return {"message": "SIPRO API", "status": "ok"}
+    return {"message": "Estora API", "status": "ok"}
 
 
 @api.get("/health")

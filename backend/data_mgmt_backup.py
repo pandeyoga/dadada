@@ -87,7 +87,7 @@ def parse_backup(content: bytes) -> dict:
         raise ValueError(f"Berkas bukan JSON backup yang sah: {e}")
     meta = payload.get("meta") or {}
     if meta.get("format") != FORMAT or not isinstance(payload.get("data"), dict):
-        raise ValueError("Format berkas tidak dikenal — gunakan berkas hasil Backup JSON SIPRO.")
+        raise ValueError("Format berkas tidak dikenal — gunakan berkas hasil Backup JSON Estora.")
     if int(meta.get("version", 0)) > VERSION:
         raise ValueError("Versi backup lebih baru dari aplikasi ini.")
     return payload

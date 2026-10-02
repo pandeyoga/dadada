@@ -17,7 +17,7 @@ import { NAV, AUTH, PROFILE } from "@/constants/testIds";
 function resolveMeta(pathname) {
   if (PAGE_META[pathname]) return PAGE_META[pathname];
   const match = Object.keys(PAGE_META).find((k) => k !== "/" && pathname.startsWith(k));
-  return match ? PAGE_META[match] : { kicker: "SIPRO", title: "Beranda" };
+  return match ? PAGE_META[match] : { kicker: "Estora", title: "Beranda" };
 }
 
 export default function TopBar({ onMenuClick }) {

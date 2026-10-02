@@ -247,7 +247,7 @@ async def leads_import_template(user: dict = Depends(require_permission("leads",
     from data_mgmt_excel import build_leads_only_workbook
     return Response(content=build_leads_only_workbook(),
                     media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": "attachment; filename=SIPRO_Template_Leads.xlsx"})
+                    headers={"Content-Disposition": "attachment; filename=Estora_Template_Leads.xlsx"})
 
 
 @router.post("/leads/import-file")

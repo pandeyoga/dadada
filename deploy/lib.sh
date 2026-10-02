@@ -14,7 +14,7 @@ warn() { printf '\033[1;33mPERINGATAN: %s\033[0m\n' "$*"; }
 ok()   { printf '\033[1;32mOK: %s\033[0m\n' "$*"; }
 die()  { printf '\n\033[1;31mGAGAL: %s\033[0m\n' "$*" >&2; exit 1; }
 
-envget() { grep -E "^$2=" "$1" 2>/dev/null | tail -1 | cut -d= -f2-; }
+envget() { { grep -E "^$2=" "$1" 2>/dev/null || true; } | tail -1 | cut -d= -f2-; }
 
 envset() {  # envset FILE KEY VALUE  (ganti bila ada, tambah bila belum)
   local f="$1" k="$2" v="$3"

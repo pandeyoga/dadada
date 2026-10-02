@@ -107,7 +107,7 @@ def _kv_table(rows):
 
 
 
-_REPORT_NOTE = "Angka worksheet-level (belum GL penuh / e-Faktur). Dihasilkan otomatis oleh SIPRO."
+_REPORT_NOTE = "Angka worksheet-level (belum GL penuh / e-Faktur). Dihasilkan otomatis oleh Estora."
 
 
 def build_table_pdf(*, title: str, subtitle: str = "", columns, rows,

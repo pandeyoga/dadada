@@ -80,7 +80,7 @@ function RequireUsers({ children }) {
 function Splash() {
   return (
     <div className="flex h-screen items-center justify-center bg-background">
-      <div className="animate-pulse text-muted-foreground">Memuat SIPRO…</div>
+      <div className="animate-pulse text-muted-foreground">Memuat Estora…</div>
     </div>
   );
 }

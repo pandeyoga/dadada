@@ -123,7 +123,7 @@ async def wa_digest(org: str, email: str, limit: int = 15) -> dict:
     baris = [f"{i}. {r.get('title')}" + (f" — {(r.get('body') or '')[:80]}"
                                          if r.get("body") else "")
              for i, r in enumerate(pilih, 1)]
-    teks = (f"*SIPRO — {len(pilih)} hal yang perlu ditindak*\n"
+    teks = (f"*Estora — {len(pilih)} hal yang perlu ditindak*\n"
             f"Untuk: {(user or {}).get('name') or email}\n\n" + "\n".join(baris)
             ) if pilih else ""
     telepon = ((user or {}).get("phone") or "").replace("+", "").replace(" ", "")

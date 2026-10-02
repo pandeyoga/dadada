@@ -32,7 +32,7 @@ export default function LegalPublicPage() {
 
   const toggleLang = () => { const n = new URLSearchParams(params); n.set("lang", lang === "id" ? "en" : "id"); setParams(n, { replace: true }); };
   const content = data?.pages?.[page]?.content || "";
-  const brand = data?.identity?.brand || "SIPRO";
+  const brand = data?.identity?.brand || "Estora";
 
   return (
     <div data-testid={LEGAL.publicPage} className="min-h-screen bg-background app-noise">

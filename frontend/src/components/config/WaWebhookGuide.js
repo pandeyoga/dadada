@@ -82,7 +82,7 @@ export default function WaWebhookGuide({ data }) {
       </div>
       <ol className="list-decimal space-y-0.5 pl-4 text-[11px] text-muted-foreground">
         <li>developers.facebook.com › App Anda › WhatsApp › Configuration › Webhook › Edit.</li>
-        <li>Tempel Callback URL + Verify token, klik <b>Verify and save</b> — SIPRO membalas hub.challenge.</li>
+        <li>Tempel Callback URL + Verify token, klik <b>Verify and save</b> — Estora membalas hub.challenge.</li>
         <li>Klik <b>Manage</b>, centang field di atas.</li>
         <li>Klik <b>Langganankan app</b> di panel Penyiapan.</li>
         <li>Kirim WA dari HP lain ke nomor bisnis — "Terakhir diterima" di bawah harus terisi.</li>

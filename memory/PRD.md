@@ -101,3 +101,9 @@ Lihat `/app/memory/test_credentials.md`.
 - Backend: env `START_EMPTY=true` → saat DB pertama kali di-seed, data operasional demo dihapus (purge semua grup); tidak berlaku untuk DB berisi.
 - Frontend: `BACKEND_URL` fallback `window.location.origin` → satu image frontend untuk semua domain.
 - Panduan: `docs/DOMAIN_ESTORA.md` (DNS A record, langkah, rollback). Simulasi skrip dengan docker tiruan: migrasi, ulang (idempoten), update, backup, rollback, guard data berkurang → semua sesuai.
+
+## 2026-10-02 — Rebrand Estora + Super Admin baru
+- Semua teks merek yang terlihat pengguna SIPRO → Estora (judul tab, manifest PWA, login, sidebar, topbar, portal pembeli, nama file ekspor/template, PDF/WA/OTP/notifikasi, API title). Kode internal/testId/logger tidak diubah.
+- Super Admin bawaan: superadmin@estora.id / test1234. `ensure_superadmin` me-rename akun super admin lama (SUPERADMIN_RENAME_FROM, default superadmin@sipro.co.id) → id & riwayat tetap.
+- VPS: `deploy/set_superadmin.sh` (semua instance, backup env, recreate backend, uji login). `add_instance.sh` default superadmin@estora.id/test1234, org "Estora".
+- Fix lib.sh `envget` tidak lagi menghentikan skrip saat kunci env tidak ada (set -e + pipefail).

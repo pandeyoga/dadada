@@ -31,7 +31,7 @@ async def export_all(collections: str = "", user: dict = Depends(require_data_ad
     content, index = await build_full_workbook(org, wanted)
     await audit_log(user, "export_all", "data_mgmt", meta={"collections": len(index),
                                                             "documents": sum(r["count"] for r in index)})
-    fname = f"SIPRO_SemuaData_{org}.xlsx"
+    fname = f"Estora_SemuaData_{org}.xlsx"
     return Response(content=content, media_type=XLSX, headers={
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"})
 
@@ -66,7 +66,7 @@ async def session_report(sid: str, user: dict = Depends(require_data_admin)):
 @router.get("/sessions/{sid}/report.xlsx")
 async def session_report_xlsx(sid: str, user: dict = Depends(require_data_admin)):
     content = await _lookup(ses.report_xlsx)(_org(user), sid)
-    fname = f"SIPRO_LaporanValidasi_{sid[:8]}.xlsx"
+    fname = f"Estora_LaporanValidasi_{sid[:8]}.xlsx"
     return Response(content=content, media_type=XLSX, headers={
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"})
 

@@ -62,7 +62,7 @@ export default function Login() {
             <Building2 className="h-6 w-6" />
           </div>
           <div>
-            <p className="font-heading text-xl font-bold tracking-tight">SIPRO</p>
+            <p className="font-heading text-xl font-bold tracking-tight">Estora</p>
             <p className="text-xs text-muted-foreground">Property Development OS</p>
           </div>
         </div>
@@ -91,7 +91,7 @@ export default function Login() {
             <div className="space-y-1.5">
               <Label htmlFor="email">Email</Label>
               <Input data-testid={AUTH.emailInput} id="email" type="email" autoComplete="username"
-                placeholder="nama@sipro.co.id" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                placeholder="nama@estora.id" value={email} onChange={(e) => setEmail(e.target.value)} required />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="password">Kata Sandi</Label>

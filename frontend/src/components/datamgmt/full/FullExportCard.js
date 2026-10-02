@@ -33,7 +33,7 @@ export default function FullExportCard({ collections, groups, loading }) {
   const run = async (all) => {
     setBusy(true);
     const params = all ? undefined : { collections: selected.map((c) => c.collection).join(",") };
-    await downloadFile("/data-mgmt/full/export.xlsx", "SIPRO_SemuaData.xlsx", params);
+    await downloadFile("/data-mgmt/full/export.xlsx", "Estora_SemuaData.xlsx", params);
     setBusy(false);
   };
 

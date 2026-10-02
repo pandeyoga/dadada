@@ -12,7 +12,7 @@ NAME="${1:-}"; DOMAIN="${2:-}"
 [ -n "$NAME" ] && [ -n "$DOMAIN" ] || die "pakai: bash deploy/add_instance.sh <nama> <domain> [--empty] [--no-demo-users]"
 [[ "$NAME" =~ ^[a-z][a-z0-9]{1,19}$ ]] || die "nama instance harus huruf kecil/angka (mis. demo, trial)"
 shift 2
-START_EMPTY=false; DEMO_USERS=true; ORG_NAME="SIPRO Developer"
+START_EMPTY=false; DEMO_USERS=true; ORG_NAME="Estora"
 while [ $# -gt 0 ]; do
   case "$1" in
     --empty) START_EMPTY=true ;;
@@ -47,8 +47,8 @@ DEFAULT_ORG_ID=org-sipro
 DEFAULT_ORG_NAME=$ORG_NAME
 JWT_SECRET=$(openssl rand -hex 48)
 PORTAL_MASTER_OTP=$(shuf -i 100000-999999 -n 1)
-SUPERADMIN_EMAIL=superadmin@sipro.co.id
-SUPERADMIN_PASSWORD=$(openssl rand -base64 12 | tr -d '/+=' | cut -c1-16)
+SUPERADMIN_EMAIL=${SUPERADMIN_EMAIL:-superadmin@estora.id}
+SUPERADMIN_PASSWORD=${SUPERADMIN_PASSWORD:-test1234}
 SEED_DEMO_USERS=$DEMO_USERS
 START_EMPTY=$START_EMPTY
 STORAGE_PROVIDER=mongo

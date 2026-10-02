@@ -58,11 +58,11 @@ export default function MigrationPanel({ entities, counts, onImported }) {
           </div>
           <div className="flex flex-wrap gap-2">
             <Button data-testid={DATAMGMT.downloadTemplate}
-              onClick={() => downloadFile("/data-mgmt/template.xlsx", "SIPRO_Template_Migrasi_Master.xlsx")}>
+              onClick={() => downloadFile("/data-mgmt/template.xlsx", "Estora_Template_Migrasi_Master.xlsx")}>
               <Download className="h-4 w-4 mr-2" /> Unduh template (dengan contoh)
             </Button>
             <Button variant="outline" data-testid={DATAMGMT.downloadExport}
-              onClick={() => downloadFile("/data-mgmt/export.xlsx", "SIPRO_Master.xlsx")}>
+              onClick={() => downloadFile("/data-mgmt/export.xlsx", "Estora_Master.xlsx")}>
               <Download className="h-4 w-4 mr-2" /> Ekspor data master saat ini
             </Button>
           </div>

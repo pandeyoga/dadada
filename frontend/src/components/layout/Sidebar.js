@@ -85,7 +85,7 @@ export default function Sidebar({ role, onNavigate, collapsed = false, onToggle 
         </div>
         {collapsed ? null : (
           <div className="min-w-0 flex-1">
-            <p className="font-heading font-bold leading-none tracking-tight">SIPRO</p>
+            <p className="font-heading font-bold leading-none tracking-tight">Estora</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">Property Development OS</p>
           </div>
         )}
@@ -129,7 +129,7 @@ export default function Sidebar({ role, onNavigate, collapsed = false, onToggle 
         <div className="border-t px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
           <NavMigrationDialog />
           <p className="mt-1 text-[10px] text-muted-foreground">
-            SIPRO · Property Development OS · v1.0
+            Estora · Property Development OS · v1.0
           </p>
         </div>
       )}

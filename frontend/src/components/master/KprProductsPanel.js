@@ -180,7 +180,7 @@ export default function KprProductsPanel() {
   };
 
   const downloadTemplate = async () => {
-    try { await downloadFile("/master/kpr-products/import-template.xlsx", { fallbackName: "SIPRO_Template_Produk_KPR.xlsx" }); }
+    try { await downloadFile("/master/kpr-products/import-template.xlsx", { fallbackName: "Estora_Template_Produk_KPR.xlsx" }); }
     catch (e) { toast.error(await blobErrorDetail(e, "Gagal mengunduh template.")); }
   };
 

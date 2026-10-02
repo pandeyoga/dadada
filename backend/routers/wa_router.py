@@ -30,7 +30,7 @@ class ConfigIn(BaseModel):
 
 class TestMessageIn(BaseModel):
     to: str
-    body: str = "Pesan uji dari SIPRO — integrasi WhatsApp berfungsi."
+    body: str = "Pesan uji dari Estora — integrasi WhatsApp berfungsi."
 
 
 class ImportIn(BaseModel):

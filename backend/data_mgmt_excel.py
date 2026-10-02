@@ -46,7 +46,7 @@ def _write_guide(wb: Workbook):
     ws.column_dimensions["A"].width = 4
     ws.column_dimensions["B"].width = 26
     ws.column_dimensions["C"].width = 90
-    ws["B1"] = "TEMPLATE MIGRASI MASTER DATA — SIPRO"
+    ws["B1"] = "TEMPLATE MIGRASI MASTER DATA — Estora"
     ws["B1"].font = Font(bold=True, size=14, color="0F766E")
     ws["B2"] = f"Dibuat {datetime.now():%d %b %Y %H:%M}. Isi sheet sesuai urutan di bawah, " \
                "lalu unggah di menu Admin → Manajemen Data → Migrasi Excel."

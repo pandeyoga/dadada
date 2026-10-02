@@ -60,14 +60,14 @@ async def overview(user: dict = Depends(require_data_admin)):
 @router.get("/template.xlsx")
 async def download_template(with_example: bool = True, user: dict = Depends(require_data_admin)):
     content = build_workbook({}, with_example=with_example)
-    return _attachment(content, "SIPRO_Template_Migrasi_Master.xlsx", XLSX)
+    return _attachment(content, "Estora_Template_Migrasi_Master.xlsx", XLSX)
 
 
 @router.get("/public/template.xlsx")
 async def download_template_public(with_example: bool = True):
     """Template kosong (tanpa data organisasi) — boleh dibagikan ke klien lewat tautan."""
     content = build_workbook({}, with_example=with_example)
-    return _attachment(content, "SIPRO_Template_Migrasi_Master.xlsx", XLSX)
+    return _attachment(content, "Estora_Template_Migrasi_Master.xlsx", XLSX)
 
 
 @router.get("/export.xlsx")
@@ -75,7 +75,7 @@ async def export_master(user: dict = Depends(require_data_admin)):
     org = _org(user)
     content = build_workbook(await export_rows(org))
     await audit_log(user, "export", "data_mgmt", meta={"format": "xlsx"})
-    return _attachment(content, f"SIPRO_Master_{org}.xlsx", XLSX)
+    return _attachment(content, f"Estora_Master_{org}.xlsx", XLSX)
 
 
 @router.post("/import")
@@ -107,7 +107,7 @@ async def download_backup(include_files: bool = False, user: dict = Depends(requ
     payload = await bk.dump_org(org, user.get("email"), include_files, label="unduh")
     await audit_log(user, "backup", "data_mgmt", meta={"include_files": include_files})
     stamp = payload["meta"]["created_at"][:19].replace(":", "")
-    return _attachment(bk.to_bytes(payload), f"SIPRO_Backup_{org}_{stamp}.json",
+    return _attachment(bk.to_bytes(payload), f"Estora_Backup_{org}_{stamp}.json",
                        "application/json")
 
 

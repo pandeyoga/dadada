@@ -57,7 +57,7 @@ async def options(user: dict = Depends(require_permission("boq", "view"))):
 async def import_template(kind: str = "unit_type", user: dict = Depends(require_permission("boq", "view"))):
     if kind not in ("unit_type", "addon"):
         raise HTTPException(status_code=404, detail="Jenis template tidak dikenal.")
-    name = f"SIPRO_Template_RAB_{'Tipe' if kind == 'unit_type' else 'AddOn'}.xlsx"
+    name = f"Estora_Template_RAB_{'Tipe' if kind == 'unit_type' else 'AddOn'}.xlsx"
     return Response(content=ext.import_workbook(kind), media_type=XLSX,
                     headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
 

@@ -52,7 +52,7 @@ export default function PortalLogin() {
         <div className="mb-6 flex items-center gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-xl bg-indigo-600 text-white"><Building2 className="h-6 w-6" /></div>
           <div>
-            <p className="font-heading text-lg font-semibold">Portal Pembeli SIPRO</p>
+            <p className="font-heading text-lg font-semibold">Portal Pembeli Estora</p>
             <p className="text-xs text-slate-500">Transparansi progres, pembayaran & dokumen</p>
           </div>
         </div>

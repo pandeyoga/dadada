@@ -11,7 +11,7 @@
  * aplikasi menampilkan cuplikan terakhir beserta waktunya, bukan menyamar sebagai data kini.
  */
 /* eslint-disable no-restricted-globals */
-const CACHE = "sipro-shell-v1";
+const CACHE = "estora-shell-v1";
 const SHELL = ["/", "/index.html"];
 
 self.addEventListener("install", (event) => {

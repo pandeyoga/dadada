@@ -49,7 +49,7 @@ export default function ImportLeadsDialog({ open, onOpenChange, onDone }) {
     try {
       const res = await api.get("/leads/import-template.xlsx", { responseType: "blob" });
       const url = URL.createObjectURL(res.data);
-      const a = Object.assign(document.createElement("a"), { href: url, download: "SIPRO_Template_Leads.xlsx" });
+      const a = Object.assign(document.createElement("a"), { href: url, download: "Estora_Template_Leads.xlsx" });
       a.click(); URL.revokeObjectURL(url);
     } catch { toast.error("Template tidak bisa diunduh."); }
   };

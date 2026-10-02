@@ -92,7 +92,7 @@ async def import_template(user: dict = Depends(require_permission("financing", "
     wb.save(buf)
     return Response(buf.getvalue(),
                     media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": 'attachment; filename="SIPRO_Template_Produk_KPR.xlsx"'})
+                    headers={"Content-Disposition": 'attachment; filename="Estora_Template_Produk_KPR.xlsx"'})
 
 
 def _num(v, name, rn, errors, required=False):

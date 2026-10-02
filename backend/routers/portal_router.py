@@ -116,7 +116,7 @@ async def request_otp(payload: PortalOtpRequest):
     )
     to = pu.get("phone") or pu.get("email")
     channel = "whatsapp" if pu.get("phone") else "email"
-    res = await send_whatsapp(to, f"Kode OTP Portal SIPRO Anda: {code} (berlaku 10 menit). Jangan bagikan kode ini.")
+    res = await send_whatsapp(to, f"Kode OTP Portal Estora Anda: {code} (berlaku 10 menit). Jangan bagikan kode ini.")
     simulated = res.get("provider") == "simulation"
     return {
         "sent": True, "channel": channel, "masked": _mask(to),
