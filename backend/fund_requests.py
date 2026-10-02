@@ -31,9 +31,11 @@ async def _get(rid: str, org: str) -> dict:
 async def _files(org: str, ids: list) -> list:
     if not ids:
         return []
-    return await db.files.find({"id": {"$in": ids}, "org_id": org, "is_deleted": False},
-                               {"_id": 0, "id": 1, "filename": 1, "content_type": 1, "size": 1}
+    rows = await db.files.find({"id": {"$in": ids}, "org_id": org, "is_deleted": False},
+                               {"_id": 0, "id": 1, "original_filename": 1, "content_type": 1, "size": 1}
                                ).to_list(len(ids))
+    return [{"id": r["id"], "filename": r.get("original_filename"), "content_type": r.get("content_type"),
+             "size": r.get("size")} for r in rows]
 
 
 async def _bind_ap_bill(org: str, payload) -> dict:
@@ -194,6 +196,7 @@ async def disburse(rid: str, payload, actor: str, org: str = ORG_ID) -> dict:
     await _push(rid, {"status": final, "disbursed_amount": amt, "disbursed_at": ts,
                       "disbursed_by": actor, "source": payload.source,
                       "reference_no": payload.reference_no, "disburse_note": payload.note,
+                      "payment_proofs": await _files(org, payload.proof_ids),
                       "cash_account_id": (cash_acc or {}).get("id"), "cash_account_code": cash_code,
                       "cash_account_name": (cash_acc or {}).get("name"), **extra_set,
                       **({"settled_at": ts, "settled_by": actor, "expense_total": amt}
@@ -239,6 +242,19 @@ async def settle(rid: str, payload, actor: str, org: str = ORG_ID) -> dict:
                        actor=actor, org_id=org)
     await notify_finance(org, "Kas bon dipertanggungjawabkan", f"{r['no']} — {detail}.",
                          "finance", "fund_request", rid)
+    return await _get(rid, org)
+
+
+async def add_payment_proof(rid: str, proof_ids: list, actor: str, org: str = ORG_ID) -> dict:
+    r = await _get(rid, org)
+    if r["status"] not in ("disbursed", "settled") or not r.get("disbursed_at"):
+        raise ValueError("Bukti bayar hanya untuk pengajuan yang sudah dicairkan.")
+    known = {f["id"] for f in r.get("payment_proofs") or []}
+    new = [f for f in await _files(org, proof_ids) if f["id"] not in known]
+    if not new:
+        raise ValueError("Berkas bukti tidak ditemukan.")
+    await _push(rid, {"payment_proofs": (r.get("payment_proofs") or []) + new}, actor, "proof_added",
+                f"{len(new)} bukti bayar ditambahkan")
     return await _get(rid, org)
 
 

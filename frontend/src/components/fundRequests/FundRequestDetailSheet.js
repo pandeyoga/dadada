@@ -6,6 +6,7 @@ import RefLabel from "@/components/patterns/RefLabel";
 import { formatIDR, formatDateTimeWIB } from "@/utils/formatters";
 import { fileUrl } from "@/utils/photoSrc";
 import { FUNDREQ } from "@/constants/testIds";
+import PaymentProofSection from "@/components/fundRequests/PaymentProofSection";
 
 function Row({ label, value }) {
   return (
@@ -17,10 +18,11 @@ function Row({ label, value }) {
 }
 
 const ACTION_LABEL = { submitted: "Diajukan", approved: "Disetujui", rejected: "Ditolak",
-  cancelled: "Dibatalkan", disbursed: "Dicairkan", settled: "Dipertanggungjawabkan" };
+  cancelled: "Dibatalkan", disbursed: "Dicairkan", settled: "Dipertanggungjawabkan",
+  proof_added: "Bukti bayar ditambahkan" };
 
 /** Detail pengajuan + jejak persetujuan/pencairan + lampiran + realisasi kas bon. */
-export default function FundRequestDetailSheet({ req, onClose }) {
+export default function FundRequestDetailSheet({ req, onClose, canApprove, onUpdated }) {
   if (!req) return null;
   const r = req;
   const files = [...(r.attachments || []), ...(r.settle_attachments || [])];
@@ -49,6 +51,7 @@ export default function FundRequestDetailSheet({ req, onClose }) {
             <Row label="Catatan" value={r.note || "—"} />
             {r.reject_reason ? <Row label="Alasan ditolak" value={<span className="text-rose-700">{r.reject_reason}</span>} /> : null}
           </div>
+          <PaymentProofSection req={r} canApprove={canApprove} onUpdated={onUpdated} />
           {files.length ? (
             <div className="rounded-xl border bg-card p-3">
               <p className="mb-2 text-xs font-medium text-muted-foreground">Lampiran</p>

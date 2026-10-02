@@ -5,7 +5,7 @@ import fund_requests as fr
 from core_utils import parse_pagination, serialize_doc
 from db import ORG_ID, db
 from models_fund_request import (FundRequestCreate, FundRequestDecision, FundRequestDisburse,
-                                 FundRequestSettle)
+                                 FundRequestProof, FundRequestSettle)
 from rbac import audit_log, can, require_permission
 
 router = APIRouter(prefix="/fund-requests", tags=["fund-requests"])
@@ -127,6 +127,17 @@ async def disburse(rid: str, payload: FundRequestDisburse,
     except ValueError as e:
         raise _err(e)
     await audit_log(user, "disburse", RES, rid, {"amount": doc.get("disbursed_amount")})
+    return {"data": serialize_doc(doc)}
+
+
+@router.post("/{rid}/payment-proof")
+async def add_payment_proof(rid: str, payload: FundRequestProof,
+                            user: dict = Depends(require_permission(RES, "approve"))):
+    try:
+        doc = await fr.add_payment_proof(rid, payload.proof_ids, user.get("email"), user.get("org_id", ORG_ID))
+    except ValueError as e:
+        raise _err(e)
+    await audit_log(user, "payment_proof", RES, rid, {"files": len(payload.proof_ids)})
     return {"data": serialize_doc(doc)}
 
 

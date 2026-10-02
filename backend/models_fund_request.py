@@ -46,6 +46,11 @@ class FundRequestDisburse(BaseModel):
     cash_account_id: Optional[str] = None
     reference_no: Optional[str] = None
     note: Optional[str] = None
+    proof_ids: List[str] = []
+
+
+class FundRequestProof(BaseModel):
+    proof_ids: List[str] = Field(min_length=1)
 
 
 class FundRequestSettle(BaseModel):

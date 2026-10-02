@@ -24,11 +24,12 @@ export function FundRequestDisburseDialog({ req, onClose, onSaved }) {
   const [cashAccountId, setCashAccountId] = useState("");
   const [refNo, setRefNo] = useState("");
   const [note, setNote] = useState("");
+  const [proofs, setProofs] = useState([]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
   useEffect(() => {
-    if (req) { setAmount(String(req.approved_amount || req.amount || "")); setSource("bank"); setRefNo(""); setNote(""); setErr(""); }
+    if (req) { setAmount(String(req.approved_amount || req.amount || "")); setSource("bank"); setRefNo(""); setNote(""); setProofs([]); setErr(""); }
   }, [req]);
   if (!req) return null;
   const cap = Number(req.approved_amount || req.amount || 0);
@@ -39,7 +40,7 @@ export function FundRequestDisburseDialog({ req, onClose, onSaved }) {
     try {
       await api.post(`/fund-requests/${req.id}/disburse`, {
         amount: Number(amount), source, cash_account_id: cashAccountId || null,
-        reference_no: refNo || null, note: note || null,
+        reference_no: refNo || null, note: note || null, proof_ids: proofs,
       });
       toast.success(`Pengajuan ${req.no} dicairkan ${formatIDR(Number(amount))}.`);
       onClose(); onSaved?.();
@@ -77,11 +78,14 @@ export function FundRequestDisburseDialog({ req, onClose, onSaved }) {
             <Label htmlFor="fr-dis-note">Catatan</Label>
             <Textarea id="fr-dis-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
+          <EvidenceUploader value={proofs} onChange={setProofs} ownerType="fund_request_payment" ownerId={req.id} max={3}
+            accept="image/*,application/pdf" testId={FUNDREQ.disburseProof} label="Foto bukti pembayaran (wajib)" />
+          <p className="text-[11px] text-muted-foreground">Bukti ini bisa dilihat oleh pemohon.</p>
           {err ? <p className="rounded-md bg-rose-50 p-2 text-sm text-rose-700">{err}</p> : null}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Batal</Button>
-          <Button data-testid={FUNDREQ.disburseSubmit} onClick={submit} disabled={saving || over || !(Number(amount) > 0)}>
+          <Button data-testid={FUNDREQ.disburseSubmit} onClick={submit} disabled={saving || over || !(Number(amount) > 0) || !proofs.length}>
             {saving ? "Memproses…" : "Cairkan"}
           </Button>
         </DialogFooter>

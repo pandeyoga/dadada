@@ -162,7 +162,14 @@ export default function FundRequestsPage() {
                       <TableCell className="text-right tabular-nums">{formatIDR(r.amount)}
                         {r.approved_amount && r.approved_amount !== r.amount ? <p className="text-[11px] text-muted-foreground">disetujui {formatIDR(r.approved_amount)}</p> : null}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">{r.disbursed_amount ? formatIDR(r.disbursed_amount) : "—"}</TableCell>
+                      <TableCell className="text-right tabular-nums">{r.disbursed_amount ? formatIDR(r.disbursed_amount) : "—"}
+                        {r.payment_proofs?.length ? (
+                          <button type="button" data-testid={FUNDREQ.proofBadge} onClick={() => setDetail(r)}
+                            className="mt-0.5 block w-full text-right text-[11px] font-medium text-emerald-700 hover:underline">
+                            Lihat bukti bayar ({r.payment_proofs.length})
+                          </button>
+                        ) : null}
+                      </TableCell>
                       <TableCell><StatusPill status={r.status} group="fund_request_status" /></TableCell>
                       <TableCell className="col-actions">
                         <div className="flex flex-wrap justify-end gap-1.5">
@@ -200,7 +207,8 @@ export default function FundRequestsPage() {
       <FundRequestDialog open={openNew} onOpenChange={setOpenNew} onSaved={load} />
       <FundRequestDisburseDialog req={disburse} onClose={() => setDisburse(null)} onSaved={load} />
       <FundRequestSettleDialog req={settle} onClose={() => setSettle(null)} onSaved={load} />
-      <FundRequestDetailSheet req={detail} onClose={() => setDetail(null)} />
+      <FundRequestDetailSheet req={detail} onClose={() => setDetail(null)} canApprove={canApprove}
+        onUpdated={(doc) => { setDetail(doc); load(); }} />
     </div>
   );
 }
