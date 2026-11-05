@@ -373,6 +373,19 @@ def test_kt08_reservasi_tanpa_kupon_tetap_normal(cleanup):
     assert deal["status"] == "reserved" and int(deal.get("discount") or 0) == 0
 
 
+# ============================================================================ KT-12
+def test_kt12_pembatalan_booked_baru_bayar_booking_fee_menunjuk_jalan_keluar(cleanup):
+    """Pesan penolakan pembatalan satu klik tidak lagi melempar ke 'Pembatalan formal' yang
+    sendirinya menyuruh kembali ke daftar deal: ia menyebut langkah nyata (Jadikan Pembeli dulu)."""
+    lead, deal, unit = booked_deal(cleanup, tag="BatalBF")
+    pv = ok(call("manager", "GET", f"/deals/{deal['id']}/cancel-preview"))
+    if pv["can_cancel"]:
+        pytest.skip("instance ini tidak mengalihkan booking fee ke piutang termin")
+    assert "Jadikan Pembeli" in pv["blocked_reason"], pv["blocked_reason"]
+    code, body = call("manager", "POST", f"/deals/{deal['id']}/cancel", {"reason": "uji P0 pembatalan"})
+    assert code == 400 and "Jadikan Pembeli" in str(body), (code, str(body)[:300])
+
+
 # ============================================================================ KT-09
 def test_kt09_sales_lain_tidak_boleh_membaca_pembeli_orang(cleanup):
     lead, deal, _ = booked_deal(cleanup, who="sales", tag="Scope")

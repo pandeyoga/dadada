@@ -162,7 +162,7 @@ export default function LeadLifecyclePanel({ lead, lifecycle, onAction, onChange
           </div>
         ) : (
           <p className="mt-3 text-xs text-muted-foreground">
-            {stage === "won" ? "Lead sudah menang (akad/AJB selesai)."
+            {stage === "won" ? "Lead sudah menang — sudah menjadi pembeli (kontrak dibuat); tahap legal berikutnya dicatat di Kontrak & Legal."
               : "Tahap akhir. Gunakan Daur Ulang bila ingin menghidupkan kembali lead ini."}
           </p>
         )}

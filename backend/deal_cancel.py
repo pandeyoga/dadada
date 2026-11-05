@@ -40,6 +40,16 @@ async def preview(org: str, deal: dict, user: dict) -> dict:
     blocked = None
     if deal.get("status") not in ("reserved", "booked"):
         blocked = f"Deal berstatus '{deal.get('status')}' tidak bisa dibatalkan dari sini."
+    elif ar_paid > 0 and not contract:
+        # KT-12: pesan dulu saling merujuk (di sini "pakai Pembatalan Kontrak formal", di sana
+        # "kontrak belum ada, batalkan dari daftar deal"). Jalan keluarnya satu-satunya: deal
+        # harus punya kontrak lebih dulu supaya potongan & utang refund bisa dihitung formal.
+        rp = f"{ar_paid:,}".replace(",", ".")
+        blocked = (f"Tagihan deal ini sudah menerima Rp {rp} (booking fee yang dibayar "
+                   "otomatis dialihkan ke piutang termin), sehingga pembatalan satu klik tidak "
+                   "tersedia. Deal belum punya kontrak: klik 'Jadikan Pembeli' lebih dulu, lalu "
+                   "ajukan Pembatalan Kontrak formal di Kontrak & Legal agar potongan & utang "
+                   "refund dihitung.")
     elif ar_paid > 0:
         blocked = ("Sudah ada pembayaran termin (DP/cicilan) yang diterima. Gunakan Pembatalan "
                    "Kontrak formal di Kontrak & Legal agar potongan & utang refund dihitung.")
