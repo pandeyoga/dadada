@@ -18,6 +18,9 @@ Cakupan (urut berkas):
   KT-23  satu pengajuan KPR aktif per deal, tertaut kontrak, plafon tersinkron
   KT-22  validasi wajar komponen biaya kontrak
   KT-21  pratinjau "Jadikan Pembeli" membedakan skema DIPILIH sales vs bawaan sistem
+  KT-27  daftar kontrak untuk sales: total & counts hanya miliknya
+  KT-28  impor lead JSON: nomor dinormalisasi & tidak digandakan
+  KT-29  tugas "Konfirmasi booking fee" selesai saat booking; booking paralel satu efek
   KT-25  sweeper kedaluwarsa reservasi melepas unit/kupon/tugas/lead seperti pembatalan
          (butuh env DB_NAME = DB instans yang diuji; opsional P0_BACKEND_DIR = kode yang diuji)
 """
@@ -497,3 +500,62 @@ def test_kt21_skema_bawaan_tidak_dikunci_skema_pilihan_sales_dikunci(cleanup):
     assert pre["deal_scheme"] == "cash_bertahap" and pre["deal_scheme_explicit"] is True
     code, body = call("sales", "POST", f"/deals/{deal_b['id']}/convert", {"scheme": "kpr"})
     assert code == 400 and "dipilih saat reservasi" in str(body), (code, str(body)[:300])
+
+
+# ============================================================================ KT-27
+def test_kt27_daftar_kontrak_sales_total_dan_counts_hanya_miliknya(cleanup):
+    u1, u2 = available_units(2)
+    for u, tag in ((u1, "L1"), (u2, "L2")):
+        _, d, _ = booked_deal(cleanup, unit=u, tag="K27" + tag, scheme="cash_keras")
+        ok(call("sales", "POST", f"/deals/{d['id']}/convert", {"scheme": "cash_keras"}))
+    code, body = call("sales", "GET", "/contracts", params={"limit": 1})
+    assert code == 200 and len(body["data"]) == 1
+    assert body["total"] >= 2, "total harus jumlah SEMUA kontrak milik sales, bukan jumlah baris halaman"
+    assert sum(body["counts"].values()) == body["total"], (body["total"], body["counts"])
+    code, body2 = call("sales2", "GET", "/contracts", params={"limit": 200})
+    assert code == 200
+    milik = len(body2["data"])
+    assert body2["total"] == milik and sum(body2["counts"].values()) == milik, (body2["total"], body2["counts"])
+
+
+# ============================================================================ KT-28
+def test_kt28_impor_lead_json_menormalkan_telepon_dan_melewati_duplikat():
+    import random
+    nomor = "0813" + "".join(random.choice("0123456789") for _ in range(8))
+    spasi = f"{nomor[:4]} {nomor[4:8]} {nomor[8:]}"
+    nama = "P0KT Impor " + uuid.uuid4().hex[:5]
+    out = ok(call("manager", "POST", "/leads/import", {"leads": [
+        {"name": nama, "phone": spasi, "source": "import"},
+        {"name": nama + " kembar", "phone": nomor, "source": "import"}]}))
+    assert out["created"] == 1 and out["skipped"] == 1, out
+    code, body = call("manager", "POST", "/leads", {"name": nama + " lagi", "phone": nomor, "source": "walk_in"})
+    assert code == 409, (code, str(body)[:200])
+    rows = ok(call("manager", "GET", "/leads", params={"q": nama, "limit": 20}))
+    assert len(rows) == 1 and rows[0]["phone"].lstrip("+").startswith("62"), rows
+
+
+# ============================================================================ KT-29
+def test_kt29_tugas_konfirmasi_booking_fee_selesai_saat_booking(cleanup):
+    lead, deal, _u = booked_deal(cleanup, tag="K29")
+    for st, harap in (("open", False), ("done", True)):
+        code, body = call("owner", "GET", "/work/tasks",
+                          params={"scope": "all", "q": "Konfirmasi booking fee", "status": st, "limit": 100})
+        assert code == 200, (code, str(body)[:200])
+        ada = [t for t in body["data"] if t.get("related_entity_id") == deal["id"]]
+        assert bool(ada) is harap, (st, ada)
+
+
+def test_kt29_booking_paralel_hanya_satu_efek(cleanup):
+    unit = available_units(1)[0]
+    lead = new_lead(tag="K29b")
+    deal = ok(reserve(lead["id"], unit))
+    cleanup.append(deal["id"])
+    fid = upload_proof(deal["id"])
+    ok(call("finance", "POST", f"/booking-fee/deals/{deal['id']}/pay",
+            {"amount": 5_000_000, "method": "transfer", "note": "P0KT bf", "proof_file_ids": [fid]}))
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        res = list(pool.map(lambda _: call("sales", "POST", f"/deals/{deal['id']}/book", {}), range(3)))
+    kode = sorted(c for c, _ in res)
+    assert kode.count(200) == 1 and all(c in (400, 409) for c in kode if c != 200), kode
+    inv, receipts = ar_of(deal["id"])
+    assert int(inv["paid"]) == 5_000_000 and len([r for r in receipts if r.get("funding") == "deposit"]) <= 1

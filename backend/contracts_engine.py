@@ -643,7 +643,7 @@ async def legal_advance(org: str, contract_id: str, stage: str, payload: dict,
 # ============================================================ daftar
 async def listing(org: str = ORG_ID, *, customer_id: str = None, deal_id: str = None,
                   scheme: str = None, state: str = None, legal_stage: str = None,
-                  q: str = None, skip: int = 0, limit: int = 50) -> dict:
+                  q: str = None, skip: int = 0, limit: int = 50, assigned_to: str = None) -> dict:
     query = {"org_id": org}
     if customer_id:
         query["customer_id"] = customer_id
@@ -659,7 +659,12 @@ async def listing(org: str = ORG_ID, *, customer_id: str = None, deal_id: str = 
         query["$or"] = [{"number": {"$regex": q, "$options": "i"}},
                         {"customer_name": {"$regex": q, "$options": "i"}},
                         {"unit_code": {"$regex": q, "$options": "i"}}]
-    total = await db.contracts.count_documents(query)
+    # KT-27: lingkup sales difilter di query (bukan setelah paginasi) supaya `total`/`counts` hanya
+    # menghitung kontrak miliknya; `total_all` = jumlah tanpa lingkup (untuk pesan "di luar lingkup").
+    total_all = await db.contracts.count_documents(query)
+    scope = {"assigned_to": assigned_to} if assigned_to else {}
+    query = {**query, **scope}
+    total = await db.contracts.count_documents(query) if scope else total_all
     rows = await (db.contracts.find(query, {"_id": 0})
                   .sort("created_at", -1).skip(int(skip)).limit(int(limit))
                   .to_list(int(limit)))
@@ -670,5 +675,5 @@ async def listing(org: str = ORG_ID, *, customer_id: str = None, deal_id: str = 
         r["ar"] = inv
     counts = {}
     for st in ("draft", "active", "completed", "cancelled"):
-        counts[st] = await db.contracts.count_documents({"org_id": org, "state": st})
-    return {"data": rows, "total": total, "counts": counts}
+        counts[st] = await db.contracts.count_documents({"org_id": org, "state": st, **scope})
+    return {"data": rows, "total": total, "counts": counts, "total_all": total_all}

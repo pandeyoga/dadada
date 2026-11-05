@@ -442,15 +442,26 @@ async def book_deal(deal_id: str, payload: DealAction,
     if blocked:
         raise HTTPException(status_code=400, detail=blocked)
     ts = now_iso()
-    await db.deals.update_one({"id": deal_id}, {"$set": {
+    # CAS: dua klik "Konfirmasi Booking" serentak hanya menghasilkan satu booking (satu event
+    # deal.booked, satu jadwal AR, satu komisi); yang kedua mendapat 409.
+    klaim = await db.deals.update_one({"id": deal_id, "status": "reserved"}, {"$set": {
         "status": "booked", "booked_at": ts, "updated_at": ts,
         **await clock.patch_for("deal", "booked", org_id=org, at=ts)}})
+    if klaim.matched_count != 1:
+        from idempotency import Conflict
+        raise Conflict("Reservasi ini baru saja dikonfirmasi/diubah oleh proses lain. Muat ulang halaman.")
     await db.units.update_one({"id": d["unit_id"]}, {"$set": {
         "status": "booked", "booked_by_deal": deal_id, "payment_status": "booking_fee", "updated_at": ts}})
     # Fase 31 (perbaikan cacat): ikatan unit → deal → lead → pembeli disimpan pada unit,
     # supaya progres pembangunan, portal pembeli, dan laporan tidak bergantung pencarian
     # berlapis yang mudah putus.
     await _bind_unit(org, d["unit_id"])
+    # KT-29: tugas "Konfirmasi booking fee" selesai dengan sendirinya begitu booking dikonfirmasi.
+    await db.tasks.update_many(
+        {"org_id": org, "related_entity_type": "deal", "related_entity_id": deal_id,
+         "source_event": f"deal.bookingfee:{deal_id}", "status": {"$in": ["open", "in_progress", "snoozed"]}},
+        {"$set": {"status": "done", "completed_at": ts, "completed_by": user.get("email"),
+                  "outcome": "Booking dikonfirmasi", "updated_at": ts}})
     await emit("deal.booked", "deal", deal_id, {"unit_id": d["unit_id"]}, org_id=org)
     await add_activity(entity_type="lead", entity_id=d["lead_id"], type="system",
                        body="Deal dikonfirmasi (booked).", actor=user.get("email"), org_id=org)
