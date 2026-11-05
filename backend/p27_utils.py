@@ -21,6 +21,25 @@ def rp(n) -> str:
     return f"Rp {int(n or 0):,}"
 
 
+def clean_cash_date(value, what: str = "Tanggal"):
+    """Tanggal transaksi kas (PK-14): harus ISO sah (YYYY-MM-DD…) dan tidak di masa depan.
+
+    Sebelumnya tanggal sembarang ("garbage-date", 2035-01-01) lolos ke jurnal kas keluar — jurnal
+    terbit lalu request gagal, atau jurnal bertanggal 2035 menghindari laporan/kunci periode.
+    `None`/kosong dikembalikan apa adanya (pemanggil memakai waktu sekarang).
+    """
+    if not value:
+        return value
+    raw = str(value).strip()
+    try:
+        d = datetime.fromisoformat(raw[:10] if len(raw) >= 10 else raw)
+    except ValueError:
+        raise ValueError(f"{what} '{raw[:20]}' tidak valid — gunakan format tahun-bulan-tanggal (YYYY-MM-DD).")
+    if d.date() > now().astimezone(WIB).date():
+        raise ValueError(f"{what} tidak boleh di masa depan.")
+    return raw
+
+
 def parse_iso(value):
     if not value:
         return None

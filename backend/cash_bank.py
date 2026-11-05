@@ -10,6 +10,7 @@ Prinsip:
   * Migrasi startup: baris jurnal lama yang menunjuk akun induk dipindahkan ke rekening default.
 """
 import logging
+from contextlib import asynccontextmanager
 
 import gl_engine as gl
 import sequences as seq
@@ -214,6 +215,23 @@ async def account_balance(org: str, code: str) -> int:
     async for r in db.journal_entries.aggregate(pipe):
         return int(r.get("d") or 0) - int(r.get("c") or 0)
     return 0
+
+
+@asynccontextmanager
+async def cash_lock(org: str, code: str, wait: float = 8.0):
+    """Mutex per sub-akun kas/bank: serialkan "cek dana → posting" antar transaksi KELUAR dari
+    rekening yang sama (kunci dilepas selalu; kedaluwarsa 30 dtk bila proses mati).
+
+    Tanpa ini dua pengeluaran berbeda yang bersamaan sama-sama membaca saldo lama (3 × Rp 600 rb
+    lolos dari kas kecil Rp 1 jt → saldo −Rp 800 rb). Yang menunggu antre sampai `wait` detik;
+    lewat itu → Conflict (409) "coba lagi", bukan ditolak diam-diam.
+    """
+    if FUNDS_CHECK_SUSPENDED:
+        yield
+        return
+    import idempotency as _idem
+    async with _idem.mutex(f"cash:{org}:{code}", wait=wait, what="Rekening/kas ini"):
+        yield
 
 
 async def assert_funds(org: str, amount, *, cash_account_id: str = None, code: str = None,

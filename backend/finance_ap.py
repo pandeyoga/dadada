@@ -139,34 +139,36 @@ async def pay_ap_bill(bill_id, amount, note, actor, org_id=ORG_ID, withhold: dic
         cash_code = await _cb.resolve_code(org_id, cash_account_id, "1-1200")
         cash_acc = await _cb.account_by_code(org_id, cash_code)
         cash_account_id = (cash_acc or {}).get("id")
-        await _cb.assert_funds(org_id, amount - withheld, cash_account_id=cash_account_id,
-                               code=cash_code, kind=f"pembayaran tagihan {bill.get('vendor')}")
         expect = {"status": bill["status"],
                   "paid": paid_before if "paid" in bill else {"$exists": False}}
-        async with reserved(
-                "ap_invoices", {"id": bill_id, "org_id": org_id}, expect,
-                {"$set": {"paid": paid, "outstanding": max(0, outstanding), "status": status,
-                          "updated_at": ts},
-                 "$inc": {"withheld_total": withheld}},
-                undo={"$set": {"paid": int(paid_before or 0), "status": bill["status"],
-                               "outstanding": int(bill.get("outstanding", bill.get("net", 0)))},
-                      "$inc": {"withheld_total": -withheld}}, what="Tagihan AP"):
-            payment = {
-                "id": new_id(), "org_id": org_id, "bill_id": bill_id, "vendor": bill.get("vendor"),
-                "amount": amount, "cash_out": amount - withheld, "withheld_amount": withheld,
-                "withheld_kind": (withhold or {}).get("kind"),
-                "withheld_base": int((withhold or {}).get("base", 0) or 0),
-                "withheld_rate": float((withhold or {}).get("rate", 0) or 0),
-                "cash_account_id": cash_account_id, "cash_account_name": (cash_acc or {}).get("name"),
-                "cash_account_code": cash_code,
-                "note": note, "actor": actor, "created_at": ts,
-            }
-            await db.payments_out.insert_one(dict(payment))
-            payment.pop("_id", None)
-            await emit("ap.paid", "ap_bill", bill_id,
-                       {"amount": amount, "withheld": withheld, "cash_account_id": cash_account_id,
-                        "withheld_memo": (withhold or {}).get("memo")}, org_id=org_id)
-            await dispatch_pending()
+        # Kunci rekening: cek dana + penulisan berurutan antar pembayaran dari rekening yang sama.
+        async with _cb.cash_lock(org_id, cash_code):
+            await _cb.assert_funds(org_id, amount - withheld, cash_account_id=cash_account_id,
+                                   code=cash_code, kind=f"pembayaran tagihan {bill.get('vendor')}")
+            async with reserved(
+                    "ap_invoices", {"id": bill_id, "org_id": org_id}, expect,
+                    {"$set": {"paid": paid, "outstanding": max(0, outstanding), "status": status,
+                              "updated_at": ts},
+                     "$inc": {"withheld_total": withheld}},
+                    undo={"$set": {"paid": int(paid_before or 0), "status": bill["status"],
+                                   "outstanding": int(bill.get("outstanding", bill.get("net", 0)))},
+                          "$inc": {"withheld_total": -withheld}}, what="Tagihan AP"):
+                payment = {
+                    "id": new_id(), "org_id": org_id, "bill_id": bill_id, "vendor": bill.get("vendor"),
+                    "amount": amount, "cash_out": amount - withheld, "withheld_amount": withheld,
+                    "withheld_kind": (withhold or {}).get("kind"),
+                    "withheld_base": int((withhold or {}).get("base", 0) or 0),
+                    "withheld_rate": float((withhold or {}).get("rate", 0) or 0),
+                    "cash_account_id": cash_account_id, "cash_account_name": (cash_acc or {}).get("name"),
+                    "cash_account_code": cash_code,
+                    "note": note, "actor": actor, "created_at": ts,
+                }
+                await db.payments_out.insert_one(dict(payment))
+                payment.pop("_id", None)
+                await emit("ap.paid", "ap_bill", bill_id,
+                           {"amount": amount, "withheld": withheld, "cash_account_id": cash_account_id,
+                            "withheld_memo": (withhold or {}).get("memo")}, org_id=org_id)
+                await dispatch_pending()
     body = f"Bayar Rp {amount:,} ke {bill.get('vendor')}. Sisa Rp {max(0, outstanding):,}."
     if withheld:
         body += f" Dipotong PPh Rp {withheld:,} (kas keluar Rp {amount - withheld:,})."

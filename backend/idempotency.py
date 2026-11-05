@@ -132,6 +132,28 @@ async def transition(coll: str, filt: dict, expect: dict, update: dict,
     return doc
 
 
+@asynccontextmanager
+async def mutex(key: str, *, wait: float = 8.0, ttl: int = 30, what: str = "Sumber daya ini"):
+    """Kunci eksklusif sementara (antre sampai `wait` detik). Selalu dilepas di akhir (sukses/gagal);
+    kedaluwarsa sendiri setelah `ttl` detik bila prosesnya mati. Untuk menyerialkan "baca saldo →
+    cek → tulis" pada sumber yang dihitung dari banyak dokumen (saldo kas, saldo titipan kontrak)."""
+    import asyncio
+    import time
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            await claim("mutex:" + key, ttl, what)
+            break
+        except Conflict:
+            if time.monotonic() > deadline:
+                raise Conflict(f"{what} sedang dipakai transaksi lain. Tunggu sebentar lalu coba lagi.")
+            await asyncio.sleep(0.05)
+    try:
+        yield
+    finally:
+        await release("mutex:" + key)
+
+
 def expect_of(doc: dict, *fields) -> dict:
     """Syarat CAS dari nilai yang tadi dibaca: {field: nilai} (atau {$exists: False} bila belum ada)."""
     return {f: (doc[f] if f in doc else {"$exists": False}) for f in fields}
