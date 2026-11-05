@@ -200,6 +200,54 @@ async def account_by_code(org: str, code: str) -> dict:
     return await db.bank_accounts.find_one({"org_id": org, "gl_account_code": code}, {"_id": 0})
 
 
+# ----------------------------------------------------------- cek dana sebelum uang keluar
+# Dinyalakan HANYA selama seed/startup (lihat server.lifespan): seed demo memposting pembayaran
+# sebelum saldo awal dijurnal sehingga urutannya tidak mewakili saldo nyata.
+FUNDS_CHECK_SUSPENDED = False
+
+
+async def account_balance(org: str, code: str) -> int:
+    """Saldo (debit − kredit) SATU sub-akun kas/bank. Ringan: tidak memindai semua rekening."""
+    pipe = [{"$match": {"org_id": org, "lines.account_code": code}}, {"$unwind": "$lines"},
+            {"$match": {"lines.account_code": code}},
+            {"$group": {"_id": None, "d": {"$sum": "$lines.debit"}, "c": {"$sum": "$lines.credit"}}}]
+    async for r in db.journal_entries.aggregate(pipe):
+        return int(r.get("d") or 0) - int(r.get("c") or 0)
+    return 0
+
+
+async def assert_funds(org: str, amount, *, cash_account_id: str = None, code: str = None,
+                       kind: str = "Pembayaran") -> None:
+    """Tolak uang KELUAR bila saldo sub-akun kas/bank lebih kecil dari nominal (audit PK-06).
+
+    Dipakai SEMUA jalur uang keluar (AP, aset tetap, pinjaman, upah, pajak, refund, komisi, fee,
+    kas bon, pengajuan, titipan) sebelum mengubah subledger / memposting jurnal — satu sumber
+    kebenaran, bukan cek yang tercecer. Rekening yang dipakai = `cash_account_id` bila ada,
+    selain itu akun kas/bank `code` (induk 1-1100/1-1200 diarahkan ke rekening default, sama
+    seperti `post_journal`). Sakelar `cash.allow_negative` (Pusat Konfigurasi, default MATI)
+    mengizinkan saldo minus bila kebijakan perusahaan memang begitu.
+
+    Catatan batas: saldo diturunkan dari jurnal, jadi dua pengeluaran yang BENAR-BENAR bersamaan
+    dari rekening yang sama dengan dana pas-pasan bisa sama-sama lolos cek ini; yang menutup
+    pembayaran ganda atas dokumen yang sama adalah CAS/kunci idempotensi di tiap jalur.
+    """
+    amount = int(amount or 0)
+    if amount <= 0 or FUNDS_CHECK_SUSPENDED:
+        return
+    import settings_store as _st
+    if await _st.get("cash.allow_negative", org_id=org):
+        return
+    cash_code = await resolve_code(org, cash_account_id, code or "1-1200")
+    bal = await account_balance(org, cash_code)
+    if bal < amount:
+        acc = await account_by_code(org, cash_code) or {}
+        name = acc.get("name") or cash_code
+        raise ValueError(
+            f"Saldo {name} Rp {bal:,} tidak cukup untuk {kind} Rp {amount:,} "
+            f"(kurang Rp {amount - bal:,}). Isi dana ke rekening ini (transfer/penerimaan) atau "
+            "pilih rekening/kas lain.")
+
+
 # ----------------------------------------------------------------- saldo & buku
 async def balances(org: str, date_to: str = None) -> dict:
     """{gl_code: saldo debit-normal} untuk semua sub-akun kas/bank sampai `date_to` (inklusif)."""

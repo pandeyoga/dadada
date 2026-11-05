@@ -130,3 +130,40 @@ async def transition(coll: str, filt: dict, expect: dict, update: dict,
         raise Conflict(f"{what} baru saja diubah oleh proses lain atau tidak lagi berstatus yang "
                        f"diharapkan. Muat ulang lalu coba lagi.")
     return doc
+
+
+def expect_of(doc: dict, *fields) -> dict:
+    """Syarat CAS dari nilai yang tadi dibaca: {field: nilai} (atau {$exists: False} bila belum ada)."""
+    return {f: (doc[f] if f in doc else {"$exists": False}) for f in fields}
+
+
+def _landed(update: dict) -> dict:
+    """Nilai skalar yang di-`$set` oleh `update` — dipakai untuk mengenali dokumen hasil klaim kita."""
+    out = {}
+    for k, v in (update.get("$set") or {}).items():
+        if v is None or isinstance(v, (str, int, float, bool)):
+            out[k] = v
+    return out
+
+
+@asynccontextmanager
+async def reserved(coll: str, filt: dict, expect: dict, update: dict, *, undo: dict,
+                   what: str = "Data"):
+    """Klaim dokumen secara atomik SEBELUM efek samping (jurnal/emit/pembayaran), lalu kembalikan
+    bila efek samping gagal.
+
+    `async with reserved("ap_invoices", {"id": x}, {"paid": 0, "status": "approved"}, {"$set": ...}, undo={...}):`
+    1. `cas()` — hanya SATU dari dua permintaan bersamaan yang lolos; yang kalah → `Conflict` (409).
+    2. Blok dijalankan (post jurnal, emit, insert pembayaran, ...).
+    3. Bila blok melempar exception, `undo` diterapkan dengan syarat dokumen masih berada pada
+       keadaan hasil klaim kita (tidak menimpa perubahan proses lain).
+    """
+    await cas(coll, filt, expect, update, what)
+    try:
+        yield
+    except BaseException:
+        try:
+            await db[coll].update_one({**filt, **_landed(update)}, undo)
+        except Exception:  # noqa: BLE001 — pengembalian best-effort; jangan menutupi galat asli
+            logger.exception("Gagal mengembalikan klaim %s %s", coll, filt)
+        raise
