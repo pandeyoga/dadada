@@ -15,7 +15,8 @@ import gl_engine as gl
 import sequences as seq
 from core_utils import new_id, now_iso
 from db import ORG_ID, db
-from finance_engine import apply_receipt, notify_finance
+from finance_engine import _deal_closed_reason, apply_receipt, notify_finance
+from money_lock import locked
 
 PDC_ASSET = "1-1350"
 PDC_CONTRA = "2-1480"
@@ -93,9 +94,24 @@ async def _reverse_pair(org: str, doc: dict, event: str, memo: str, actor: str, 
 
 
 async def clear(org: str, pdc_id: str, payload: dict, actor: str) -> dict:
+    """Kliring giro → uang masuk. Audit IN-01: status `received` dicek DI BAWAH kunci per giro
+    (kunci yang sama dipakai tolak/batal), jadi dua kliring bersamaan tidak menghasilkan dua
+    kuitansi + dua jurnal pembalik untuk satu warkat."""
     doc = await _get(org, pdc_id)
     if doc["status"] != "received":
         raise ValueError(f"Giro {doc['no']} sudah {doc['status']} — tidak bisa dikliring.")
+    async with locked("pdc.state", pdc_id, what="Giro ini"):
+        return await _clear_locked(org, pdc_id, payload, actor)
+
+
+async def _clear_locked(org: str, pdc_id: str, payload: dict, actor: str) -> dict:
+    doc = await _get(org, pdc_id)   # baca ulang di bawah kunci
+    if doc["status"] != "received":
+        raise ValueError(f"Giro {doc['no']} sudah {doc['status']} — tidak bisa dikliring.")
+    if doc.get("deal_id"):
+        closed = await _deal_closed_reason(org, doc["deal_id"])
+        if closed:   # jangan membalik memorandum dulu bila kuitansinya pasti ditolak (IN-13)
+            raise ValueError(f"Giro {doc['no']} tidak bisa dikliring ke tagihan: {closed}")
     import cash_bank as cb
     acc = await db.bank_accounts.find_one({"id": payload.get("cash_account_id"), "org_id": org}, {"_id": 0})
     if not acc or cb.kind_of(acc) != "bank" or not acc.get("is_active", True):
@@ -132,6 +148,11 @@ async def clear(org: str, pdc_id: str, payload: dict, actor: str) -> dict:
 
 
 async def bounce(org: str, pdc_id: str, reason: str, actor: str) -> dict:
+    async with locked("pdc.state", pdc_id, what="Giro ini"):
+        return await _bounce_locked(org, pdc_id, reason, actor)
+
+
+async def _bounce_locked(org: str, pdc_id: str, reason: str, actor: str) -> dict:
     doc = await _get(org, pdc_id)
     if doc["status"] != "received":
         raise ValueError(f"Giro {doc['no']} sudah {doc['status']}.")
@@ -149,6 +170,11 @@ async def bounce(org: str, pdc_id: str, reason: str, actor: str) -> dict:
 
 
 async def cancel(org: str, pdc_id: str, reason: str, actor: str) -> dict:
+    async with locked("pdc.state", pdc_id, what="Giro ini"):
+        return await _cancel_locked(org, pdc_id, reason, actor)
+
+
+async def _cancel_locked(org: str, pdc_id: str, reason: str, actor: str) -> dict:
     doc = await _get(org, pdc_id)
     if doc["status"] != "received":
         raise ValueError(f"Giro {doc['no']} sudah {doc['status']}.")

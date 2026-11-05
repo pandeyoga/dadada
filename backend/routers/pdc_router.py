@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 import pdc_engine as pdc
 from core_utils import serialize_doc
 from db import ORG_ID
+from idempotency import Conflict
 from models_p85 import PdcClearIn, PdcReceiveIn, ReasonIn
 from rbac import audit_log, can, require_permission
 
@@ -17,7 +18,8 @@ def _org(user: dict) -> str:
 
 
 def _err(e: Exception) -> HTTPException:
-    return HTTPException(status_code=400, detail=str(e))
+    # Bentrok dengan proses lain yang sama (klik ganda/dua tab) = 409, bukan salah isian (400).
+    return HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
 
 
 @router.get("")
