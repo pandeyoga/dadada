@@ -360,7 +360,7 @@ async def decide_payroll(org: str, payroll_id: str, actor: str, approve: bool,
 
 
 async def pay_payroll(org: str, payroll_id: str, actor: str, *, bank_txn_id: str = None,
-                     note: str = None) -> dict:
+                     note: str = None, skip_funds_check: bool = False) -> dict:
     """Bayar upah: jurnal Dr WIP proyek / Cr Bank + masuk realisasi anggaran bila ditaut."""
     p = await payroll_or_error(org, payroll_id)
     if p["state"] != "approved":
@@ -370,7 +370,8 @@ async def pay_payroll(org: str, payroll_id: str, actor: str, *, bank_txn_id: str
         raise ValueError("Nilai rekap upah nol — tidak ada yang bisa dibayar.")
     import cash_bank as _cb
     bank_code = await _cb.resolve_code(org, None, GL_BANK)
-    await _cb.assert_funds(org, amount, code=bank_code, kind=f"pembayaran upah {p['no']}")
+    if not skip_funds_check:  # rekonsiliasi bank: uang sudah keluar, pembukuan mengikuti kenyataan
+        await _cb.assert_funds(org, amount, code=bank_code, kind=f"pembayaran upah {p['no']}")
     # PK-02: klaim atomik approved → paying SEBELUM jurnal/emit (bayar upah bersamaan = satu efek;
     # dulu jurnal-nya idempoten tetapi riwayat, aktivitas, dan event labor.paid terbit dua kali).
     async with reserved("labor_payrolls", {"id": payroll_id, "org_id": org}, {"state": "approved"},

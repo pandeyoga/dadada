@@ -104,7 +104,7 @@ def _validate_payment(bill, amount: int, withheld: int) -> None:
 
 async def pay_ap_bill(bill_id, amount, note, actor, org_id=ORG_ID, withhold: dict = None,
                       return_payment: bool = False, cash_account_id: str = None,
-                      client_ref: str = None):
+                      client_ref: str = None, skip_funds_check: bool = False):
     """Bayar tagihan AP. `withhold` (Fase 49F) memotong PPh dari kas yang keluar.
 
     Tanpa fitur ini, potongan PPh jasa konstruksi/PPh 23 hanya bisa dicatat di luar sistem,
@@ -118,6 +118,9 @@ async def pay_ap_bill(bill_id, amount, note, actor, org_id=ORG_ID, withhold: dic
     Rp 38 jt untuk tagihan net Rp 9,5 jt). Sekarang: (1) kunci idempotensi `once` untuk klik ganda /
     retry (`client_ref` opsional), (2) cek dana (PK-06), (3) CAS atas (status, paid) yang dibaca —
     hanya satu pemanggil yang lanjut ke payments_out + emit; yang kalah mendapat Conflict (409).
+
+    `skip_funds_check` HANYA untuk rekonsiliasi bank (uang sudah benar-benar keluar dari bank sesuai
+    mutasi; pembukuan wajib mengikuti kenyataan, bukan menolaknya).
     """
     from finance_engine import notify_finance
     import cash_bank as _cb
@@ -143,8 +146,9 @@ async def pay_ap_bill(bill_id, amount, note, actor, org_id=ORG_ID, withhold: dic
                   "paid": paid_before if "paid" in bill else {"$exists": False}}
         # Kunci rekening: cek dana + penulisan berurutan antar pembayaran dari rekening yang sama.
         async with _cb.cash_lock(org_id, cash_code):
-            await _cb.assert_funds(org_id, amount - withheld, cash_account_id=cash_account_id,
-                                   code=cash_code, kind=f"pembayaran tagihan {bill.get('vendor')}")
+            if not skip_funds_check:
+                await _cb.assert_funds(org_id, amount - withheld, cash_account_id=cash_account_id,
+                                       code=cash_code, kind=f"pembayaran tagihan {bill.get('vendor')}")
             async with reserved(
                     "ap_invoices", {"id": bill_id, "org_id": org_id}, expect,
                     {"$set": {"paid": paid, "outstanding": max(0, outstanding), "status": status,

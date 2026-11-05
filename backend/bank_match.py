@@ -217,11 +217,14 @@ async def _apply(org: str, txn: dict, kind: str, target_id: str, actor: str,
                 "intake_id": target_id, "deal_id": res["intake"].get("deal_id"),
                 "detail": "Bukti transfer pelanggan diverifikasi lewat rekonsiliasi."}
     if kind == "ap_bill":
-        await fin.pay_ap_bill(target_id, amount, memo, actor, org_id=org, cash_account_id=acc_id)
+        # Uang SUDAH keluar dari bank (mutasi nyata) → tanpa cek dana; pembukuan mengikuti kenyataan.
+        await fin.pay_ap_bill(target_id, amount, memo, actor, org_id=org, cash_account_id=acc_id,
+                              skip_funds_check=True)
         return {"bill_id": target_id, "detail": "Pembayaran tagihan vendor dicatat."}
     if kind == "labor_payroll":
         import labor_engine as labor
-        await labor.pay_payroll(org, target_id, actor, bank_txn_id=txn["id"], note=memo)
+        await labor.pay_payroll(org, target_id, actor, bank_txn_id=txn["id"], note=memo,
+                                skip_funds_check=True)
         return {"payroll_id": target_id, "detail": "Pembayaran upah dicatat."}
     if kind == "bank_fee":
         je = await gl.post_journal(org, f"Biaya bank — {txn.get('description')}", [
