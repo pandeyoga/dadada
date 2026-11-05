@@ -172,7 +172,7 @@ export default function PODetailSheet({ poId, open, onOpenChange, onChanged }) {
                   <p className="text-sm font-semibold">Buat Tagihan (3-Way Match)</p>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1"><Label className="text-xs">Nilai Klaim (Rp)</Label><RupiahInput value={bill.claimed} onChange={(e) => setBill((b) => ({ ...b, claimed: e.target.value }))} /></div>
-                    <div className="space-y-1"><Label className="text-xs">Retensi (%)</Label><Input type="number" value={bill.retention_pct} onChange={(e) => setBill((b) => ({ ...b, retention_pct: e.target.value }))} /></div>
+                    <div className="space-y-1"><Label className="text-xs">Retensi (%)</Label><Input type="number" min={0} max={100} step="any" value={bill.retention_pct} onChange={(e) => setBill((b) => ({ ...b, retention_pct: e.target.value }))} /></div>
                     <div className="space-y-1"><Label className="text-xs">Jatuh Tempo</Label><Input type="date" value={bill.due_date} onChange={(e) => setBill((b) => ({ ...b, due_date: e.target.value }))} /></div>
                     <div className="space-y-1"><Label className="text-xs">GRN (opsional)</Label>
                       <Select value={bill.grn_id} onValueChange={(v) => setBill((b) => ({ ...b, grn_id: v }))}>
