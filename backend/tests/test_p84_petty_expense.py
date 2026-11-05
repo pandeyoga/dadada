@@ -99,16 +99,17 @@ def test_imprest_suggests_replenish_below_threshold(tok_finance, tok_finlead, ka
     assert st["status"] == "cukup" and st["suggested_replenish"] == 0
     r = s.post(f"{BASE_URL}/api/petty-cash/imprest/{kas['id']}/replenish", json={})
     assert r.status_code == 400 and "ambang" in r.json()["detail"]
-    fid = _upload_proof(s)
+    # PK-13: satu berkas bukti tidak boleh dipakai ulang pada pengeluaran lain → unggah baru tiap kali.
     for i in range(2):
         r = s.post(f"{BASE_URL}/api/petty-cash/expenses", json={
             "cash_account_id": kas["id"], "category": "perbaikan_pemeliharaan",
-            "description": f"Perbaikan pompa air kantor #{i + 1}", "amount": 1_000_000, "file_ids": [fid]})
+            "description": f"Perbaikan pompa air kantor #{i + 1}", "amount": 1_000_000,
+            "file_ids": [_upload_proof(s)]})
         assert r.status_code == 200, r.text
     assert _balance(s, kas["id"]) == 0
     r = s.post(f"{BASE_URL}/api/petty-cash/expenses", json={
         "cash_account_id": kas["id"], "category": "transport", "description": "Ojek kirim berkas",
-        "amount": 50_000, "file_ids": [fid]})
+        "amount": 50_000, "file_ids": [_upload_proof(s)]})
     assert r.status_code == 400 and "tidak cukup" in r.json()["detail"]
     _, st = _imprest(s, kas["id"])
     assert st["status"] == "perlu_isi" and st["suggested_replenish"] == 3_000_000

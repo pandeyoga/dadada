@@ -379,7 +379,11 @@ r = site.post(f"{BASE}/fund-requests", json={"type": "vendor_payment", "title": 
 check(r.status_code == 400, f"pengajuan kedua atas tagihan yang sama ditolak ({r.status_code})")
 r = fin.post(f"{BASE}/fund-requests/{freq['id']}/approve", json={"note": "ok"})
 check(r.status_code == 200, "pengajuan disetujui finance")
-r = fin.post(f"{BASE}/fund-requests/{freq['id']}/disburse", json={"source": "bank", "note": "cair probe"})
+# PK-13: bukti pencairan wajib & divalidasi di API — unggah berkas bukti dulu.
+_up = fin.post(f"{BASE}/files/upload", data={"owner_type": "fund_request_payment", "owner_id": freq["id"], "optimize": "false"},
+               files={"file": ("bukti.txt", b"bukti transfer probe", "text/plain")})
+r = fin.post(f"{BASE}/fund-requests/{freq['id']}/disburse", json={"source": "bank", "note": "cair probe",
+                                                                  "proof_ids": [_up.json()["data"]["id"]]})
 check(r.status_code == 200, f"pencairan ({r.status_code} {r.text[:150] if r.status_code != 200 else ''})")
 wait_events()
 vb = db.ap_invoices.find_one({"id": vbill["id"]}, {"_id": 0})
