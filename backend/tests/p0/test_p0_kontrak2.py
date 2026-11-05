@@ -15,10 +15,19 @@ Cakupan (urut berkas):
   KT-24  tahap legal paralel -> satu efek; tanda tangan & SPR tidak ganda
   KT-18  batas unit aktif per lead atomik (paralel & lewat penawaran)
   KT-20  lead lost/recycle tidak bisa memesan unit
+  KT-25  sweeper kedaluwarsa reservasi melepas unit/kupon/tugas/lead seperti pembatalan
+         (butuh env DB_NAME = DB instans yang diuji; opsional P0_BACKEND_DIR = kode yang diuji)
 """
+import os
+import subprocess
+import sys
 import time
+import uuid
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+
+import pytest
 
 from test_p0_kontrak import (  # noqa: F401  (fixture `cleanup` ikut diimpor)
     available_units, booked_deal, call, cleanup, new_lead, ok, reserve, scheme_id, upload_proof,
@@ -343,3 +352,64 @@ def test_kt20_lead_lost_tidak_bisa_memesan_unit_dan_pulih_lewat_daur_ulang(clean
     deal = ok(reserve(lead["id"], unit))
     cleanup.append(deal["id"])
     assert ok(call("sales", "GET", f"/leads/{lead['id']}"))["stage"] == "booking"
+
+
+# ============================================================================ KT-25
+def _jalankan_sweeper() -> int:
+    """Jalankan `reservation_expiry_sweeper` dari kode yang diuji terhadap DB instans (proses terpisah)."""
+    db_name = os.environ.get("DB_NAME")
+    if not db_name:
+        pytest.skip("set DB_NAME = nama DB instans yang diuji untuk menguji sweeper")
+    backend = os.environ.get("P0_BACKEND_DIR") or str(Path(__file__).resolve().parents[2])
+    r = subprocess.run(
+        [sys.executable, "-c",
+         "import asyncio, engine_sweepers as e; print('SWEPT', asyncio.run(e.reservation_expiry_sweeper()))"],
+        cwd=backend, env={**os.environ, "DB_NAME": db_name}, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr[-800:]
+    return int(r.stdout.strip().split()[-1])
+
+
+def _paksa_kedaluwarsa(deal_id: str) -> None:
+    from pymongo import MongoClient
+    url = os.environ.get("MONGO_URL", "mongodb://127.0.0.1:27017")
+    MongoClient(url)[os.environ.get("DB_NAME", "")].deals.update_one(
+        {"id": deal_id}, {"$set": {"reserved_until": "2020-01-01T00:00:00+00:00"}})
+
+
+def test_kt25_sweeper_kedaluwarsa_melepas_seperti_pembatalan(cleanup):
+    if not os.environ.get("DB_NAME"):
+        pytest.skip("set DB_NAME = nama DB instans yang diuji untuk menguji sweeper")
+    kode = "P0KT" + uuid.uuid4().hex[:6].upper()
+    ok(call("manager", "POST", "/pricing/coupons",
+            {"code": kode, "name": "P0KT kupon kedaluwarsa", "kind": "amount", "value": 1_000_000,
+             "quota_total": 3, "quota_per_customer": 1, "target": "price"}))
+    unit = available_units(1)[0]
+    lead = new_lead(tag="Expire")
+    deal = ok(reserve(lead["id"], unit, coupon_code=kode))
+    cleanup.append(deal["id"])
+    cp = next(c for c in ok(call("manager", "GET", "/pricing/coupons")) if c["code"] == kode)
+    assert cp["used_count"] == 1
+    assert ok(call("sales", "GET", f"/leads/{lead['id']}"))["stage"] == "booking"
+    _paksa_kedaluwarsa(deal["id"])
+    assert _jalankan_sweeper() >= 1
+    d = ok(call("manager", "GET", f"/deals/{deal['id']}"))
+    assert d["status"] == "expired"
+    u = call("manager", "GET", "/units", params={"q": unit["code"], "limit": 5})[1]["data"][0]
+    assert u["status"] == "available"
+    assert not u.get("reserved_by_deal") and not u.get("deal_id") and not u.get("lead_id") \
+        and not u.get("lead_name"), f"tautan basi tertinggal di unit: {u}"
+    assert u.get("payment_status") in (None, "none")
+    assert ok(call("sales", "GET", f"/leads/{lead['id']}"))["stage"] == "nurturing"
+    cp = next(c for c in ok(call("manager", "GET", "/pricing/coupons")) if c["code"] == kode)
+    assert cp["used_count"] == 0, "kuota kupon harus kembali"
+    for st, harap in (("open", False), ("cancelled", True)):
+        code, body = call("owner", "GET", "/work/tasks",
+                          params={"scope": "all", "q": "Konfirmasi booking fee", "status": st, "limit": 100})
+        assert code == 200, (code, str(body)[:200])
+        ada = [t for t in body["data"] if t.get("related_entity_id") == deal["id"]]
+        assert bool(ada) is harap, (st, ada)
+    # menjalankan sweeper lagi tidak melepas dua kali / merusak unit yang sudah dipesan ulang
+    deal2 = ok(reserve(lead["id"], unit))
+    cleanup.append(deal2["id"])
+    _jalankan_sweeper()
+    assert call("manager", "GET", "/units", params={"q": unit["code"], "limit": 5})[1]["data"][0]["status"] == "reserved"

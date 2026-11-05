@@ -70,10 +70,13 @@ async def preview(org: str, deal: dict, user: dict) -> dict:
     }
 
 
-async def _release_unit(org: str, deal: dict, actor: str, reason: str) -> None:
+async def _release_unit(org: str, deal: dict, actor: str, reason: str, only_deal: bool = False) -> None:
     ts = now_iso()
+    filt = {"id": deal["unit_id"], "org_id": org}
+    if only_deal:  # sweeper: jangan melepas unit yang kini dipegang deal LAIN
+        filt["$or"] = [{"reserved_by_deal": deal["id"]}, {"deal_id": deal["id"]}]
     await db.units.update_one(
-        {"id": deal["unit_id"], "org_id": org},
+        filt,
         {"$set": {"status": "available", "reserved_by_deal": None, "booked_by_deal": None,
                   "deal_id": None, "lead_id": None, "lead_name": None, "customer_id": None,
                   "contract_id": None, "payment_status": "none", "updated_at": ts},
@@ -84,6 +87,49 @@ async def _release_unit(org: str, deal: dict, actor: str, reason: str) -> None:
         await be.sync_unit_binding(org, deal["unit_id"])
     except Exception:  # noqa: BLE001
         pass
+
+
+async def _close_tasks_and_rewind_lead(org: str, deal: dict, actor: str, ts: str, outcome: str,
+                                       lead_reason: str, source: str) -> None:
+    """Tugas terkait deal ditutup; lead yang tadinya `booking` mundur ke nurturing bila tak ada deal hidup."""
+    await db.tasks.update_many(
+        {"org_id": org, "related_entity_type": "deal", "related_entity_id": deal["id"],
+         "status": {"$nin": ["done", "cancelled"]}},
+        {"$set": {"status": "cancelled", "outcome": outcome, "updated_at": ts}})
+    lead = await db.leads.find_one({"id": deal.get("lead_id"), "org_id": org}, {"_id": 0})
+    if lead and lead.get("stage") == "booking":
+        other = await db.deals.find_one({"org_id": org, "lead_id": lead["id"],
+                                         "status": {"$in": ["reserved", "booked", "completed"]}},
+                                        {"_id": 1})
+        if not other:
+            await lc.record(lead, "nurturing", actor=actor, source=source, reason=lead_reason)
+
+
+async def expire(org: str, deal: dict, actor: str = "scheduler") -> bool:
+    """Reservasi KEDALUWARSA (sweeper) — pelepasan SAMA dengan pembatalan (audit KT-25).
+
+    Dulu sweeper hanya mengubah status deal + status unit: tautan basi tertinggal di unit
+    (`reserved_by_deal`, `deal_id`, `lead_id`, `payment_status`), lead tetap `booking`, kupon tetap
+    terpakai, dan tugas "Konfirmasi booking fee" tetap terbuka. Klaim status bersifat atomik, jadi
+    reservasi yang di saat yang sama di-booking/dibatalkan tidak ikut dilepas. True bila dilepas.
+    """
+    ts = now_iso()
+    claimed = await db.deals.update_one(
+        {"id": deal["id"], "org_id": org, "status": {"$in": ["draft", "reserved"]}},
+        {"$set": {"status": "expired", "expired_at": ts, "updated_at": ts}})
+    if claimed.matched_count != 1:
+        return False
+    if deal.get("unit_id"):
+        await _release_unit(org, deal, actor, "Reservasi kedaluwarsa", only_deal=True)
+    import pricing_engine as pe
+    await pe.release_coupon(org, ref_type="deal", ref_id=deal["id"], actor=actor)
+    await bf.cancel(org, deal["id"], actor)
+    await _close_tasks_and_rewind_lead(org, deal, actor, ts, "Reservasi kedaluwarsa",
+                                       f"Reservasi unit {deal.get('unit_code')} kedaluwarsa", "deal_expired")
+    await add_activity(entity_type="lead", entity_id=deal.get("lead_id"), type="system", actor=actor,
+                       org_id=org, body=f"Reservasi unit {deal.get('unit_code')} KEDALUWARSA — unit dilepas ke stok.")
+    await emit("deal.expired", "deal", deal["id"], {"unit_id": deal.get("unit_id")}, org_id=org)
+    return True
 
 
 async def _void_ar(org: str, deal_id: str, reason: str) -> None:
@@ -159,19 +205,8 @@ async def cancel(org: str, deal: dict, user: dict, *, reason: str, refund_mode: 
         refund = out["refund"]
     else:
         await bf.cancel(org, deal["id"], actor)
-    await db.tasks.update_many(
-        {"org_id": org, "related_entity_type": "deal", "related_entity_id": deal["id"],
-         "status": {"$nin": ["done", "cancelled"]}},
-        {"$set": {"status": "cancelled", "outcome": f"Reservasi dibatalkan: {reason}",
-                  "updated_at": ts}})
-    lead = await db.leads.find_one({"id": deal.get("lead_id"), "org_id": org}, {"_id": 0})
-    if lead and lead.get("stage") == "booking":
-        other = await db.deals.find_one({"org_id": org, "lead_id": lead["id"],
-                                         "status": {"$in": ["reserved", "booked", "completed"]}},
-                                        {"_id": 1})
-        if not other:
-            await lc.record(lead, "nurturing", actor=actor, source="deal_cancel",
-                            reason=f"Reservasi unit {deal.get('unit_code')} dibatalkan")
+    await _close_tasks_and_rewind_lead(org, deal, actor, ts, f"Reservasi dibatalkan: {reason}",
+                                       f"Reservasi unit {deal.get('unit_code')} dibatalkan", "deal_cancel")
     mode_label = {"full": "booking fee direfund penuh", "partial": "booking fee direfund sebagian",
                   "forfeit": "booking fee hangus"}.get(refund_mode) if refundable > 0 else None
     await add_activity(entity_type="lead", entity_id=deal.get("lead_id"), type="system",
