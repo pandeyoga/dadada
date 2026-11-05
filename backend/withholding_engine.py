@@ -100,7 +100,8 @@ async def _agent_identity(org_id, agent_id: str) -> dict:
 async def actual_deductions(org_id=ORG_ID, period: str = None) -> dict:
     """Potongan PPh yang BENAR-BENAR terjadi di pembukuan, apa pun status bukti potongnya."""
     rows = []
-    for p in await db.payments_out.find({"org_id": org_id, "withheld_amount": {"$gt": 0}},
+    for p in await db.payments_out.find({"org_id": org_id, "withheld_amount": {"$gt": 0},
+                                         "status": {"$ne": "void"}},  # PK-09: pembayaran dibatalkan = tak ada potongan
                                         {"_id": 0}).to_list(20000):
         per = period_of(p.get("created_at"))
         if period and per != period:

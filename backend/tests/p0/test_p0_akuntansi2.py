@@ -177,3 +177,104 @@ def test_gl13_akun_nonaktif_tidak_menerima_posting_dan_akun_sistem_terkunci():
     a = ok(call(FINANCE, "POST", "/bank/accounts", json=_bank_body()))["data"]
     r = call(FINANCE, "PUT", f"/gl/accounts/{a['gl_account_code']}", json={"is_active": False})
     assert r.status_code == 400 and "rekening" in r.text, r.text[:200]
+
+
+# ================================================================== PK-09 — batalkan pembayaran AP
+def _bill(claimed=10_000_000, retention=0):
+    b = ok(call(FINANCE, "POST", "/finance/ap/bills", json={
+        "vendor": f"Vendor Uji {_uniq('V')}", "claimed": claimed, "retention_pct": retention}))["data"]
+    ok(call(OWNER, "POST", f"/finance/ap/bills/{b['id']}/approve"))
+    return b
+
+
+def _pay_bill(bill_id, amount, **extra):
+    return call(FINANCE, "POST", f"/finance/ap/bills/{bill_id}/pay", json={"amount": amount, **extra})
+
+
+def _detail(bill_id):
+    return ok(call(FINANCE, "GET", f"/finance/ap/bills/{bill_id}"))["data"]
+
+
+def _void_pay(email, pid, reason="uji pembatalan pembayaran vendor"):
+    return call(email, "POST", f"/finance/ap/payments/{pid}/void", json={"reason": reason})
+
+
+def _paid_journal_ready(bill_id):
+    return _wait(lambda: any(j["source_type"] == "ap_bill" and "Pembayaran" in j["memo"]
+                             for j in _detail(bill_id)["journals"]))
+
+
+def test_pk09_batal_bayar_ap_membalik_jurnal_dan_subledger():
+    b = _bill(10_000_000)
+    ok(_pay_bill(b["id"], 10_000_000))
+    d = _detail(b["id"])
+    pid = d["payments"][0]["id"]
+    cash_code = d["payments"][0]["cash_account_code"]
+    assert d["bill"]["status"] == "paid"
+    assert _paid_journal_ready(b["id"])
+    before = _tb()
+    res = ok(_void_pay(FINLEAD, pid))["data"]
+    assert res["reversed"] == 10_000_000 and res["bill"]["status"] == "approved"
+    d2 = _detail(b["id"])
+    assert d2["bill"]["paid"] == 0 and d2["bill"]["outstanding"] == 10_000_000 and d2["bill"]["status"] == "approved"
+    assert d2["payments"][0]["status"] == "void", "pembayaran tetap ada sebagai jejak"
+    assert d2["summary"]["paid"] == 0 and d2["summary"]["paid_consistent"]
+    after = _tb()
+    assert after.get("2-1100", 0) - before.get("2-1100", 0) == -10_000_000   # utang usaha kembali (kredit +10 jt)
+    assert after.get(cash_code, 0) - before.get(cash_code, 0) == 10_000_000   # kas kembali
+    assert any(j["source_type"] == "ap_payment_void" for j in d2["journals"])
+    assert ok(call(FINANCE, "GET", "/finance/reconcile"))["data"]["ok"]
+    # tagihan bisa dibayar lagi (nominal berbeda dari yang pertama supaya lolos kunci klik-ganda 15 dtk)
+    ok(_pay_bill(b["id"], 4_000_000))
+    ok(_pay_bill(b["id"], 6_000_000))
+    assert _detail(b["id"])["bill"]["status"] == "paid"
+
+
+def test_pk09_batal_bayar_ap_aturan_izin_alasan_dan_ganda():
+    b = _bill(8_000_000)
+    ok(_pay_bill(b["id"], 8_000_000))
+    pid = _detail(b["id"])["payments"][0]["id"]
+    assert _paid_journal_ready(b["id"])
+    r = _void_pay(FINANCE, pid)                                   # pembayar sendiri
+    assert r.status_code == 400 and "Pemisahan tugas" in r.text, r.text[:200]
+    assert _void_pay(FINLEAD, pid, reason="pendek").status_code in (400, 422)
+    assert call("sales@sipro.co.id", "POST", f"/finance/ap/payments/{pid}/void",
+                json={"reason": "uji pembatalan tanpa izin"}).status_code == 403
+    rs = race([lambda: _void_pay(FINLEAD, pid) for _ in range(3)])
+    assert sorted(r.status_code for r in rs).count(200) == 1, [(r.status_code, r.text[:100]) for r in rs]
+    assert _void_pay(FINLEAD, pid).status_code == 400            # sudah dibatalkan
+    d = _detail(b["id"])
+    assert d["summary"]["paid_recorded"] == 0
+    assert len([j for j in d["journals"] if j["source_type"] == "ap_payment_void"]) == 1, "hanya satu jurnal pembalik"
+    assert ok(call(FINANCE, "GET", "/finance/reconcile"))["data"]["ok"]
+
+
+def test_pk09_batal_bayar_dengan_pph_membatalkan_bukti_potong():
+    b = _bill(10_000_000)
+    ok(call(FINANCE, "POST", f"/finance/ap/bills/{b['id']}/pay-withholding",
+            json={"bill_id": b["id"], "amount": 4_000_000, "kind": "pph23", "rate": 2}))
+    d = _detail(b["id"])
+    pid = d["payments"][0]["id"]
+    assert len(d["withholding"]) == 1 and d["withholding"][0]["state"] != "cancelled"
+    assert _paid_journal_ready(b["id"])
+    before = _tb()
+    res = ok(_void_pay(FINLEAD, pid))["data"]
+    assert res["withheld_reversed"] == 80_000
+    d2 = _detail(b["id"])
+    assert d2["withholding"][0]["state"] == "cancelled"
+    after = _tb()
+    assert after.get("2-1300", 0) - before.get("2-1300", 0) == 80_000   # utang pajak (kredit) turun 80 rb
+    assert ok(call(FINANCE, "GET", "/finance/reconcile"))["data"]["ok"]
+
+
+# ================================================================== PK-09 — status pajak tak boleh mundur
+def test_pk09_status_pajak_tidak_bisa_dimundurkan():
+    recs = ok(call(FINANCE, "GET", "/tax/records", params={"limit": 200}))["data"]
+    rec = next((r for r in recs if r["status"] == "pending" and int(r.get("amount") or 0) > 0), None)
+    if not rec:
+        pytest.skip("tidak ada catatan pajak berstatus pending untuk diuji")
+    ok(call(FINANCE, "PUT", f"/tax/records/{rec['id']}", json={"status": "reported"}))
+    r = call(FINANCE, "PUT", f"/tax/records/{rec['id']}", json={"status": "pending"})
+    assert r.status_code == 400 and "dimundurkan" in r.text, r.text[:200]
+    cur = [x for x in ok(call(FINANCE, "GET", "/tax/records", params={"limit": 200}))["data"] if x["id"] == rec["id"]][0]
+    assert cur["status"] == "reported"

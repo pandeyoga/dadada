@@ -4,6 +4,7 @@ Fase 49F menambah satu pintu: pembayaran yang MEMOTONG PPh (vendor terima neto, 
 menjadi utang pajak + bukti potong bernomor terbit otomatis).
 """
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from db import db, ORG_ID
 from core_utils import serialize_doc, parse_pagination
@@ -76,7 +77,7 @@ async def bill_detail(bill_id: str, user: dict = Depends(require_permission("fin
     src_ids = [bill_id] + ([retention["id"]] if retention else []) + ([source_retention["id"]] if source_retention else [])
     journals = await db.journal_entries.find({"org_id": org, "source_id": {"$in": src_ids}}, {"_id": 0}).sort([("date", 1), ("created_at", 1)]).to_list(200)
     project = (await db.projects.find_one({"org_id": org, "id": bill["project_id"]}, {"_id": 0, "id": 1, "name": 1}) if bill.get("project_id") else None)
-    paid = sum(int(p.get("amount", 0)) for p in payments)
+    paid = sum(int(p.get("amount", 0)) for p in payments if p.get("status") != "void")  # PK-09: yang dibatalkan tak dihitung
     return {"data": serialize_doc({
         "bill": bill, "project": project, "payments": payments, "withholding": withholding,
         "retention": retention, "source_retention": source_retention, "release_bill": release_bill,
@@ -208,6 +209,36 @@ async def list_payments(bill_id: str = None, skip: int = 0, limit: int = 50,
     total = await db.payments_out.count_documents(q)
     rows = await db.payments_out.find(q, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     paid_total = 0
-    async for r in db.payments_out.aggregate([{"$match": q}, {"$group": {"_id": None, "s": {"$sum": "$amount"}}}]):
+    async for r in db.payments_out.aggregate([{"$match": {**q, "status": {"$ne": "void"}}},
+                                              {"$group": {"_id": None, "s": {"$sum": "$amount"}}}]):
         paid_total = int(r.get("s") or 0)
     return {"data": serialize_doc(rows), "total": total, "summary": {"paid_total": paid_total}}
+
+
+class ApPaymentVoidIn(BaseModel):
+    reason: str = Field(min_length=10, max_length=500)
+
+
+@router.post("/payments/{payment_id}/void")
+async def void_payment(payment_id: str, payload: ApPaymentVoidIn,
+                       user: dict = Depends(require_permission("finance", "approve"))):
+    """BATALKAN satu pembayaran tagihan AP secara resmi (audit PK-09): jurnal pembalik terbit, subledger tagihan
+    dikembalikan, bukti potong dibatalkan, pembayaran asli tetap tersimpan sebagai jejak. Pemisahan tugas:
+    yang membayar tidak boleh membatalkan pembayarannya sendiri (kecuali Super Admin)."""
+    import ap_void
+    org = user.get("org_id", ORG_ID)
+    pay = await db.payments_out.find_one({"id": payment_id, "org_id": org}, {"_id": 0})
+    if not pay:
+        raise HTTPException(status_code=404, detail="Pembayaran tidak ditemukan.")
+    try:
+        assert_separate(user, pay.get("actor"),
+                        "Pemisahan tugas: pembayaran yang Anda catat sendiri tidak boleh Anda batalkan "
+                        "— minta Keuangan lain / Direksi.")
+        out = await ap_void.void_payment(org, payment_id, user.get("email"), payload.reason)
+    except Conflict:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await audit_log(user, "void", "payments_out", payment_id,
+                    {"reason": payload.reason.strip(), "bill_id": pay.get("bill_id"), "amount": pay.get("amount")})
+    return {"data": out}

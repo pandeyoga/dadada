@@ -72,6 +72,14 @@ async def update_record(record_id: str, payload: TaxRecordUpdate,
             updates[f] = v
     # Setoran wajib menyertakan NTPN (Nomor Transaksi Penerimaan Negara).
     new_status = updates.get("status", rec.get("status"))
+    # PK-09: status yang sudah DIJURNAL (akrual saat "reported", setoran saat "paid") tidak boleh dimundurkan —
+    # dulu "Disetor" bisa kembali "Menunggu" sementara jurnal & kas tetap, jadi layar dan buku besar berbeda.
+    rank = {"pending": 0, "reported": 1, "paid": 2}
+    if rank.get(new_status, 0) < rank.get(rec.get("status"), 0):
+        raise HTTPException(status_code=400, detail=(
+            f"Status pajak tidak bisa dimundurkan dari '{rec.get('status')}' ke '{new_status}': akrual/setorannya "
+            "sudah dijurnal. Bila salah input, minta Manajer Keuangan membuat jurnal koreksi (jurnal manual) "
+            "lalu catat alasannya di keterangan."))
     if new_status == "paid" and not (updates.get("ntpn") or rec.get("ntpn")):
         raise HTTPException(status_code=400, detail="NTPN wajib diisi untuk menandai pajak sudah disetor.")
     if updates.get("cash_account_id"):
