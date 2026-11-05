@@ -9,6 +9,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 import contracts_engine as ce
+import customer_scope as cs
 import reference as ref
 from core_utils import serialize_doc
 from db import ORG_ID, db
@@ -21,10 +22,11 @@ def _org(user: dict) -> str:
     return user.get("org_id", ORG_ID)
 
 
-async def _customer(org: str, cid: str) -> dict:
+async def _customer(org: str, cid: str, user: dict) -> dict:
     cust = await db.customers.find_one({"id": cid, "org_id": org}, {"_id": 0})
     if not cust:
         raise HTTPException(status_code=404, detail="Pelanggan tidak ditemukan")
+    await cs.assert_access(user, cid)   # KT-09: harga/AR/komponen biaya bukan untuk sales lain
     return cust
 
 
@@ -137,7 +139,7 @@ async def _deal_block(org: str, deal: dict) -> dict:
 async def contract_pricing(cid: str,
                            user: dict = Depends(require_permission("customers", "view"))):
     org = _org(user)
-    cust = await _customer(org, cid)
+    cust = await _customer(org, cid, user)
     deals = await _deals_of(org, cust)
     blocks = [await _deal_block(org, d) for d in deals]
     return {"data": serialize_doc(blocks), "total": len(blocks),
@@ -199,7 +201,7 @@ async def _unit_block(org: str, unit: dict, deal: dict) -> dict:
 async def units_construction(cid: str,
                              user: dict = Depends(require_permission("customers", "view"))):
     org = _org(user)
-    cust = await _customer(org, cid)
+    cust = await _customer(org, cid, user)
     deals = await _deals_of(org, cust)
     unit_ids = {d.get("unit_id") for d in deals if d.get("unit_id")
                 and d.get("status") not in ("cancelled", "expired")}

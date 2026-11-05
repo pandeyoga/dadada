@@ -45,17 +45,21 @@ async def _bind_unit(org: str, unit_id: str) -> None:
 
 
 async def reserve(org: str, *, lead: dict, unit: dict, actor: str, booking_fee: int = 0,
-                  notes: str = None, extra: dict = None) -> dict:
+                  notes: str = None, extra: dict = None, deal_id: str = None) -> dict:
     """Tahan unit + buat deal `reserved`. SATU-SATUNYA jalan membuat reservasi.
 
     `extra` dipakai pemanggil untuk menempelkan jejak tambahan (mis. `quotation_id`,
     `addons`, `discount`) TANPA mengubah bentuk dasar deal.
 
+    `deal_id` (opsional): id deal yang dibuat pemanggil LEBIH DULU supaya klaim yang harus
+    atomik (kuota kupon, audit KT-08) bisa dibuat SEBELUM unit ditahan dan dilepas bila reservasi
+    gagal — tanpa deal berdiskon yang tertinggal.
+
     Mengembalikan dokumen deal. Melempar `ValueError` bila unit sudah tidak tersedia —
     pemanggil yang menerjemahkannya menjadi 409/400 sesuai lapisannya.
     """
     ts = now_iso()
-    deal_id = new_id()
+    deal_id = deal_id or new_id()
     hold_days = int(await cfg.get("reservation.hold_days", org_id=org) or BOOKING_HOLD_DAYS)
     reserved_until = due_in(days=hold_days)
     # Penahanan ATOMIK: hanya berhasil bila unit benar-benar masih `available`.

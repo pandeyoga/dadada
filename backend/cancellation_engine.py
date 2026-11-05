@@ -149,7 +149,10 @@ async def blocks(org: str, contract: dict) -> list:
     if not contract:
         return [_blk("kontrak_belum_ada",
                      "Lead ini belum menjadi pembeli, jadi belum ada kontrak yang bisa "
-                     "dibatalkan. Pembatalan reservasi/booking dilakukan dari daftar deal.")]
+                     "dibatalkan. Reservasi/booking yang belum menerima pembayaran termin "
+                     "dibatalkan dari daftar deal; bila booking fee sudah dialihkan ke piutang "
+                     "termin (daftar deal menolak pembatalan), jadikan pembeli lebih dulu "
+                     "lalu ajukan pembatalan formal di sini.")]
     if contract.get("state") == "cancelled":
         out.append(_blk("kontrak_sudah_batal",
                         "Kontrak ini sudah berstatus dibatalkan."))

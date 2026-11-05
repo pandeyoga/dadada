@@ -169,6 +169,13 @@ async def create_schedule(deal_id: str, payload: ArScheduleCreate,
     deal = await db.deals.find_one({"id": deal_id, "org_id": org}, {"_id": 0})
     if not deal:
         raise HTTPException(status_code=404, detail="Deal tidak ditemukan")
+    # KT-07: deal yang sudah dibatalkan/kedaluwarsa tidak boleh punya jadwal tagihan baru —
+    # dulu tombol ini menghidupkan lagi piutang (dan catatan pajak) atas unit yang sudah dilepas.
+    if deal.get("status") in ("cancelled", "expired"):
+        raise HTTPException(status_code=400, detail=(
+            f"Deal ini sudah {'dibatalkan' if deal.get('status') == 'cancelled' else 'kedaluwarsa'} "
+            "— jadwal tagihan tidak bisa dibuat atau diganti. Buat reservasi baru bila pembeli "
+            "memesan unit lagi."))
     try:
         inv = await fe.create_ar_for_deal(deal, scheme_id=payload.scheme_id, org_id=org,
                                           replace=True, actor=user.get("email"))

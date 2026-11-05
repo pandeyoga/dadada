@@ -65,6 +65,9 @@ UNIQUE_INDEXES = [
      [("org_id", 1), ("target_type", 1), ("target_id", 1), ("period", 1), ("assessor", 1)],
      "uq_vendor_assessment"),
     ("customers", [("org_id", 1), ("nik", 1)], "uq_customers_nik"),
+    # KT-02: satu lead melahirkan SATU pembeli (lead berikutnya milik pembeli lama masuk `lead_ids[]`,
+    # `lead_id` tetap lead pertama). Konversi paralel dulu membuat dua baris untuk satu lead.
+    ("customers", [("org_id", 1), ("lead_id", 1)], "uq_customers_lead"),
     ("portal_users", [("org_id", 1), ("phone", 1)], "uq_portal_phone"),
     # ---------------- Fase 27 ----------------
     ("cash_advances", [("org_id", 1), ("no", 1)], "uq_cashbon_no"),
@@ -179,6 +182,7 @@ PARTIAL = {
     "uq_entry_no": "entry_no",
     "uq_journal_source_event": "source_event",
     "uq_customers_nik": "nik",
+    "uq_customers_lead": "lead_id",
     "uq_portal_phone": "phone",
     "uq_cashbon_no": "no",
     "uq_asset_code": "code",

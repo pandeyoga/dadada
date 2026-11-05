@@ -5,7 +5,9 @@ Adopted from SIPROnext Customer model (Dok 10) and wrapped in the new foundation
 abstraction (Emergent managed or mongo fallback).
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from pymongo.errors import DuplicateKeyError
 
+import customer_scope as cs
 import listing as lst
 import stage_clock as clock
 from denorm import cascade_master_change
@@ -86,11 +88,18 @@ async def list_customers(q: str = None, kyc_status: str = None,
     skip, limit = parse_pagination(skip, limit)
     org = user.get("org_id", ORG_ID)
     query = {"org_id": org}
+    # KT-09: sales hanya melihat pembeli miliknya (None = peran tanpa batas).
+    scope = await cs.scope_filter(user)
+    if scope:
+        query.update(scope)
     lst.apply_in(query, "kyc_status", kyc_status)
     clock.apply_sla_filter(query, "customer", sla)
     lst.apply_range(query, "created_at", created_from, created_to)
     lst.apply_search(query, q, ("name", "phone", "nik", "email", "npwp"))
     legal_map = await _legal_by_customer(org)
+    if scope:
+        milik = set(await db.customers.distinct("id", {"org_id": org, **scope}))
+        legal_map = {k: v for k, v in legal_map.items() if k in milik}
     wanted = [v for v in lst.multi(legal_stage) if v in LEGAL_RANK]
     if wanted:
         if "belum" in wanted:
@@ -107,7 +116,8 @@ async def list_customers(q: str = None, kyc_status: str = None,
         r["legal"] = legal_map.get(r["id"]) or {"stage": "belum"}
     counts = {}
     for st in ("pending", "submitted", "verified"):
-        counts[st] = await db.customers.count_documents({"org_id": org, "kyc_status": st})
+        counts[st] = await db.customers.count_documents(
+            {"org_id": org, **(scope or {}), "kyc_status": st})
     legal_counts = {}
     for v in legal_map.values():
         legal_counts[v["stage"]] = legal_counts.get(v["stage"], 0) + 1
@@ -128,7 +138,12 @@ async def create_customer(payload: CustomerCreate,
     ts = now_iso()
     doc = {"id": new_id(), "org_id": org, "kyc_files": [], "kyc_status": "pending",
            "created_by": user.get("email"), "created_at": ts, "updated_at": ts, **data}
-    await db.customers.insert_one(doc)
+    try:
+        await db.customers.insert_one(doc)
+    except DuplicateKeyError:
+        # Index unik: NIK sama atau lead yang sudah punya pembeli (KT-02) — bukan 500.
+        raise HTTPException(status_code=409, detail=(
+            "Pembeli untuk lead/NIK ini sudah terdaftar. Cari di daftar Pembeli."))
     doc.pop("_id", None)
     # Fase 29: memicu jobdesk SM-07 "Lengkapi KYC pembeli" bila NIK/NPWP belum lengkap.
     if not doc.get("nik"):
@@ -137,16 +152,18 @@ async def create_customer(payload: CustomerCreate,
     return {"data": serialize_doc(doc)}
 
 
-async def _get(cid: str, org: str) -> dict:
+async def _get(cid: str, org: str, user: dict = None) -> dict:
     c = await db.customers.find_one({"id": cid, "org_id": org}, {"_id": 0})
     if not c:
         raise HTTPException(status_code=404, detail="Customer tidak ditemukan")
+    if user is not None:
+        await cs.assert_access(user, cid)   # KT-09: sales hanya boleh membaca/mengubah miliknya
     return c
 
 
 @router.get("/{cid}")
 async def get_customer(cid: str, user: dict = Depends(require_permission("customers", "view"))):
-    c = await _get(cid, user.get("org_id", ORG_ID))
+    c = await _get(cid, user.get("org_id", ORG_ID), user)
     return {"data": serialize_doc(await _attach_files(c))}
 
 
@@ -171,7 +188,7 @@ async def customer_timeline(cid: str,
     dilacak. `missing[]` menyebut sumber yang memang belum punya data — bukan disembunyikan.
     """
     org = user.get("org_id", ORG_ID)
-    cust = await _get(cid, org)
+    cust = await _get(cid, org, user)
     rows, sources, missing = [], {}, []
 
     def add(at, kind, title, body, actor, source):
@@ -271,7 +288,7 @@ async def delete_customer(cid: str, force: bool = False, reason: str = None,
     import master_delete as md
     from rbac import audit_log
     org = user.get("org_id", ORG_ID)
-    cust = await _get(cid, org)
+    cust = await _get(cid, org, user)
     _force_or_403(user, force, reason)
     if force:
         import force_delete as fd
@@ -293,7 +310,7 @@ async def delete_customer(cid: str, force: bool = False, reason: str = None,
 async def customer_delete_check(cid: str, user: dict = Depends(require_permission("customers", "view"))):
     import master_delete as md
     org = user.get("org_id", ORG_ID)
-    cust = await _get(cid, org)
+    cust = await _get(cid, org, user)
     blockers = await md.blockers_of(org, "customer", cust)
     import force_delete as fd
     return {"data": {"can_delete": not blockers, "blockers": blockers, "can_force": fd.may_force(user)}}
@@ -303,7 +320,7 @@ async def customer_delete_check(cid: str, user: dict = Depends(require_permissio
 async def update_customer(cid: str, payload: CustomerUpdate,
                           user: dict = Depends(require_permission("customers", "update"))):
     org = user.get("org_id", ORG_ID)
-    await _get(cid, org)
+    await _get(cid, org, user)
     data = _clean({k: v for k, v in payload.model_dump().items() if v is not None})
     data["updated_at"] = now_iso()
     await db.customers.update_one({"id": cid, "org_id": org}, {"$set": data})
@@ -316,7 +333,7 @@ async def update_customer(cid: str, payload: CustomerUpdate,
 async def upload_kyc(cid: str, file: UploadFile = File(...), doc_type: str = Form("ktp"),
                      user: dict = Depends(require_permission("customers", "update"))):
     org = user.get("org_id", ORG_ID)
-    await _get(cid, org)
+    await _get(cid, org, user)
     data = await file.read()
     try:
         rec = await storage.save_file(

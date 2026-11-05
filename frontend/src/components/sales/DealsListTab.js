@@ -25,7 +25,7 @@ import { DEALS, P53 } from "@/constants/testIds";
 
 /**
  * DealsListTab — daftar deal sebagai tabel pro dengan aksi per baris.
- * Aksi yang sudah ada dipertahankan penuh: Konfirmasi Booking, Buat SPR, Legal, Batal.
+ * Aksi: Konfirmasi Booking, Buat SPR, Jadikan Pembeli, Legal (hanya-baca → Kontrak & Legal), Batal.
  */
 export default function DealsListTab({ onChanged }) {
   const [convertFor, setConvertFor] = useState(null);
@@ -176,8 +176,11 @@ export default function DealsListTab({ onChanged }) {
               <UserPlus className="mr-1 h-3.5 w-3.5" /> Jadikan Pembeli
             </Button>
           ) : null}
-          {["booked", "completed"].includes(d.status) ? (
+          {["booked", "completed"].includes(d.status) && (d.contract_id || d.legal_stage) ? (
+            // KT-01: dialog ini HANYA-BACA (status + tautan ke Kontrak & Legal). PPJB/AJB tidak
+            // lagi bisa ditandatangani dari sini; sebelum jadi pembeli tidak ada yang bisa dicatat.
             <Button data-testid={DEALS.legalBtn} size="sm" variant="outline"
+              title="Lihat status legal — tahap dicatat di Kontrak & Legal pembeli"
               onClick={() => setLegalDeal(d)}>
               <ScrollText className="mr-1 h-3.5 w-3.5" /> Legal
             </Button>
@@ -221,7 +224,7 @@ export default function DealsListTab({ onChanged }) {
           ? "Longgarkan filter atau kosongkan pencarian."
           : "Buat reservasi dari tab Unit untuk memulai deal."} />
       <DealLegalDialog deal={legalDeal} open={!!legalDeal}
-        onOpenChange={(v) => !v && setLegalDeal(null)} onChanged={refresh} />
+        onOpenChange={(v) => !v && setLegalDeal(null)} />
       <DealPricingSheet dealId={pricingFor} open={!!pricingFor}
         onOpenChange={(v) => !v && setPricingFor(null)} />
       {convertFor ? (
