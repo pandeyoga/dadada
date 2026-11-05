@@ -884,14 +884,45 @@ class TestAsetTetap:
         assert s == 400 and "tidak cukup" in detail((s, j)) and "Rekening Operasional" in detail((s, j)), (s, j)
 
     def test_sakelar_izinkan_saldo_negatif(self):
-        """Sakelar Pusat Konfigurasi `cash.allow_negative` (bawaan mati) mengizinkan saldo minus bila dinyalakan."""
-        s, j = call("finance", "GET", "/settings", params={"q": "cash.allow_negative"})
-        if s != 200:
-            pytest.skip(f"/settings tidak tersedia: {s}")
-        rows = j.get("data") or []
-        row = next((r for r in rows if r.get("key") == "cash.allow_negative"), None)
+        """Sakelar Pusat Konfigurasi `cash.allow_negative`: bawaan MATI (ditolak); bila dinyalakan, saldo minus diizinkan."""
+        key = "cash.allow_negative"
+        s, j = call("owner", "GET", "/settings", params={"q": key})
+        row = next((r for r in (j.get("data") or []) if r.get("key") == key), None)
         assert row is not None, "kunci cash.allow_negative tidak terdaftar"
         assert row["value"] is False                                    # bawaan MATI
+        acc = accounts()["Kas Kecil Site"]
+        amount = max(acc["balance"], 0) + 1_000_000
+        b = approved_bill(amount, 0)
+        s, j = call("finance", "POST", f"/finance/ap/bills/{b['id']}/pay", {"amount": amount, "cash_account_id": acc["id"]})
+        assert s == 400 and "tidak cukup" in detail((s, j)), (s, j)
+        s, j = call("owner", "PUT", f"/settings/{key}", {"value": True, "reason": "P0 uji sakelar saldo negatif"})
+        assert s == 200, (s, j)
+        try:
+            s, j = call("finance", "POST", f"/finance/ap/bills/{b['id']}/pay",
+                        {"amount": amount, "cash_account_id": acc["id"]})
+            assert s == 200, (s, j)                                      # sakelar menyala → diizinkan
+        finally:
+            call("owner", "POST", f"/settings/{key}/reset")
+        s, j = call("owner", "GET", "/settings", params={"q": key})
+        assert next(r for r in j["data"] if r["key"] == key)["value"] is False
+
+
+class TestPenyaluranTitipan:
+    def test_penyaluran_tanpa_titipan_atau_tanpa_penerima_ditolak(self):
+        """Jalur penyaluran titipan biaya (notaris/BPN): validasi tetap bekerja setelah dibungkus kunci + mutex."""
+        s, j = call("finance", "GET", "/contracts", params={"limit": 5})
+        if s != 200 or not j.get("data"):
+            pytest.skip("tidak ada kontrak")
+        cid = j["data"][0]["id"]
+        s, j = call("finance", "POST", f"/contracts/{cid}/cost-disbursements",
+                    {"component_code": "bphtb", "amount": 1_000, "payee": "Notaris Uji"})
+        assert s == 400 and "melebihi sisa titipan" in detail((s, j)), (s, j)
+        s, j = call("finance", "POST", f"/contracts/{cid}/cost-disbursements",
+                    {"component_code": "bphtb", "amount": 0, "payee": "Notaris Uji"})
+        assert s == 400, (s, j)
+        s, j = call("finance", "POST", f"/contracts/{cid}/cost-disbursements",
+                    {"component_code": "bphtb", "amount": 1_000, "payee": "  "})
+        assert s == 400 and "Penerima" in detail((s, j)), (s, j)
 
 
 class TestUpah:

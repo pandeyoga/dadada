@@ -16,7 +16,7 @@ import evidence as ev
 from db import ORG_ID, db
 from engine import add_activity, create_notification, emit
 from finance_engine import notify_finance
-from idempotency import reserved
+from idempotency import Conflict, reserved
 from p27_utils import cash_account, rp
 from petty_cash import ADVANCE_ACCOUNT, _settle_lines
 
@@ -117,13 +117,18 @@ async def create(payload, actor: str, actor_name: str, org: str = ORG_ID) -> dic
     return doc
 
 
-async def _push(rid: str, sets: dict, actor: str, action: str, note=None, journal_id=None):
+async def _push(rid: str, sets: dict, actor: str, action: str, note=None, journal_id=None,
+                expect: dict = None):
+    """Tulis perubahan + riwayat. Dengan `expect` (mis. {"status": "submitted"}) penulisan BERSYARAT:
+    yang kalah balapan mendapat Conflict (409) dan riwayat tidak ganda."""
     ts = now_iso()
     upd = {"$set": {**sets, "updated_at": ts},
            "$push": {"history": {"at": ts, "actor": actor, "action": action, "note": note}}}
     if journal_id:
         upd["$push"]["journal_ids"] = journal_id
-    await db[COLL].update_one({"id": rid}, upd)
+    res = await db[COLL].update_one({"id": rid, **(expect or {})}, upd)
+    if expect and res.matched_count != 1:
+        raise Conflict("Pengajuan baru saja diubah oleh proses lain. Muat ulang lalu coba lagi.")
 
 
 async def approve(rid: str, actor: str, note=None, approved_amount=None, org: str = ORG_ID) -> dict:
@@ -137,7 +142,8 @@ async def approve(rid: str, actor: str, note=None, approved_amount=None, org: st
         raise ValueError(f"Nominal disetujui harus antara Rp 1 dan {rp(r['amount'])}.")
     ts = now_iso()
     await _push(rid, {"status": "approved", "approved_by": actor, "approved_at": ts,
-                      "approve_note": note, "approved_amount": amt}, actor, "approved", note)
+                      "approve_note": note, "approved_amount": amt}, actor, "approved", note,
+                expect={"status": "submitted"})
     await create_notification(user_email=r["requested_by"], title="Pengajuan disetujui",
                               body=f"Pengajuan {r['no']} disetujui {rp(amt)} — menunggu pencairan.",
                               type="approval", related_entity_type="fund_request",
