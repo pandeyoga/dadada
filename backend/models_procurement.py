@@ -49,7 +49,7 @@ class SPKCreate(BaseModel):
     title: str
     scope: Optional[str] = None
     contract_value: int = 0
-    retention_pct: float = 5
+    retention_pct: float = Field(5, ge=0, le=100)  # PK-08: retensi 0–100%
     # Fase 48C: masa pemeliharaan (defect liability) \u2014 dasar gerbang pencairan retensi.
     maintenance_days: int = 90
     start_date: Optional[str] = None
@@ -61,7 +61,7 @@ class SPKUpdate(BaseModel):
     title: Optional[str] = None
     scope: Optional[str] = None
     contract_value: Optional[int] = None
-    retention_pct: Optional[float] = None
+    retention_pct: Optional[float] = Field(None, ge=0, le=100)  # PK-08: retensi 0–100%
     maintenance_days: Optional[int] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
