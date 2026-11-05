@@ -297,6 +297,15 @@ async def _disburse_locked(org: str, contract: dict, app: dict, payload: dict, u
 
 
 async def cancel(org: str, contract: dict, app: dict, disbursement_id: str, reason: str, user: dict) -> dict:
+    """Batalkan satu pencairan. Kunci yang sama dengan `disburse` (per pengajuan) dan `app` dibaca ulang
+    di bawah kunci: dua pembatalan bersamaan tidak membalik uang dua kali (audit IN-01)."""
+    async with locked("kpr.disburse", app["id"], what="Pencairan KPR untuk pengajuan ini"):
+        fresh = await db.financing_apps.find_one({"id": app["id"]}, {"_id": 0})
+        return await _cancel_locked(org, contract, fresh or app, disbursement_id, reason, user)
+
+
+async def _cancel_locked(org: str, contract: dict, app: dict, disbursement_id: str, reason: str,
+                         user: dict) -> dict:
     if not await _may_correct(user.get("role")):
         raise PermissionError("Pembatalan pencairan hanya oleh finance_manager/superadmin.")
     if len((reason or "").strip()) < 10:

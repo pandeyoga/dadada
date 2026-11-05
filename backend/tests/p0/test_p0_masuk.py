@@ -846,3 +846,22 @@ def test_in08_cocok_mutasi_ke_tagihan_tanpa_kuitansi_manual_normal(world):
     out = ok(call(FINANCE, "POST", f"/bank/transactions/{txn}/match", json={"kind": "ar_deal", "target_id": d}))
     assert out["data"]["txn"]["match_state"] == "matched"
     assert ar(d)["data"]["paid"] == 35_000_000
+
+
+def test_in01_batal_pencairan_kpr_paralel_hanya_sekali_dibalik(world):
+    d = kpr_deal(world)
+    cid, fid = d["contract_id"], upload_proof()
+    app = ok(call(FINANCE, "POST", f"/contracts/{cid}/kpr/disbursements",
+                  json={"tranche_code": "T1", "file_id": fid}))["data"]
+    did = [x for x in app["disbursements"] if x["status"] != "dibatalkan"][0]["id"]
+    assert cl_balance(d["deal_id"]) == d["plafon"]
+    body = {"reason": "uji P0 batal pencairan paralel"}
+    rs = race([lambda: call(OWNER, "POST", f"/contracts/{cid}/kpr/disbursements/{did}/cancel", json=body)
+               for _ in range(2)])
+    assert codes(rs).count(200) == 1 and all(c in (200, 400, 409) for c in codes(rs)), \
+        [(r.status_code, r.text[:160]) for r in rs]
+    assert cl_balance(d["deal_id"]) == 0               # dibalik SEKALI (bukan -plafon)
+    assert ar(d["deal_id"])["data"]["paid"] == 0
+    # normal: tahap dibuka lagi dan bisa dicairkan ulang
+    ok(call(FINANCE, "POST", f"/contracts/{cid}/kpr/disbursements", json={"tranche_code": "T1", "file_id": upload_proof()}))
+    assert cl_balance(d["deal_id"]) == d["plafon"]

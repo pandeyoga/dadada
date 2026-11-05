@@ -369,6 +369,8 @@ async def kpr_cancel(cid: str, did: str, p: CancelIn, user: dict = Depends(requi
     c, app = await _kpr_app(cid, user)
     try:
         return {"data": serialize_doc(await kd.cancel(_org(user), c, app, did, p.reason, user))}
+    except Conflict:
+        raise
     except (ValueError, PermissionError) as e:
         raise _err(e)
 
