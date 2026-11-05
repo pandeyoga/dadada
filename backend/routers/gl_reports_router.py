@@ -33,7 +33,7 @@ import gl_periods as glp
 import gl_project_cash as gpc
 import gl_reports as glr
 import owner_pack as op
-from core_utils import serialize_doc
+from core_utils import serialize_doc, valid_period
 from db import db, ORG_ID
 from models_p49 import PeriodCloseAction, YearAction
 from rbac import require_permission, audit_log, can
@@ -130,7 +130,7 @@ async def list_periods(limit: int = 18, user: dict = Depends(require_permission(
     counts = {}
     for je in await db.journal_entries.find({"org_id": org}, {"_id": 0, "date": 1}).to_list(200000):
         m = str(je.get("date"))[:7]
-        if len(m) == 7:
+        if valid_period(m):  # jurnal lama bertanggal rusak dilewati, bukan mematikan layar (GL-06)
             counts[m] = counts.get(m, 0) + 1
     months = sorted(set(counts) | set(closed), reverse=True)[:limit]
     meta = {p["period"]: p for p in await db.accounting_periods.find(

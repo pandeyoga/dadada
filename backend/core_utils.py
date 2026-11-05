@@ -74,6 +74,37 @@ def period_of(value) -> str:
     return dt.astimezone(WIB).strftime("%Y-%m")
 
 
+_PERIOD_RE = None
+
+
+def valid_period(m) -> bool:
+    """True bila `m` berbentuk 'YYYY-MM' dengan bulan 01..12 (tahan terhadap data jurnal lama yang rusak)."""
+    global _PERIOD_RE
+    if _PERIOD_RE is None:
+        import re
+        _PERIOD_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+    return bool(_PERIOD_RE.match(str(m or "")))
+
+
+def parse_journal_date(value):
+    """Validasi tanggal jurnal MANUAL (audit GL-06). Kembalikan `value` bila sah; ValueError bila tidak.
+
+    Sah: 'YYYY-MM-DD' atau ISO datetime yang terbaca, bukan hari di masa depan (zona WIB).
+    Dulu tanggal bebas: 'bukan-tanggal' diterima lalu memutus layar Tutup Buku (HTTP 500), tanggal
+    rusak menembus kunci periode, dan tanggal masa depan hilang dari laporan 'per tanggal'.
+    """
+    s = str(value or "").strip()
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00")) if len(s) > 10 else datetime.strptime(s, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError(f"Tanggal jurnal tidak valid: '{s}'. Gunakan format TTTT-BB-HH, mis. 2026-11-05.")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc) if len(s) > 10 else dt.replace(tzinfo=WIB)
+    if dt.astimezone(WIB).date() > datetime.now(WIB).date():
+        raise ValueError(f"Tanggal jurnal {s[:10]} berada di masa depan. Jurnal hanya boleh bertanggal hari ini atau sebelumnya.")
+    return s
+
+
 def normalize_phone_e164(phone: str) -> str:
     """Best-effort E.164 normalization for Indonesian numbers (idempotent).
 

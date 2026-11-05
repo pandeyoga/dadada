@@ -25,7 +25,7 @@ import gl_engine as gl
 import gl_periods as glp
 import gl_reports as glr
 import reference as ref
-from core_utils import new_id, now_iso
+from core_utils import new_id, now_iso, valid_period
 from db import db, ORG_ID
 import finance_engine as fe
 from engine import auto_create_task
@@ -395,7 +395,7 @@ async def year_check(org=ORG_ID, year: str = None) -> dict:
             {"org_id": org, "date": {"$gte": start, "$lt": end}},
             {"_id": 0, "date": 1, "total_debit": 1, "total_credit": 1}).to_list(200000):
         m = str(je.get("date"))[:7]
-        if len(m) == 7:
+        if valid_period(m):
             months.add(m)
         if int(je.get("total_debit", 0)) != int(je.get("total_credit", 0)):
             unbalanced += 1
@@ -475,14 +475,22 @@ async def year_close(org, year: str, actor: str, note: str = None) -> dict:
                       "memo": f"Rugi tahun {year} dipindah ke Laba Ditahan"})
     if not lines:
         raise ValueError(f"Tidak ada saldo laba-rugi {year} yang perlu ditutup.")
+    # Audit GL-03: kunci idempotensi dulu hanya (org, tahun). Setelah tahun DIBUKA KEMBALI lalu
+    # ditutup lagi, kuncinya sama sehingga post_journal mengembalikan jurnal penutup LAMA (yang
+    # sudah dibalik) — status jadi "closed" tanpa jurnal penutup aktif dan laba tak pernah
+    # pindah ke Laba Ditahan. Sekarang tiap siklus tutup punya kunci sendiri (siklus 1 memakai
+    # kunci lama agar jurnal yang sudah ada tetap dikenali).
+    prev_cycle = int((existing or {}).get("cycle") or (1 if existing else 0))
+    cycle = prev_cycle + 1
+    ev_key = f"year_close:{org}:{year}" if cycle == 1 else f"year_close:{org}:{year}:c{cycle}"
     entry = await gl.post_journal(
-        org, f"Jurnal penutup tahun buku {year}", lines,
+        org, f"Jurnal penutup tahun buku {year}" + (f" (penutupan ke-{cycle})" if cycle > 1 else ""), lines,
         date=f"{year}-12-31T23:59:59+00:00", source_type=YEAR_CLOSING_SOURCE, source_id=year,
-        source_event=f"year_close:{org}:{year}", posted_by=actor, auto=True, allow_closed=True)
+        source_event=ev_key, posted_by=actor, auto=True, allow_closed=True)
     ts = now_iso()
     doc = {
         "id": (existing or {}).get("id") or new_id(), "org_id": org, "year": year,
-        "state": "closed", "net_income": net, "revenue": pl["revenue"], "expense": pl["expense"],
+        "state": "closed", "cycle": cycle, "net_income": net, "revenue": pl["revenue"], "expense": pl["expense"],
         "entry_id": entry["id"], "entry_no": entry.get("entry_no"),
         "closed_by": actor, "closed_at": ts, "note": note,
         "reopened_by": None, "reopened_at": None, "reopen_reason": None,
@@ -509,10 +517,12 @@ async def year_reopen(org, year: str, actor: str, reason: str) -> dict:
     mirror = [{"account_code": ln["account_code"], "debit": int(ln.get("credit", 0) or 0),
                "credit": int(ln.get("debit", 0) or 0),
                "memo": f"Balik jurnal penutup {doc.get('entry_no')}"} for ln in entry["lines"]]
+    cycle = int(doc.get("cycle") or 1)  # GL-03: pasangkan pembalik dengan siklus penutupnya
     rev = await gl.post_journal(
         org, f"Balik jurnal penutup tahun {year} — {reason}", mirror,
         date=f"{year}-12-31T23:59:59+00:00", source_type=YEAR_CLOSING_SOURCE, source_id=year,
-        source_event=f"year_reopen:{org}:{year}", posted_by=actor, auto=True, allow_closed=True)
+        source_event=(f"year_reopen:{org}:{year}" if cycle == 1 else f"year_reopen:{org}:{year}:c{cycle}"),
+        posted_by=actor, auto=True, allow_closed=True)
     ts = now_iso()
     await db.gl_year_closings.update_one({"org_id": org, "year": year}, {"$set": {
         "state": "reopened", "reopened_by": actor, "reopened_at": ts, "reopen_reason": reason,
@@ -530,7 +540,7 @@ async def year_list(org=ORG_ID) -> list:
     years = set()
     for je in await db.journal_entries.find({"org_id": org}, {"_id": 0, "date": 1}).to_list(200000):
         y = str(je.get("date"))[:4]
-        if len(y) == 4:
+        if len(y) == 4 and y.isdigit():
             years.add(y)
     docs = {d["year"]: d for d in await db.gl_year_closings.find(
         {"org_id": org}, {"_id": 0}).to_list(200)}

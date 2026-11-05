@@ -160,6 +160,9 @@ async def post_journal(org_id, memo, lines, *, date=None, source_type=None, sour
     if td != tc:
         raise ValueError(f"Jurnal tidak seimbang: debit Rp {td:,} != kredit Rp {tc:,}.")
     ts = now_iso()
+    if date and not auto:
+        from core_utils import parse_journal_date
+        date = parse_journal_date(date)  # GL-06: tanggal rusak/masa depan ditolak untuk jurnal manual
     d = date or ts
     # Tutup periode (P25): jurnal manual di periode tertutup ditolak; posting otomatis
     # digeser ke periode terbuka agar transaksi nyata tidak pernah hilang.
