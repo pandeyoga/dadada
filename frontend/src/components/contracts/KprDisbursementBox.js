@@ -16,7 +16,7 @@ import { formatIDR } from "@/utils/formatters";
 import { P75 } from "@/constants/testIds";
 
 /** Pencairan KPR bertahap: pilih skema bank → tahapan → daftar pencairan (+ pembatalan berjejak, hanya Manajer Keuangan = `finance:manage`). */
-export default function KprDisbursementBox({ contract, app, mayUpdate, onChanged, onRecord }) {
+export default function KprDisbursementBox({ contract, app, mayUpdate, mayDisburse = true, onChanged, onRecord }) {
   const { can } = useAuth();
   const [schemes, setSchemes] = useState([]);
   const [pick, setPick] = useState("");
@@ -119,7 +119,7 @@ export default function KprDisbursementBox({ contract, app, mayUpdate, onChanged
           ))}
         </div>
       ) : null}
-      {mayUpdate && canRecord && app.kpr_stage === "pencairan" ? (
+      {mayUpdate && mayDisburse && canRecord && app.kpr_stage === "pencairan" ? (
         <Button size="sm" variant="outline" data-testid="kpr-record-next-tranche" onClick={onRecord}>Catat pencairan tahap berikutnya</Button>
       ) : null}
 

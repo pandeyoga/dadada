@@ -8,6 +8,7 @@ import EmptyState from "@/components/patterns/EmptyState";
 import {
   AddFinancingDialog, SlikDialog, DisburseDialog,
 } from "@/components/customers/FinancingDialogs";
+import { useAuth } from "@/context/AuthContext";
 import { formatDateWIB } from "@/utils/formatters";
 import { CUSTOMERS } from "@/constants/testIds";
 
@@ -21,6 +22,9 @@ import { CUSTOMERS } from "@/constants/testIds";
  * berubah dan janji bernomor jadi menyesatkan.
  */
 export default function CustomerFinancingTab({ customer, financings = [], onChanged }) {
+  const { can } = useAuth();
+  // Pencairan = dana bank masuk ke kas: izin 'approve' (audit IN-11). Sales tidak diberi tombolnya.
+  const mayDisburse = can("financing", "approve");
   const [addOpen, setAddOpen] = useState(false);
   const [slikFor, setSlikFor] = useState(null);
   const [disburseFor, setDisburseFor] = useState(null);
@@ -99,11 +103,13 @@ export default function CustomerFinancingTab({ customer, financings = [], onChan
                     onClick={() => setSlikFor(f)}>
                     <ShieldCheck className="mr-1.5 h-3.5 w-3.5" /> SLIK
                   </Button>
-                  <Button data-testid={CUSTOMERS.disburseBtn} size="sm" variant="outline"
-                    disabled={!(["approved", "disbursing"].includes(f.status))}
-                    onClick={() => setDisburseFor(f)}>
-                    <Banknote className="mr-1.5 h-3.5 w-3.5" /> Cairkan
-                  </Button>
+                  {mayDisburse ? (
+                    <Button data-testid={CUSTOMERS.disburseBtn} size="sm" variant="outline"
+                      disabled={!(["approved", "disbursing"].includes(f.status))}
+                      onClick={() => setDisburseFor(f)}>
+                      <Banknote className="mr-1.5 h-3.5 w-3.5" /> Cairkan
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             );

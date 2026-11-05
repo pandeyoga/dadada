@@ -11,6 +11,7 @@ import kpr_disburse as kd
 import kpr_engine as kprmod
 from core_utils import new_id, now_iso, serialize_doc
 from db import db, ORG_ID
+from idempotency import Conflict, once
 from rbac import audit_log, require_permission
 
 router = APIRouter(tags=["allin"])
@@ -45,6 +46,7 @@ class PayIn(BaseModel):
     method: Optional[str] = "transfer"
     note: Optional[str] = None
     proof_file_ids: List[str] = Field(min_length=1)
+    client_ref: Optional[str] = Field(default=None, max_length=64)   # penanda sekali-pakai (anti ganda)
 
 
 class DisburseIn(BaseModel):
@@ -53,6 +55,7 @@ class DisburseIn(BaseModel):
     payee: Optional[str] = None
     vendor: Optional[str] = None
     note: Optional[str] = None
+    client_ref: Optional[str] = Field(default=None, max_length=64)
 
 
 class KprSchemeIn(BaseModel):
@@ -101,7 +104,7 @@ def _org(user):
 def _err(e):
     if isinstance(e, PermissionError):
         return HTTPException(status_code=403, detail=str(e))
-    if isinstance(e, LookupError):
+    if isinstance(e, (LookupError, Conflict)):   # Conflict = bentrok dengan proses yang sama (klik ganda)
         return HTTPException(status_code=409, detail=str(e))
     return HTTPException(status_code=400, detail=str(e))
 
@@ -249,8 +252,10 @@ async def issue_cost_invoice(cid: str, user: dict = Depends(require_permission("
 @router.post("/cost-invoices/{iid}/pay")
 async def pay_cost_invoice(iid: str, p: PayIn, user: dict = Depends(require_permission("finance", "create"))):
     try:
-        return {"data": await ae.pay_cost_invoice(_org(user), iid, p.amount, p.method, p.note, user.get("email"),
-                                                  proof_file_ids=p.proof_file_ids)}
+        async with once("allin.cost_pay", iid, p.amount, p.method, user.get("email"),
+                        client_ref=p.client_ref, what="Pembayaran invoice biaya yang sama"):
+            return {"data": await ae.pay_cost_invoice(_org(user), iid, p.amount, p.method, p.note,
+                                                      user.get("email"), proof_file_ids=p.proof_file_ids)}
     except ValueError as e:
         raise _err(e)
 
@@ -259,8 +264,10 @@ async def pay_cost_invoice(iid: str, p: PayIn, user: dict = Depends(require_perm
 async def disburse_titipan(cid: str, p: DisburseIn, user: dict = Depends(require_permission("finance", "create"))):
     c = await _contract(cid, user)
     try:
-        return {"data": await ae.disburse_titipan(_org(user), c, p.component_code, p.amount, p.payee, p.note,
-                                                  user.get("email"))}
+        async with once("allin.titipan_out", cid, p.component_code, p.amount, p.payee, user.get("email"),
+                        client_ref=p.client_ref, what="Penyaluran titipan yang sama"):
+            return {"data": await ae.disburse_titipan(_org(user), c, p.component_code, p.amount, p.payee,
+                                                      p.note, user.get("email"))}
     except ValueError as e:
         raise _err(e)
 
@@ -346,10 +353,13 @@ async def assign_kpr_scheme(cid: str, p: AssignIn, user: dict = Depends(require_
 
 
 @router.post("/contracts/{cid}/kpr/disbursements")
-async def kpr_disburse(cid: str, p: KprDisburseIn, user: dict = Depends(require_permission("financing", "update"))):
+async def kpr_disburse(cid: str, p: KprDisburseIn, user: dict = Depends(require_permission("financing", "approve"))):
+    """Izin disamakan dengan `/financing/{id}/disburse` (audit IN-11): dana bank masuk = `approve`."""
     c, app = await _kpr_app(cid, user)
     try:
         return {"data": serialize_doc(await kd.disburse(_org(user), c, app, p.model_dump(), user))}
+    except Conflict:
+        raise
     except (ValueError, LookupError, PermissionError) as e:
         raise _err(e)
 

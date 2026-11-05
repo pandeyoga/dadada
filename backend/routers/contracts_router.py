@@ -27,6 +27,7 @@ from db import ORG_ID, db
 from models_p53 import (ContractCostsIn, ContractSchemeIn, ConvertToCustomerIn,
                        DocGenerateIn, KprAmendTermsIn, KprRejectIn, KprStageIn, LegalAdvanceIn)
 from rbac import audit_log, is_scoped_sales, require_permission
+from idempotency import Conflict
 
 router = APIRouter(tags=["contracts"])
 
@@ -226,6 +227,8 @@ async def kpr_stage(contract_id: str, stage: str, payload: KprStageIn,
         app = await kpr.kpr_advance(_org(user), contract_id, stage,
                                     payload.model_dump(exclude_none=True),
                                     user.get("email"), user=user)
+    except Conflict:
+        raise
     except LookupError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except PermissionError as e:
