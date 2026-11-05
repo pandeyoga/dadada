@@ -324,6 +324,48 @@ def test_kt08_kupon_kuota_satu_paralel_hanya_satu_terpakai(cleanup):
     assert len([r for r in rows if r["state"] == "used"]) == 1
 
 
+def test_kt08_kupon_dikembalikan_bila_unit_gagal_ditahan(cleanup):
+    """Dua lead berebut SATU unit dengan kupon kuota 5: pemenang unit memakai 1 kuota; yang kalah
+    mengembalikan kuotanya (tidak ada kuota 'bocor' dari reservasi yang gagal)."""
+    code = "P0KT" + uuid.uuid4().hex[:6].upper()
+    ok(call("manager", "POST", "/pricing/coupons",
+            {"code": code, "name": "P0KT kupon rebutan unit", "kind": "amount", "value": 1_000_000,
+             "quota_total": 5, "quota_per_customer": 1, "target": "price"}))
+    unit = available_units(1)[0]
+    l1, l2 = new_lead(tag="Rebut1"), new_lead(tag="Rebut2")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f1 = pool.submit(reserve, l1["id"], unit, "sales", "cash_keras", coupon_code=code)
+        f2 = pool.submit(reserve, l2["id"], unit, "sales", "cash_keras", coupon_code=code)
+        res = [f1.result(), f2.result()]
+    for c, body in res:
+        if c == 200:
+            cleanup.append(body["data"]["id"])
+    codes = sorted(c for c, _ in res)
+    assert codes[0] == 200 and codes[1] in (400, 409), (codes, [str(b)[:150] for _, b in res])
+    cp = next(c for c in ok(call("manager", "GET", "/pricing/coupons")) if c["code"] == code)
+    assert cp["used_count"] == 1, cp
+
+
+def test_kt08_penawaran_ke_reservasi_dengan_kupon_menebus_satu_kali(cleanup):
+    """Jalur penawaran → reservasi memakai urutan yang sama: kupon ditebus sekali, deal berdiskon."""
+    code = "P0KT" + uuid.uuid4().hex[:6].upper()
+    ok(call("manager", "POST", "/pricing/coupons",
+            {"code": code, "name": "P0KT kupon penawaran", "kind": "amount", "value": 2_000_000,
+             "quota_total": 3, "quota_per_customer": 1, "target": "price"}))
+    unit = available_units(1)[0]
+    lead = new_lead(tag="Penawaran")
+    q = ok(call("sales", "POST", "/quotations",
+                {"lead_id": lead["id"], "unit_id": unit["id"], "coupon_code": code,
+                 "scheme_id": scheme_id("cash_keras"), "booking_fee": 5_000_000}))
+    out = ok(call("sales", "POST", f"/quotations/{q['id']}/convert", {}))
+    cleanup.append(out["deal"]["id"])
+    assert int(out["deal"]["discount"]) == 2_000_000
+    cp = next(c for c in ok(call("manager", "GET", "/pricing/coupons")) if c["code"] == code)
+    assert cp["used_count"] == 1, cp
+    rows = ok(call("manager", "GET", f"/pricing/coupons/{cp['id']}/redemptions"))["rows"]
+    assert [r["ref_id"] for r in rows if r["state"] == "used"] == [out["deal"]["id"]]
+
+
 def test_kt08_reservasi_tanpa_kupon_tetap_normal(cleanup):
     lead = new_lead(tag="TanpaKupon")
     deal = ok(reserve(lead["id"], available_units(1)[0]))
