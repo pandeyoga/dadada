@@ -34,6 +34,7 @@ import settings_store as cfg
 from core_utils import new_id, now_iso
 from db import ORG_ID, db
 from engine import add_activity, create_notification, emit
+from idempotency import reserved
 from reference_p47 import (ATTENDANCE_DAY_FACTOR, ATTENDANCE_LABEL, GL_BANK, GL_WIP,
                           LABOR_ROLE_LABEL, PAYROLL_LABEL)
 
@@ -367,17 +368,25 @@ async def pay_payroll(org: str, payroll_id: str, actor: str, *, bank_txn_id: str
     amount = int(p.get("total") or 0)
     if amount <= 0:
         raise ValueError("Nilai rekap upah nol — tidak ada yang bisa dibayar.")
-    je = await gl.post_journal(
-        org, f"Pembayaran upah harian {p['no']} — {p.get('project_name')}",
-        [{"account_code": GL_WIP, "debit": amount, "credit": 0,
-          "memo": f"{p['worker_count']} orang · {p['days_total']} hari kerja"},
-         {"account_code": GL_BANK, "debit": 0, "credit": amount}],
-        date=p.get("period_end"), source_type="labor_payroll", source_id=payroll_id,
-        source_event=f"labor.paid:{payroll_id}", posted_by=actor, auto=False)
-    out = await _advance(org, payroll_id, actor, state="paid", action="pay", reason=note,
-                         extra={"journal_id": je["id"], "journal_no": je["entry_no"],
-                                "bank_txn_id": bank_txn_id, "paid_at": now_iso(),
-                                "paid_by": actor})
+    import cash_bank as _cb
+    bank_code = await _cb.resolve_code(org, None, GL_BANK)
+    await _cb.assert_funds(org, amount, code=bank_code, kind=f"pembayaran upah {p['no']}")
+    # PK-02: klaim atomik approved → paying SEBELUM jurnal/emit (bayar upah bersamaan = satu efek;
+    # dulu jurnal-nya idempoten tetapi riwayat, aktivitas, dan event labor.paid terbit dua kali).
+    async with reserved("labor_payrolls", {"id": payroll_id, "org_id": org}, {"state": "approved"},
+                        {"$set": {"state": "paying", "updated_at": now_iso()}},
+                        undo={"$set": {"state": "approved"}}, what="Rekap upah"):
+        je = await gl.post_journal(
+            org, f"Pembayaran upah harian {p['no']} — {p.get('project_name')}",
+            [{"account_code": GL_WIP, "debit": amount, "credit": 0,
+              "memo": f"{p['worker_count']} orang · {p['days_total']} hari kerja"},
+             {"account_code": GL_BANK, "debit": 0, "credit": amount}],
+            date=p.get("period_end"), source_type="labor_payroll", source_id=payroll_id,
+            source_event=f"labor.paid:{payroll_id}", posted_by=actor, auto=False)
+        out = await _advance(org, payroll_id, actor, state="paid", action="pay", reason=note,
+                             extra={"journal_id": je["id"], "journal_no": je["entry_no"],
+                                    "bank_txn_id": bank_txn_id, "paid_at": now_iso(),
+                                    "paid_by": actor})
     await add_activity(entity_type="project", entity_id=p["project_id"], type="finance",
                        actor=actor, org_id=org,
                        body=(f"Upah {p['no']} dibayar Rp {amount:,} ({p['worker_count']} "

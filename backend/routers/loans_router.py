@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import loans as ln
 from core_utils import parse_pagination, serialize_doc
 from db import db, ORG_ID
+from idempotency import Conflict
 from models_p27 import InstallmentPay, LoanActivate, LoanCreate
 from rbac import audit_log, require_permission
 
@@ -73,7 +74,7 @@ async def create(payload: LoanCreate,
     try:
         doc = await ln.create_loan(payload, user.get("email"), user.get("org_id", ORG_ID))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "create", "loans", doc["id"], {"principal": doc["principal"]})
     return {"data": serialize_doc(doc)}
 
@@ -85,7 +86,7 @@ async def activate(loan_id: str, payload: LoanActivate,
         doc = await ln.activate_loan(loan_id, payload.source, payload.date, payload.note,
                                      user.get("email"), user.get("org_id", ORG_ID))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "activate", "loans", loan_id, {"principal": doc["principal"]})
     doc["schedule"] = ln.annotate_schedule(doc.get("schedule"))
     return {"data": serialize_doc(doc), "metrics": ln.loan_metrics(doc)}
@@ -99,7 +100,7 @@ async def pay(loan_id: str, payload: InstallmentPay,
                                        payload.source, payload.date, payload.note,
                                        user.get("email"), user.get("org_id", ORG_ID))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "pay_installment", "loans", loan_id,
                     {"installment_no": payload.installment_no, "amount": payload.amount})
     doc["schedule"] = ln.annotate_schedule(doc.get("schedule"))

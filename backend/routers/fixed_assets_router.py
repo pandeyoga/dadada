@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import fixed_assets as fa
 from core_utils import parse_pagination, serialize_doc
 from db import db, ORG_ID
+from idempotency import Conflict
 from models_p27 import AssetCreate, AssetDispose, DepreciationRun
 from rbac import audit_log, require_permission
 
@@ -71,7 +72,7 @@ async def create(payload: AssetCreate,
     try:
         doc = await fa.create_asset(payload, user.get("email"), user.get("org_id", ORG_ID))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "create", "fixed_assets", doc["id"], {"cost": doc["cost"]})
     return {"data": serialize_doc(doc)}
 
@@ -83,7 +84,7 @@ async def run_depreciation(payload: DepreciationRun,
         res = await fa.run_depreciation(payload.period, user.get("email"),
                                         user.get("org_id", ORG_ID))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "run_depreciation", "fixed_assets", payload.period,
                     {"posted": res["posted"], "total": res["total_amount"]})
     return {"data": res}
@@ -96,7 +97,7 @@ async def dispose(asset_id: str, payload: AssetDispose,
         doc = await fa.dispose_asset(asset_id, payload.proceeds, payload.source, payload.date,
                                      payload.note, user.get("email"), user.get("org_id", ORG_ID))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "dispose", "fixed_assets", asset_id,
                     {"proceeds": payload.proceeds, "gain_loss": doc.get("disposal_gain_loss")})
     return {"data": serialize_doc(doc)}

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 import labor_engine as labor
 from core_utils import parse_pagination, serialize_doc
 from db import db, ORG_ID
+from idempotency import Conflict
 from models_p47 import AttendanceIn, PayrollBuildIn, PayrollDecisionIn, PayrollPayIn, WorkerIn
 import offline_intake as oi
 from rbac import assert_project_access, audit_log, require_permission
@@ -36,7 +37,7 @@ async def create_worker(payload: WorkerIn,
     try:
         doc = await labor.create_worker(_org(user), payload.model_dump(), user.get("email"))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "create", "workers", doc["id"],
                     {"name": doc["name"], "daily_wage": doc["daily_wage"]})
     return {"data": serialize_doc(doc)}
@@ -49,7 +50,7 @@ async def update_worker(worker_id: str, payload: WorkerIn,
         doc = await labor.update_worker(_org(user), worker_id, payload.model_dump(),
                                         user.get("email"))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "update", "workers", worker_id, {"name": payload.name})
     return {"data": serialize_doc(doc)}
 
@@ -136,7 +137,7 @@ async def build_payroll(payload: PayrollBuildIn,
             period_end=payload.period_end, actor=user.get("email"),
             budget_item_id=payload.budget_item_id, note=payload.note)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "create", "labor_payrolls", doc["id"],
                     {"no": doc["no"], "total": doc["total"]})
     return {"data": serialize_doc(doc),
@@ -170,7 +171,7 @@ async def submit_payroll(payroll_id: str,
     try:
         out = await labor.submit_payroll(_org(user), payroll_id, user.get("email"))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "submit", "labor_payrolls", payroll_id, {"total": out["total"]})
     return {"data": serialize_doc(out), "message": "Rekap upah diajukan ke keuangan."}
 
@@ -183,7 +184,7 @@ async def decide_payroll(payroll_id: str, payload: PayrollDecisionIn,
         out = await labor.decide_payroll(_org(user), payroll_id, user.get("email"),
                                          payload.approve, payload.reason)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "decide", "labor_payrolls", payroll_id,
                     {"approve": payload.approve, "reason": payload.reason})
     return {"data": serialize_doc(out),
@@ -199,7 +200,7 @@ async def pay_payroll(payroll_id: str, payload: PayrollPayIn,
         out = await labor.pay_payroll(_org(user), payroll_id, user.get("email"),
                                       bank_txn_id=payload.bank_txn_id, note=payload.note)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "pay", "labor_payrolls", payroll_id,
                     {"total": out["total"], "journal": out.get("journal_no")})
     return {"data": serialize_doc(out),

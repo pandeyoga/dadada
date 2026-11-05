@@ -14,6 +14,8 @@ from fastapi.responses import StreamingResponse
 
 from db import db, ORG_ID
 from core_utils import serialize_doc, now_iso, parse_pagination
+from idempotency import Conflict, reserved
+from p27_utils import clean_cash_date
 from rbac import require_permission
 import tax_engine as tx
 import gl_engine as gl
@@ -78,25 +80,47 @@ async def update_record(record_id: str, payload: TaxRecordUpdate,
             await _cb.resolve_code(org, updates["cash_account_id"])
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
-    await db.tax_records.update_one({"id": record_id, "org_id": org}, {"$set": updates})
-    fresh = await db.tax_records.find_one({"id": record_id, "org_id": org}, {"_id": 0})
+    # PK-14: tanggal setor/lapor harus ISO sah & tidak di masa depan SEBELUM apa pun ditulis.
+    try:
+        for f in ("paid_date", "report_date"):
+            if updates.get(f):
+                updates[f] = clean_cash_date(updates[f], "Tanggal setor" if f == "paid_date" else "Tanggal lapor")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    first_payment = new_status == "paid" and rec.get("status") != "paid"
+    try:
+        if first_payment:
+            # PK-06: setoran pajak mengeluarkan kas → dana rekening harus cukup.
+            import cash_bank as _cb
+            amt = int(rec.get("amount", 0) or 0)
+            await _cb.assert_funds(org, amt, cash_account_id=updates.get("cash_account_id") or rec.get("cash_account_id"),
+                                   code="1-1200", kind="setoran pajak")
+        # PK-02: klaim atomik atas status yang dibaca SEBELUM jurnal; setoran bersamaan = satu efek.
+        prior = {k: rec.get(k) for k in updates}
+        async with reserved("tax_records", {"id": record_id, "org_id": org}, {"status": rec.get("status")},
+                            {"$set": updates}, undo={"$set": prior}, what="Catatan pajak"):
+            fresh = await db.tax_records.find_one({"id": record_id, "org_id": org}, {"_id": 0})
 
-    # Phase 19 — posting GL: akrual saat 'reported'/'paid', setoran saat 'paid'.
-    enriched = (await tx.enrich_records(org, [fresh]))[0]
-    gl_refs = {}
-    if new_status in ("reported", "paid"):
-        je = await gl.post_tax_accrual(org, enriched)
-        if je:
-            gl_refs["gl_accrual_entry_no"] = je["entry_no"]
-    if new_status == "paid":
-        je2 = await gl.post_tax_payment(org, enriched)
-        if je2:
-            gl_refs["gl_setor_entry_no"] = je2["entry_no"]
-            gl_refs["gl_setor_entry_id"] = je2["id"]
-    if gl_refs:
-        await db.tax_records.update_one({"id": record_id, "org_id": org},
-                                        {"$set": {**gl_refs, "updated_at": now_iso()}})
-        fresh = await db.tax_records.find_one({"id": record_id, "org_id": org}, {"_id": 0})
+            # Phase 19 — posting GL: akrual saat 'reported'/'paid', setoran saat 'paid'.
+            enriched = (await tx.enrich_records(org, [fresh]))[0]
+            gl_refs = {}
+            if new_status in ("reported", "paid"):
+                je = await gl.post_tax_accrual(org, enriched)
+                if je:
+                    gl_refs["gl_accrual_entry_no"] = je["entry_no"]
+            if new_status == "paid":
+                je2 = await gl.post_tax_payment(org, enriched)
+                if je2:
+                    gl_refs["gl_setor_entry_no"] = je2["entry_no"]
+                    gl_refs["gl_setor_entry_id"] = je2["id"]
+            if gl_refs:
+                await db.tax_records.update_one({"id": record_id, "org_id": org},
+                                                {"$set": {**gl_refs, "updated_at": now_iso()}})
+                fresh = await db.tax_records.find_one({"id": record_id, "org_id": org}, {"_id": 0})
+    except Conflict:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"data": serialize_doc(fresh)}
 
 
