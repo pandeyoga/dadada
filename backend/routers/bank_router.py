@@ -15,7 +15,7 @@ import bank_import as bimp
 import bank_match as bmatch
 from core_utils import new_id, now_iso, parse_pagination, serialize_doc
 from db import ORG_ID, db
-from idempotency import Conflict
+from idempotency import Conflict, mutex
 from models_p47 import BankAccountIn, BankIgnoreIn, BankImportIn, BankMatchIn, BankUnmatchIn
 from rbac import audit_log, require_permission
 from reference_p47 import DIRECTION_LABEL, MATCH_STATE_LABEL
@@ -37,30 +37,43 @@ async def list_accounts(user: dict = Depends(require_permission("bank", "view"))
     return {"data": serialize_doc(rows), "total": len(rows)}
 
 
+@router.get("/accounts/gl-options")
+async def gl_options(user: dict = Depends(require_permission("bank", "view"))):
+    """Pilihan akun GL yang SAH untuk rekening bank baru (GL-08): induk 1-1200 = buat sub-akun otomatis,
+    atau sub-akun Bank yang belum dipakai rekening mana pun. Dialog "+ Rekening" hanya memuat ini."""
+    import cash_bank as _cb
+    rows = await _cb.bank_gl_options(_org(user))
+    return {"data": rows, "total": len(rows)}
+
+
 @router.post("/accounts")
 async def create_account(payload: BankAccountIn,
                          user: dict = Depends(require_permission("bank", "create"))):
-    org = _org(user)
-    acct = await db.accounts.find_one({"org_id": org, "code": payload.gl_account_code},
-                                      {"_id": 0, "code": 1, "name": 1})
-    if not acct:
-        raise HTTPException(status_code=400, detail=(
-            f"Akun GL {payload.gl_account_code} tidak ada di Bagan Akun — pilih akun kas/bank "
-            "yang benar supaya saldo buku bisa dibandingkan dengan rekening."))
-    if await db.bank_accounts.find_one({"org_id": org, "account_no": payload.account_no},
-                                       {"_id": 0, "id": 1}):
-        raise HTTPException(status_code=409,
-                            detail="Nomor rekening ini sudah terdaftar.")
-    ts = now_iso()
-    doc = {"id": new_id(), "org_id": org, **payload.model_dump(),
-           "gl_account_name": acct.get("name"),
-           "created_by": user.get("email"), "created_at": ts, "updated_at": ts}
-    await db.bank_accounts.insert_one(dict(doc))
-    doc.pop("_id", None)
-    # Fase 82: setiap rekening langsung mendapat sub-akun GL sendiri (bukan menumpang 1-1200).
     import cash_bank as _cb
-    doc["gl_account_code"] = await _cb._ensure_sub_account(org, {**doc, "kind": "bank"})
-    await db.bank_accounts.update_one({"id": doc["id"]}, {"$set": {"kind": "bank"}})
+    org = _org(user)
+    gl_code = payload.gl_account_code.strip()
+    # GL-08: hanya sub-akun Bank sah & belum dipakai rekening lain (dulu akun GL APA PUN: Piutang,
+    # WIP, induk, atau sub-akun rekening lain → saldo kas di layar ≠ neraca). Diserialkan per akun
+    # supaya dua pendaftaran bersamaan tidak sama-sama lolos cek "belum dipakai".
+    async with mutex(f"bank.gl:{org}:{gl_code}", what="Pendaftaran rekening untuk akun GL ini"):
+        try:
+            await _cb.assert_valid_bank_gl(org, gl_code)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        acct = await db.accounts.find_one({"org_id": org, "code": gl_code}, {"_id": 0, "code": 1, "name": 1})
+        if await db.bank_accounts.find_one({"org_id": org, "account_no": payload.account_no},
+                                           {"_id": 0, "id": 1}):
+            raise HTTPException(status_code=409,
+                                detail="Nomor rekening ini sudah terdaftar.")
+        ts = now_iso()
+        doc = {"id": new_id(), "org_id": org, **payload.model_dump(),
+               "gl_account_name": acct.get("name"),
+               "created_by": user.get("email"), "created_at": ts, "updated_at": ts}
+        await db.bank_accounts.insert_one(dict(doc))
+        doc.pop("_id", None)
+        # Fase 82: setiap rekening langsung mendapat sub-akun GL sendiri (bukan menumpang 1-1200).
+        doc["gl_account_code"] = await _cb._ensure_sub_account(org, {**doc, "kind": "bank"})
+        await db.bank_accounts.update_one({"id": doc["id"]}, {"$set": {"kind": "bank"}})
     await _cb._post_opening(org, doc)
     await audit_log(user, "create", "bank_accounts", doc["id"], {"name": doc["name"]})
     return {"data": serialize_doc(doc)}
@@ -69,16 +82,27 @@ async def create_account(payload: BankAccountIn,
 @router.put("/accounts/{account_id}")
 async def update_account(account_id: str, payload: BankAccountIn,
                          user: dict = Depends(require_permission("bank", "update"))):
+    """Ubah data rekening. Akun GL TIDAK bisa dipindah (GL-08): jurnal lama tetap di sub-akun asal,
+    sehingga mengarahkan ulang rekening ke akun lain memecah saldo atau menunjuk akun non-kas."""
+    import cash_bank as _cb
     org = _org(user)
-    res = await db.bank_accounts.update_one(
-        {"id": account_id, "org_id": org},
-        {"$set": {**payload.model_dump(), "updated_at": now_iso(),
-                  "updated_by": user.get("email")}})
-    if not res.matched_count:
+    acc = await db.bank_accounts.find_one({"id": account_id, "org_id": org}, {"_id": 0})
+    if not acc:
         raise HTTPException(status_code=404, detail="Rekening tidak ditemukan")
+    if _cb.kind_of(acc) == "cash":
+        raise HTTPException(status_code=400, detail="Kas tunai diubah dari menu Kas & Bank, bukan dari Rekonsiliasi Bank.")
+    want = (payload.gl_account_code or "").strip()
+    if want and want not in (acc.get("gl_account_code"), _cb.HEADER["bank"]):
+        raise HTTPException(status_code=400, detail=(
+            f"Akun GL rekening ini ({acc.get('gl_account_code')}) tidak bisa dipindah ke {want}: jurnal "
+            "yang sudah ada tetap di akun asal. Buat rekening baru bila memang berbeda."))
+    try:
+        doc = await _cb.update_account(org, account_id, payload.model_dump(exclude={"gl_account_code"}),
+                                       user.get("email"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "update", "bank_accounts", account_id, {"name": payload.name})
-    return {"data": serialize_doc(await db.bank_accounts.find_one({"id": account_id},
-                                                                 {"_id": 0}))}
+    return {"data": serialize_doc(doc)}
 
 
 # ------------------------------------------------------------------ impor mutasi

@@ -19,8 +19,10 @@ import { BANK } from "@/constants/testIds";
  * BankAccountDialog — daftarkan/ubah rekening bank perusahaan.
  *
  * Rekening WAJIB menunjuk akun kas/bank di Bagan Akun: tanpa itu saldo buku tidak punya
- * pembanding dan "rekonsiliasi" hanya menjadi daftar mutasi. Karena itu akun GL diambil dari
- * Bagan Akun NYATA (dropdown), bukan diketik bebas.
+ * pembanding dan "rekonsiliasi" hanya menjadi daftar mutasi. Pilihan akun GL berasal dari server
+ * (`/bank/accounts/gl-options`): hanya sub-akun Bank yang sah & belum dipakai rekening lain, atau
+ * "buat otomatis". Akun Piutang/WIP/induk TIDAK pernah ditawarkan (GL-08). Akun tidak bisa dipindah
+ * setelah rekening dibuat.
  */
 export default function BankAccountDialog({ open, onOpenChange, account, onDone }) {
   const [form, setForm] = useState({
@@ -39,9 +41,8 @@ export default function BankAccountDialog({ open, onOpenChange, account, onDone 
       opening_balance: account?.opening_balance || 0, note: account?.note || "",
       is_active: account?.is_active !== false,
     });
-    api.get("/gl/accounts")
-      .then((r) => setAccounts((r.data.data || [])
-        .filter((a) => String(a.code || "").startsWith("1-1"))))
+    api.get("/bank/accounts/gl-options")
+      .then((r) => setAccounts(r.data.data || []))
       .catch(() => setAccounts([]));
   }, [open, account]);
 
@@ -94,15 +95,22 @@ export default function BankAccountDialog({ open, onOpenChange, account, onDone 
           </div>
           <div className="space-y-1.5">
             <Label>Akun kas/bank di Bagan Akun</Label>
-            <Select value={form.gl_account_code}
+            <Select value={form.gl_account_code} disabled={!!account?.id}
               onValueChange={(v) => set({ gl_account_code: v })}>
               <SelectTrigger data-testid={BANK.accountGlSelect}
                 aria-label="Akun kas/bank di Bagan Akun">
                 <SelectValue placeholder="Pilih akun" />
               </SelectTrigger>
               <SelectContent>
+                {account?.id && !accounts.some((a) => a.code === form.gl_account_code) ? (
+                  <SelectItem value={form.gl_account_code}>
+                    {form.gl_account_code} · {account.gl_account_name || "akun rekening ini"}
+                  </SelectItem>
+                ) : null}
                 {accounts.map((a) => (
-                  <SelectItem key={a.code} value={a.code}>{a.code} · {a.name}</SelectItem>
+                  <SelectItem key={a.code} value={a.code}>
+                    {a.auto ? a.name : `${a.code} · ${a.name}`}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
