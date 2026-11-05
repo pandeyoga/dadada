@@ -10,7 +10,7 @@ PENTING: `models.py` MENG-EKSPOR ULANG seluruh kelas di berkas ini, sehingga
 sebaiknya mengimpor langsung dari sini agar ketergantungannya jelas.
 """
 from typing import Optional, List
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 import reference as ref
 
@@ -168,7 +168,8 @@ class ProcurementBillCreate(BaseModel):
     po_id: str
     grn_id: Optional[str] = None
     claimed: int
-    retention_pct: float = 5
+    retention_pct: float = Field(5, ge=0, le=100)  # PK-08: retensi 0–100%
+    vendor_invoice_no: Optional[str] = None  # PK-15: nomor faktur vendor (opsional, unik per vendor)
     due_date: Optional[str] = None
     note: Optional[str] = None
     # Fase 48B: 3-way match MENAHAN tagihan yang melebihi barang diterima/nilai PO.

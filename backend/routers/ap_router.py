@@ -12,6 +12,8 @@ import finance_engine as fe
 import withholding_engine as wh
 from models import ApBillCreate, ApPay
 from models_p49 import BillPayWithholding
+from idempotency import Conflict
+from sod import assert_separate
 
 router = APIRouter(prefix="/finance/ap", tags=["finance-ap"])
 
@@ -39,9 +41,13 @@ async def create_bill(payload: ApBillCreate,
                       user: dict = Depends(require_permission("finance", "create"))):
     if payload.claimed <= 0:
         raise HTTPException(status_code=400, detail="Nilai klaim harus lebih dari 0")
-    bill = await fe.create_ap_bill(payload.vendor, payload.project_id, payload.claimed,
-                                   payload.retention_pct, payload.due_date, payload.note,
-                                   user.get("email"), user.get("org_id", ORG_ID))
+    try:
+        bill = await fe.create_ap_bill(payload.vendor, payload.project_id, payload.claimed,
+                                       payload.retention_pct, payload.due_date, payload.note,
+                                       user.get("email"), user.get("org_id", ORG_ID),
+                                       vendor_invoice_no=payload.vendor_invoice_no)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"data": serialize_doc(bill)}
 
 
@@ -84,11 +90,35 @@ async def bill_detail(bill_id: str, user: dict = Depends(require_permission("fin
     })}
 
 
+async def _assert_payer_separate(user: dict, bill_id: str, org: str) -> None:
+    """PK-07: yang MENYETUJUI tagihan tidak boleh sekaligus membayarnya.
+
+    Tagihan yang disetujui otomatis oleh dokumen sumber yang sudah ber-SoD sendiri (termin subkon,
+    pelepasan retensi: pembuat = penyetuju) tidak terkena aturan ini — pemisahan tugasnya sudah
+    ditegakkan di dokumen sumber (pengaju ≠ verifikator ≠ penyetuju).
+    """
+    cur = await db.ap_invoices.find_one({"id": bill_id, "org_id": org},
+                                        {"_id": 0, "created_by": 1, "approved_by": 1})
+    if not cur or cur.get("approved_by") == cur.get("created_by"):
+        return
+    assert_separate(user, cur.get("approved_by"),
+                    "Pemisahan tugas: yang menyetujui tagihan tidak boleh sekaligus membayarnya "
+                    "— minta Keuangan lain yang melakukan pembayaran.")
+
+
 @router.post("/bills/{bill_id}/approve")
 async def approve_bill(bill_id: str,
                        user: dict = Depends(require_permission("finance", "approve"))):
+    org = user.get("org_id", ORG_ID)
     try:
-        bill = await fe.approve_ap_bill(bill_id, user.get("email"), user.get("org_id", ORG_ID))
+        cur = await db.ap_invoices.find_one({"id": bill_id, "org_id": org}, {"_id": 0, "created_by": 1})
+        # PK-07: pembuat tagihan tidak boleh menyetujui tagihannya sendiri (maker-checker di API).
+        assert_separate(user, (cur or {}).get("created_by"),
+                        "Pemisahan tugas: pembuat tagihan tidak boleh menyetujui tagihannya sendiri "
+                        "— minta orang lain (mis. Owner/Manajer Keuangan) yang menyetujui.")
+        bill = await fe.approve_ap_bill(bill_id, user.get("email"), org)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"data": serialize_doc(bill)}
@@ -99,10 +129,15 @@ async def pay_bill(bill_id: str, payload: ApPay,
                    user: dict = Depends(require_permission("finance", "approve"))):
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="Jumlah bayar harus lebih dari 0")
+    org = user.get("org_id", ORG_ID)
     try:
+        await _assert_payer_separate(user, bill_id, org)
         bill = await fe.pay_ap_bill(bill_id, payload.amount, payload.note,
-                                    user.get("email"), user.get("org_id", ORG_ID),
-                                    cash_account_id=payload.cash_account_id)
+                                    user.get("email"), org,
+                                    cash_account_id=payload.cash_account_id,
+                                    client_ref=payload.client_ref)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"data": serialize_doc(bill)}
@@ -135,15 +170,19 @@ async def pay_bill_with_withholding(bill_id: str, payload: BillPayWithholding,
     memo = (f"PPh {payload.kind} {payload.rate}% atas "
             f"{bill.get('vendor')} (dasar Rp {base:,})")
     try:
+        await _assert_payer_separate(user, bill_id, org)
         updated, payment = await fe.pay_ap_bill(
             bill_id, payload.amount, payload.note, user.get("email"), org,
             withhold={"kind": payload.kind, "base": base, "rate": payload.rate,
                       "amount": withheld, "memo": memo},
-            return_payment=True, cash_account_id=payload.cash_account_id)
+            return_payment=True, cash_account_id=payload.cash_account_id,
+            client_ref=payload.client_ref)
         doc = await wh.issue_for_bill_payment(
             org, user.get("email"), bill=bill, payment=payment, kind=payload.kind,
             base=base, rate=payload.rate, object_code=payload.object_code,
             note=payload.note)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "pay_withholding", "ap_invoices", bill_id,
