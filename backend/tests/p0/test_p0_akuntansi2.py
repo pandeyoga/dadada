@@ -457,6 +457,10 @@ def test_gl21_jurnal_manual_akun_kendali_butuh_izin_dan_alasan():
     assert r.status_code == 400
     je = ok(_mj(FINLEAD, ctl, control_reason="koreksi saldo awal utang vendor hasil audit"))["data"]
     assert "akun kendali" in je["memo"], "alasan melekat pada jurnal"
+    # Netralkan efeknya (jurnal manual tak bisa dihapus): tanpa ini setiap run menambah selisih Rp 1.000 di
+    # tie-out 2-1100 dan membuat tes lain yang memeriksa /finance/reconcile gagal pada run berikutnya.
+    rev = [{"account_code": "2-1100", "debit": 0, "credit": 1000}, {"account_code": "4-1200", "debit": 1000, "credit": 0}]
+    ok(_mj(FINLEAD, rev, control_reason="pembalik uji GL-21 untuk menetralkan saldo kendali"))
 
 
 def test_gl21_induk_kas_baris_dua_sisi_dan_memo_kosong_ditolak():

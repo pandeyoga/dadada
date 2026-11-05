@@ -316,6 +316,14 @@ async def _gl_payment_received(ev):
     amt = int(data.get("amount", 0))
     if amt <= 0:
         return
+    # Kuitansi/deal yang DIHAPUS PAKSA sebelum event ini diproses (dispatcher tiap 8 dtk) tidak boleh
+    # meninggalkan jurnal yatim: GL 2-1400 naik tanpa pasangan di subledger (terukur: Rp 677 jt
+    # selisih rekonsiliasi dari dua penerimaan yang dihapus oleh pembersihan tes). Kuitansi yang
+    # DIBATALKAN (void) tetap ada barisnya, jadi tidak terpengaruh.
+    rid = data.get("receipt_id")
+    if rid and not await db.receipts.find_one({"id": rid}, {"_id": 1}):
+        logger.info("payment.received dilewati: kuitansi %s sudah tidak ada (hapus paksa)", rid)
+        return
     await post_journal(org, "Penerimaan pembayaran pembeli (uang muka)", [
         {"account_code": "1-1200", "debit": amt, "credit": 0,
          "cash_account_id": data.get("cash_account_id")},
@@ -332,6 +340,8 @@ async def _gl_deposit_received(ev):
     amt = int((ev.get("data") or {}).get("amount", 0))
     if amt <= 0:
         return
+    if not await db.customer_deposits.find_one({"id": ev["entity_id"]}, {"_id": 1}):
+        return  # deal dihapus paksa sebelum jurnal terbit — jangan meninggalkan jurnal yatim
     await post_journal(org, "Titipan pelanggan (kelebihan bayar) diterima", [
         {"account_code": "1-1200", "debit": amt, "credit": 0,
          "cash_account_id": (ev.get("data") or {}).get("cash_account_id")},
@@ -362,6 +372,8 @@ async def _gl_deposit_refunded(ev):
     amt = int((ev.get("data") or {}).get("amount", 0))
     if amt <= 0:
         return
+    if not await db.customer_deposits.find_one({"id": ev["entity_id"]}, {"_id": 1}):
+        return  # deal dihapus paksa sebelum jurnal terbit — jangan meninggalkan jurnal yatim
     await post_journal(org, "Titipan pelanggan dikembalikan", [
         {"account_code": "2-1450", "debit": amt, "credit": 0},
         {"account_code": "1-1200", "debit": 0, "credit": amt,

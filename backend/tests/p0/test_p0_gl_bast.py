@@ -77,3 +77,14 @@ def test_gl02_denda_tidak_terhitung_dua_kali_sebagai_pendapatan(world):
     assert int(rev["revenue"]) == unit_price
     chk = ok(call(FINANCE, "GET", "/finance/reconcile"))["data"]
     assert chk["ok"], [c for c in chk["checks"] if not c.get("ok")]
+
+
+def test_hapus_paksa_sebelum_jurnal_terbit_tidak_meninggalkan_jurnal_yatim(world):
+    """Event penerimaan diproses dispatcher (tiap 8 dtk). Bila deal dihapus paksa SEBELUM itu, jurnalnya
+    tidak boleh terbit sesudahnya: dulu GL 2-1400 naik tanpa pasangan di subledger (selisih rekonsiliasi)."""
+    d = world.new_deal()["deal_id"]
+    ok(pay(d, 40_000_000))
+    ok(call(OWNER, "DELETE", f"/deals/{d}", params={"reason": "uji P0 hapus paksa sebelum jurnal terbit"}))
+    time.sleep(14)  # lewati beberapa tick dispatcher
+    rows = ok(call(FINANCE, "GET", "/gl/journals", params={"source_id": d, "limit": 50}))["data"]
+    assert rows == [], f"jurnal yatim untuk deal yang sudah dihapus: {[r['entry_no'] for r in rows]}"
