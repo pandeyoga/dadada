@@ -12,6 +12,7 @@ import {
 import StatusPill from "@/components/patterns/StatusPill";
 import MoneyText from "@/components/patterns/MoneyText";
 import ReferenceSelect from "@/components/patterns/ReferenceSelect";
+import CashAccountSelect from "@/components/cashBank/CashAccountSelect";
 import EvidenceUploader from "@/components/patterns/EvidenceUploader";
 import { useAuth } from "@/context/AuthContext";
 import { useReference } from "@/context/ReferenceContext";
@@ -52,7 +53,7 @@ export default function BookingFeePanel({ dealId, compact = false, onChanged }) 
     try {
       const res = await api.post(`/booking-fee/deals/${dealId}/pay`,
         { amount: Number(form.amount) || 0, method: form.method, note: form.note || null,
-          proof_file_ids: form.proof_file_ids || [] });
+          proof_file_ids: form.proof_file_ids || [], cash_account_id: form.cash_account_id || null });
       toast.success(res.data.message || "Pembayaran booking fee dicatat.");
       setPayOpen(false); load(); onChanged?.();
     } catch (e) { toast.error(e?.response?.data?.detail || "Gagal mencatat pembayaran."); }
@@ -140,8 +141,12 @@ export default function BookingFeePanel({ dealId, compact = false, onChanged }) 
             <div className="space-y-1.5">
               <Label>Metode pembayaran</Label>
               <ReferenceSelect group="payment_method" value={form.method} testId={BOOKING_FEE.payMethod}
-                onChange={(v) => setForm({ ...form, method: v })} />
+                onChange={(v) => setForm({ ...form, method: v, cash_account_id: "" })} />
             </div>
+            {/* GL-17: tunai masuk Kas, transfer masuk rekening bank — dan kasir bisa memilih rekening lain */}
+            <CashAccountSelect value={form.cash_account_id || ""} onChange={(v) => setForm((f) => ({ ...f, cash_account_id: v }))}
+              kind={["cash", "tunai"].includes(form.method) ? "cash" : "bank"} label="Masuk ke rekening / kas"
+              testId="bf-pay-cash-account" />
             <div className="space-y-1.5">
               <Label htmlFor="bf-note">Catatan</Label>
               <Textarea id="bf-note" rows={2} value={form.note} placeholder="Mis. transfer BCA a.n. pembeli"

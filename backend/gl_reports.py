@@ -25,9 +25,12 @@ from gl_engine import DEBIT_NORMAL
 CURRENT_ASSET_PREFIX = ("1-11", "1-12", "1-13", "1-14", "1-15", "1-16")
 CURRENT_LIAB_PREFIX = ("2-11", "2-12", "2-13", "2-14", "2-16")
 CASH_PREFIX = ("1-11", "1-12")
-# Klasifikasi arus kas untuk akun lawan (counterpart) dari mutasi kas.
-INVESTING_PREFIX = ("1-18", "1-19", "1-2")
-FINANCING_PREFIX = ("2-15", "2-17", "3-")
+# Klasifikasi arus kas untuk akun lawan (counterpart) dari mutasi kas (GL-14).
+# Investasi: aset tetap & sejenisnya. Pendanaan: utang bank/leasing (2-2xxx) dan ekuitas. Yang LAIN operasi —
+# termasuk uang muka subkon (1-18), utang marketing fee (2-15), dan akrual HPP (2-17) yang dulu salah
+# dimasukkan ke investasi/pendanaan, sementara utang bank (2-2100) malah jatuh ke operasi.
+INVESTING_PREFIX = ("1-19", "1-2")
+FINANCING_PREFIX = ("2-2", "3-")
 
 
 # ----------------------------- util periode -----------------------------

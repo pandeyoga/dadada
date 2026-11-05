@@ -409,3 +409,192 @@ def test_gl15_posting_otomatis_digeser_ke_periode_terbuka_terdekat_bukan_masa_de
             asyncio.run(glp.resolve_post_date("o", f"{prev}-10", False))
     finally:
         glp.closed_periods = asli
+
+
+# ================================================================== GL-21 — jurnal manual ke akun kendali
+def _mj(email, lines, memo="Uji GL-21 " + TAG, **extra):
+    return call(email, "POST", "/gl/journals", json={"memo": memo, "lines": lines, **extra})
+
+
+def test_gl21_jurnal_manual_akun_kendali_butuh_izin_dan_alasan():
+    ctl = [{"account_code": "2-1100", "debit": 1000, "credit": 0}, {"account_code": "4-1200", "debit": 0, "credit": 1000}]
+    r = _mj(FINANCE, ctl)                                  # staf keuangan biasa: tidak berizin
+    assert r.status_code == 403 and "akun kendali" in r.text, (r.status_code, r.text[:200])
+    r = _mj(FINLEAD, ctl)                                  # berizin tetapi tanpa alasan
+    assert r.status_code == 400 and "control_reason" in r.text, (r.status_code, r.text[:200])
+    r = _mj(FINLEAD, ctl, control_reason="pendek")
+    assert r.status_code == 400
+    je = ok(_mj(FINLEAD, ctl, control_reason="koreksi saldo awal utang vendor hasil audit"))["data"]
+    assert "akun kendali" in je["memo"], "alasan melekat pada jurnal"
+
+
+def test_gl21_induk_kas_baris_dua_sisi_dan_memo_kosong_ditolak():
+    ok_lines = [{"account_code": "6-1300", "debit": 500, "credit": 0}, {"account_code": "4-1200", "debit": 0, "credit": 500}]
+    head = [{"account_code": "6-1300", "debit": 500, "credit": 0}, {"account_code": "1-1200", "debit": 0, "credit": 500}]
+    for who in (FINANCE, FINLEAD, SUPER):
+        r = _mj(who, head)
+        assert r.status_code == 400 and "induk" in r.text, (who, r.status_code, r.text[:160])
+    both = [{"account_code": "6-1300", "debit": 1000, "credit": 1000}, {"account_code": "4-1200", "debit": 0, "credit": 0}]
+    assert _mj(FINANCE, both).status_code == 400
+    assert _mj(FINANCE, ok_lines, memo="  ").status_code in (400, 422)
+    ok(_mj(FINANCE, ok_lines))                              # jurnal biasa tetap jalan
+
+
+# ================================================================== IN-17 / IN-16 — bukti bayar
+def test_in17_bukti_bayar_staf_divalidasi_dan_tidak_dipakai_ulang(world):
+    d1, d2 = world.new_deal()["deal_id"], world.new_deal()["deal_id"]
+
+    def rc(deal, proofs, amount=2_000_000, who=FINANCE):
+        return call(who, "POST", "/finance/ar/receipts",
+                    json={"deal_id": deal, "amount": amount, "method": "transfer", "proof_file_ids": proofs})
+    r = rc(d1, ["x"])
+    assert r.status_code == 400 and "tidak ditemukan" in r.text, r.text[:200]
+    proof = upload_proof()
+    ok(rc(d1, [proof]))
+    r = rc(d2, [proof])                                      # berkas yang sama untuk deal lain
+    assert r.status_code == 400 and "sudah dipakai" in r.text, r.text[:200]
+    r = rc(d2, [upload_proof(OWNER)])                        # diunggah orang lain
+    assert r.status_code == 400 and "pengguna lain" in r.text, r.text[:200]
+    assert len(ar(d2)["receipts"]) == 0
+    ok(rc(d2, [upload_proof()], amount=3_000_000))           # berkas sendiri & baru → lolos
+
+
+def test_in16_bukti_portal_tanggal_nominal_dan_isi_berkas(world):
+    import io
+    import requests
+    from test_p0_masuk import API, rp_png
+    from test_p0_masuk_2 import portal_token
+    deal = world.new_deal()
+    h = {"Authorization": f"Bearer {portal_token(deal['phone'])}"}
+    bad = requests.post(f"{API}/portal/payments/proof/upload", headers=h, timeout=60, data={"deal_id": deal["deal_id"]},
+                        files={"file": ("b.png", io.BytesIO(b"<html><script>alert(1)</script></html>"), "image/png")})
+    assert bad.status_code == 400 and "Isi berkas" in bad.text, bad.text[:200]
+    up = requests.post(f"{API}/portal/payments/proof/upload", headers=h, timeout=60, data={"deal_id": deal["deal_id"]},
+                       files={"file": ("b.png", io.BytesIO(rp_png(int(time.time()) % 90000 + 7)), "image/png")})
+    assert up.status_code == 200, up.text[:200]
+    fid = up.json()["data"]["id"]
+    for kw in ({"transfer_date": "abcdefghij"}, {"transfer_date": "2099-12-31"}, {"amount": 999_999_999_999}):
+        body = {"deal_id": deal["deal_id"], "amount": 1_000_000, "transfer_date": _days_ago(0), "file_ids": [fid], **kw}
+        r = requests.post(f"{API}/portal/payments/proof", headers=h, json=body, timeout=60)
+        assert r.status_code == 400, (kw, r.status_code, r.text[:200])
+    good = {"deal_id": deal["deal_id"], "amount": 1_000_000, "transfer_date": _days_ago(0), "file_ids": [fid]}
+    assert requests.post(f"{API}/portal/payments/proof", headers=h, json=good, timeout=60).status_code == 200
+
+
+# ================================================================== IN-20 — kuitansi void di laporan/PDF/portal
+def test_in20_kuitansi_void_keluar_dari_total_laporan_dan_portal(world):
+    import requests
+    from test_p0_masuk import API
+    from test_p0_masuk_2 import portal_token
+    deal = world.new_deal()
+    d = deal["deal_id"]
+    t0 = ok(call(FINANCE, "GET", "/finance/reports/receipts"))["data"]["totals"]
+    rid = ok(pay(d, 9_000_000))["data"]["receipt"]["id"]
+    t1 = ok(call(FINANCE, "GET", "/finance/reports/receipts"))["data"]["totals"]
+    assert t1["amount"] - t0["amount"] == 9_000_000
+    ok(call(FINLEAD, "POST", f"/finance/ar/receipts/{rid}/void", json={"reason": "uji kuitansi dibatalkan IN-20"}))
+    rep = ok(call(FINANCE, "GET", "/finance/reports/receipts"))["data"]
+    assert rep["totals"]["amount"] == t0["amount"], "kuitansi void tidak boleh dihitung"
+    assert rep["totals"]["void_count"] >= 1
+    row = [r for r in rep["rows"] if r["id"] == rid][0]
+    assert row["status"] == "void", "tetap tampil sebagai jejak, ditandai batal"
+    h = {"Authorization": f"Bearer {portal_token(deal['phone'])}"}
+    ids = [r["id"] for r in requests.get(f"{API}/portal/receipts", headers=h, timeout=30).json()["data"]]
+    assert rid not in ids, "pembeli tidak melihat kuitansi yang dibatalkan"
+    assert requests.get(f"{API}/portal/receipts/{rid}/pdf", headers=h, timeout=30).status_code == 404
+    assert call(FINANCE, "GET", f"/finance/ar/receipts/{rid}/pdf").status_code == 200   # staf tetap bisa cetak (bertanda batal)
+
+
+# ================================================================== GL-16 / PK-21 — tie-out kas bon gabungan
+def test_gl16_tieout_kas_bon_menjumlahkan_dua_modul():
+    from test_p0_keluar import call as kc, disburse_body, make_advance, make_fr
+
+    def row():
+        return [c for c in ok(call(FINANCE, "GET", "/finance/reconcile"))["data"]["checks"] if c["code"] == "1-1500"][0]
+    r0 = row()
+    assert r0["ok"], r0
+    a = make_advance(amount=2_000_000)                                  # modul Kas Bon
+    s, j = kc("finance", "POST", f"/petty-cash/advances/{a['id']}/disburse", {"source": "bank"})
+    assert s == 200, (s, j)
+    fr = make_fr(amount=1_500_000, typ="advance")                       # Pengajuan Dana jenis kas bon
+    s, j = kc("finance", "POST", f"/fund-requests/{fr['id']}/disburse", disburse_body(fr["id"]))
+    assert s == 200, (s, j)
+    r1 = row()
+    assert r1["ok"], r1
+    assert r1["sources"]["cash_advances"] - r0["sources"]["cash_advances"] == 2_000_000
+    assert r1["sources"]["fund_requests"] - r0["sources"]["fund_requests"] == 1_500_000
+    assert r1["gl"] - r0["gl"] == 3_500_000 and "Pengajuan Dana" in r1["label"]
+
+
+# ================================================================== GL-17 — pilihan rekening di alur uang
+def _new_bank(opening=50_000_000):
+    body = {"kind": "bank", "name": f"Rek GL17 {_uniq('R')}", "bank_name": "Bank Uji",
+            "account_no": _uniq("NO").replace("-", ""), "opening_balance": opening}
+    return ok(call(FINANCE, "POST", "/cash-bank/accounts", json=body))["data"]
+
+
+def _accounts():
+    return {a["id"]: a for a in ok(call(FINANCE, "GET", "/cash-bank/accounts"))["data"]}
+
+
+def test_gl17_booking_fee_tunai_masuk_kas_dan_rekening_bisa_dipilih(world):
+    d = world.new_deal(booking_fee=5_000_000, book=False)["deal_id"]
+    accs = _accounts()
+    kas = next(a for a in accs.values() if a["kind"] == "cash" and a["is_default"])
+    bank = next(a for a in accs.values() if a["kind"] == "bank" and a["is_default"])
+    ok(call(FINANCE, "POST", f"/booking-fee/deals/{d}/pay", json={
+        "amount": 2_000_000, "method": "cash", "proof_file_ids": [upload_proof()]}))
+    after = _wait(lambda: (_accounts()[kas["id"]]["balance"] - kas["balance"]) == 2_000_000 and _accounts() or None)
+    assert after, "setoran tunai booking fee harus masuk Kas, bukan bank"
+    assert after[bank["id"]]["balance"] == bank["balance"]
+    # rekening bank lain dipilih eksplisit
+    rek = _new_bank(0)
+    ok(call(FINANCE, "POST", f"/booking-fee/deals/{d}/pay", json={
+        "amount": 1_000_000, "method": "transfer", "proof_file_ids": [upload_proof()], "cash_account_id": rek["id"]}))
+    assert _wait(lambda: _accounts()[rek["id"]]["balance"] == 1_000_000), "uang harus mendarat di rekening pilihan"
+    bad = call(FINANCE, "POST", f"/booking-fee/deals/{d}/pay", json={
+        "amount": 500_000, "method": "transfer", "proof_file_ids": [upload_proof()], "cash_account_id": "tidak-ada"})
+    assert bad.status_code == 400, bad.text[:200]
+
+
+def test_gl17_titipan_terima_dan_kembali_memakai_rekening_pilihan(world):
+    d = world.new_deal()["deal_id"]
+    rek = _new_bank(50_000_000)
+    ok(call(FINANCE, "POST", f"/finance/ar/{d}/deposit", json={
+        "amount": 4_000_000, "proof_file_ids": [upload_proof()], "cash_account_id": rek["id"]}))
+    assert _wait(lambda: _accounts()[rek["id"]]["balance"] == 54_000_000), "titipan masuk ke rekening pilihan"
+    ok(call(FINANCE, "POST", f"/finance/ar/{d}/deposit/refund", json={"amount": 1_500_000, "cash_account_id": rek["id"]}))
+    assert _wait(lambda: _accounts()[rek["id"]]["balance"] == 52_500_000), "pengembalian keluar dari rekening pilihan"
+    r = call(FINANCE, "POST", f"/finance/ar/{d}/deposit", json={
+        "amount": 1_000, "proof_file_ids": [upload_proof()], "cash_account_id": "tidak-ada"})
+    assert r.status_code == 400
+
+
+# ================================================================== GL-14 — klasifikasi arus kas
+def test_gl14_klasifikasi_arus_kas_per_akun():
+    import os
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    os.environ.setdefault("MONGO_URL", "mongodb://127.0.0.1:27017")
+    os.environ.setdefault("DB_NAME", "sipro_unit_dummy")
+    import gl_reports as glr
+    expect = {"2-2100": "financing", "3-1900": "financing", "3-1950": "financing",     # utang bank (dulu operasi) & ekuitas
+              "1-1800": "operating", "2-1500": "operating", "2-1700": "operating",      # dulu investasi / pendanaan
+              "1-2100": "investing", "1-2200": "investing", "1-1300": "operating",
+              "2-1400": "operating", "4-1100": "operating", "6-1300": "operating"}
+    assert {c: glr._cash_category(c) for c in expect} == expect
+
+
+# ================================================================== IN-21 — nomor giro varian
+def test_in21_nomor_giro_varian_huruf_spasi_ditolak(world):
+    d = world.new_deal()["deal_id"]
+    no = f"BG-{TAG}-{uuid.uuid4().hex[:5].upper()}"
+    base = {"kind": "bg", "bank_name": "BCA", "instrument_no": no, "amount": 7_000_000,
+            "due_date": f"{_wib_now().year + 1}-01-15", "deal_id": d}
+    ok(call(FINANCE, "POST", "/pdc", json=base))
+    for inst, bank in ((no, "BCA"), (no.lower(), "BCA"), (" " + no + " ", "bca "), (no.replace("-", " "), "B C A"),
+                       (no.replace("-", ""), "Bca")):
+        r = call(FINANCE, "POST", "/pdc", json={**base, "instrument_no": inst, "bank_name": bank})
+        assert r.status_code == 400 and "sudah tercatat" in r.text, (inst, bank, r.status_code, r.text[:160])
+    # nomor yang benar-benar berbeda tetap boleh
+    ok(call(FINANCE, "POST", "/pdc", json={**base, "instrument_no": no + "9"}))

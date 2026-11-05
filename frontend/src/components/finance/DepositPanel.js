@@ -17,6 +17,7 @@ import {
 import MetricCard from "@/components/patterns/MetricCard";
 import EmptyState from "@/components/patterns/EmptyState";
 import EvidenceUploader from "@/components/patterns/EvidenceUploader";
+import CashAccountSelect from "@/components/cashBank/CashAccountSelect";
 import RefLabel from "@/components/patterns/RefLabel";
 import { LoadingCards, ErrorState } from "@/components/patterns/StateViews";
 import { formatIDR, formatDateWIB } from "@/utils/formatters";
@@ -158,6 +159,7 @@ function ReceiveDepositDialog({ open, onOpenChange, ars, onDone }) {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [proofFiles, setProofFiles] = useState([]);
+  const [cashAccountId, setCashAccountId] = useState("");   // GL-17: rekening/kas tujuan
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (open) { setDealId(""); setAmount(""); setNote(""); setProofFiles([]); } }, [open]);
 
@@ -168,7 +170,8 @@ function ReceiveDepositDialog({ open, onOpenChange, ars, onDone }) {
     if (!proofFiles.length) { toast.error("Bukti pembayaran wajib dilampirkan."); return; }
     setBusy(true);
     try {
-      await api.post(`/finance/ar/${dealId}/deposit`, { amount: amt, note: note || null, proof_file_ids: proofFiles });
+      await api.post(`/finance/ar/${dealId}/deposit`, { amount: amt, note: note || null, proof_file_ids: proofFiles,
+        cash_account_id: cashAccountId || null });
       toast.success(`Titipan ${formatIDR(amt)} diterima (kewajiban 2-1450).`);
       onOpenChange(false); onDone && onDone();
     } catch (e) { toast.error(e?.response?.data?.detail || "Gagal mencatat titipan."); }
@@ -205,6 +208,8 @@ function ReceiveDepositDialog({ open, onOpenChange, ars, onDone }) {
             <RupiahInput id="depamt" value={amount} data-testid={FINANCE.depositAmount}
               onChange={(e) => setAmount(e.target.value)} placeholder="0" />
           </div>
+          <CashAccountSelect value={cashAccountId} onChange={setCashAccountId} label="Masuk ke rekening / kas"
+            testId="deposit-cash-account" />
           <div className="space-y-1.5">
             <Label htmlFor="depnote">Catatan (opsional)</Label>
             <Textarea id="depnote" rows={2} value={note} onChange={(e) => setNote(e.target.value)}
@@ -234,6 +239,7 @@ function DepositActionDialog({ action, onOpenChange, maxApply, onDone }) {
   const max = isApply ? maxApply : Number(row?.balance || 0);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [cashAccountId, setCashAccountId] = useState("");   // GL-17: rekening/kas sumber pengembalian
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (action) { setAmount(String(max || "")); setNote(""); } }, [action, max]);
 
@@ -247,7 +253,8 @@ function DepositActionDialog({ action, onOpenChange, maxApply, onDone }) {
       const url = isApply
         ? `/finance/ar/${row.deal_id}/deposit/apply`
         : `/finance/ar/${row.deal_id}/deposit/refund`;
-      await api.post(url, { amount: amt, note: note || null });
+      await api.post(url, { amount: amt, note: note || null,
+        ...(isApply ? {} : { cash_account_id: cashAccountId || null }) });
       toast.success(isApply
         ? `${formatIDR(amt)} titipan dipakai untuk termin.`
         : `${formatIDR(amt)} titipan dikembalikan ke pelanggan.`);
@@ -278,6 +285,10 @@ function DepositActionDialog({ action, onOpenChange, maxApply, onDone }) {
               </p>
             ) : null}
           </div>
+          {!isApply ? (
+            <CashAccountSelect value={cashAccountId} onChange={setCashAccountId} label="Dikembalikan dari rekening / kas"
+              testId="deposit-refund-cash-account" />
+          ) : null}
           <div className="space-y-1.5">
             <Label htmlFor="actnote">Catatan (opsional)</Label>
             <Textarea id="actnote" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />

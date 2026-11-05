@@ -102,7 +102,7 @@ def refund_summary(inv: dict, deal: dict) -> dict:
 
 
 async def pay(org: str, deal_id: str, *, amount: int, method: str, note: str, actor: str,
-              proof_file_ids: list = None) -> dict:
+              proof_file_ids: list = None, cash_account_id: str = None) -> dict:
     """Terima booking fee → kwitansi bernomor + titipan pelanggan berjurnal + status tagihan."""
     from finance_engine import _deposit_move, notify_finance
     inv = await get_invoice(org, deal_id)
@@ -123,6 +123,12 @@ async def pay(org: str, deal_id: str, *, amount: int, method: str, note: str, ac
         # Audit IN-13: reservasi yang sudah batal/kedaluwarsa tidak menerima booking fee lagi.
         raise ValueError("Reservasi ini sudah dibatalkan/kedaluwarsa — booking fee tidak bisa dibayar "
                          "lagi. Bila uang pembeli sudah masuk, proses refund-nya dari rincian deal.")
+    # GL-17: uang mendarat di rekening/kas yang dipilih; tanpa pilihan, metode tunai -> Kas (dulu SELALU bank
+    # default walau tunai, jadi Kas Besar tidak pernah menerima setoran tunai booking fee).
+    import cash_bank as _cb
+    cash_code = await _cb.resolve_code(org, cash_account_id, "1-1100" if str(method).lower() in ("cash", "tunai") else "1-1200")
+    cash_acc = await _cb.account_by_code(org, cash_code) or {}
+    cash_account_id = cash_acc.get("id")
     ts = now_iso()
     paid = int(inv["paid"]) + amount
     outstanding = int(inv["amount"]) - paid
@@ -144,6 +150,7 @@ async def pay(org: str, deal_id: str, *, amount: int, method: str, note: str, ac
         "amount": amount, "applied": 0, "deposit_amount": amount, "funding": "cash",
         "method": method or "transfer", "note": note,
         "proof_file_ids": [str(f) for f in (proof_file_ids or []) if f],
+        "cash_account_id": cash_account_id, "cash_account_name": cash_acc.get("name"), "cash_account_code": cash_code,
         "allocations": [{"item_id": None, "label": f"Booking fee ({inv['no']})", "amount": amount}],
         "actor": actor, "created_at": ts,
     }
@@ -154,8 +161,8 @@ async def pay(org: str, deal_id: str, *, amount: int, method: str, note: str, ac
                                                       context={"unit_id": inv.get("unit_id")})
         await db.receipts.insert_one(dict(receipt))
         receipt.pop("_id", None)
-        deposit = await _deposit_move(org, deal_id, ctx, "in", amount,
-                                      f"Booking fee {inv['no']}", actor, receipt_id=receipt["id"])
+        deposit = await _deposit_move(org, deal_id, ctx, "in", amount, f"Booking fee {inv['no']}", actor,
+                                      receipt_id=receipt["id"], cash_account_id=cash_account_id)
     except BaseException:
         # Klaim sudah terpasang tetapi kuitansi/titipan gagal lahir → lepas klaim supaya tagihan
         # tidak tampak terbayar tanpa kuitansi.

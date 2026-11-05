@@ -12,6 +12,7 @@ class BookingFeePayIn(BaseModel):
     note: Optional[str] = None
     proof_file_ids: List[str] = Field(min_length=1)
     client_ref: Optional[str] = Field(default=None, max_length=64)   # penanda sekali-pakai (anti ganda)
+    cash_account_id: Optional[str] = None   # GL-17: rekening/kas tempat uang mendarat (kosong = default menurut metode)
 
 
 class BookingFeeRefundIn(BaseModel):
