@@ -11,6 +11,7 @@ import kpr_disburse as kd
 import kpr_engine as kprmod
 from core_utils import new_id, now_iso, serialize_doc
 from db import db, ORG_ID
+from idempotency import Conflict
 from rbac import audit_log, require_permission
 
 router = APIRouter(tags=["allin"])
@@ -102,6 +103,8 @@ def _err(e):
     if isinstance(e, PermissionError):
         return HTTPException(status_code=403, detail=str(e))
     if isinstance(e, LookupError):
+        return HTTPException(status_code=409, detail=str(e))
+    if isinstance(e, Conflict):  # PK-02: permintaan identik / balapan
         return HTTPException(status_code=409, detail=str(e))
     return HTTPException(status_code=400, detail=str(e))
 

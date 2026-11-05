@@ -53,6 +53,7 @@ from core_utils import new_id, now_iso
 from db import ORG_ID, ORG_NAME, db
 from engine import add_activity, emit
 from finance_engine import notify_finance
+from idempotency import Conflict, expect_of, once, reserved
 
 logger = logging.getLogger("sipro.cancellation")
 
@@ -567,27 +568,57 @@ async def pay_refund(org: str, cid: str, actor: str, *, method: str, amount: int
     akun_kas = AKUN_KAS if method == "tunai" else AKUN_BANK
     import cash_bank as _cb
     akun_kas = await _cb.resolve_code(org, cash_account_id, akun_kas)
+    await _cb.assert_funds(org, amount, code=akun_kas, kind=f"refund pembatalan {cancel['number']}")
     ts = now_iso()
     pid = new_id()
-    entry = await gl.post_journal(
-        org, f"Pembayaran refund pembatalan {cancel['number']}", [
-            {"account_code": AKUN_UTANG_REFUND, "debit": amount, "credit": 0,
-             "memo": f"Utang refund kepada {cancel.get('customer_name')}"},
-            {"account_code": akun_kas, "debit": 0, "credit": amount,
-             "memo": ref.label_of("refund_method", method)},
-        ], source_type="cancellation_refund", source_id=pid,
-        source_event=f"cancel:{cid}:refund:{pid}", posted_by=actor, auto=True,
-        source_deal_id=cancel.get("deal_id"))
     payment = {"id": pid, "amount": amount, "method": method,
                "method_label": ref.label_of("refund_method", method),
                "account_code": akun_kas, "note": note, "client_ref": client_ref,
                "override": bool(override), "override_reason": override_reason or None,
-               "journal_id": entry["id"], "actor": actor, "at": ts}
+               "journal_id": None, "actor": actor, "at": ts}
     total = paid + amount
     state = "selesai" if total >= payable else "refund_sebagian"
-    await db.cancellations.update_one({"id": cid}, {
-        "$push": {"refund_payments": payment, "journal_ids": entry["id"]},
-        "$set": {"refund_paid_total": total, "state": state, "updated_at": ts}})
+    # PK-02: refund dulu terbayar 4 x Rp 100 jt walau `client_ref` sama — cek client_ref/sisa hanya
+    # pada salinan dokumen yang basi. Sekarang: kunci idempotensi (client_ref 24 jam / jendela 15 dtk
+    # tanpa ref) + CAS atas (refund_paid_total, state) yang dibaca SEBELUM jurnal & payment diposting.
+    try:
+        async with once("cancel.refund", cid, amount, method, cash_account_id, actor,
+                        client_ref=client_ref, what="Pembayaran refund ini"):
+            async with reserved(
+                    "cancellations", {"id": cid, "org_id": org},
+                    expect_of(cancel, "refund_paid_total", "state"),
+                    {"$push": {"refund_payments": payment},
+                     "$set": {"refund_paid_total": total, "state": state, "updated_at": ts}},
+                    undo={"$pull": {"refund_payments": {"id": pid}},
+                          "$set": {"refund_paid_total": paid, "state": cancel.get("state")}},
+                    what="Pengajuan pembatalan"):
+                entry = await gl.post_journal(
+                    org, f"Pembayaran refund pembatalan {cancel['number']}", [
+                        {"account_code": AKUN_UTANG_REFUND, "debit": amount, "credit": 0,
+                         "memo": f"Utang refund kepada {cancel.get('customer_name')}"},
+                        {"account_code": akun_kas, "debit": 0, "credit": amount,
+                         "memo": ref.label_of("refund_method", method)},
+                    ], source_type="cancellation_refund", source_id=pid,
+                    source_event=f"cancel:{cid}:refund:{pid}", posted_by=actor, auto=True,
+                    source_deal_id=cancel.get("deal_id"))
+                payment["journal_id"] = entry["id"]
+                await db.cancellations.update_one(
+                    {"id": cid, "refund_payments.id": pid},
+                    {"$set": {"refund_payments.$.journal_id": entry["id"]},
+                     "$push": {"journal_ids": entry["id"]}})
+    except Conflict:
+        if client_ref:
+            # Kiriman ulang dengan `client_ref` yang sama BUKAN pembayaran kedua: tunggu pemenangnya
+            # selesai lalu jawab sebagai replay (perilaku idempoten yang sama dengan jalur sekuensial).
+            import asyncio
+            for _ in range(40):
+                fresh = await db.cancellations.find_one({"id": cid, "org_id": org}, {"_id": 0})
+                hit = next((p for p in (fresh or {}).get("refund_payments") or []
+                            if p.get("client_ref") == client_ref and p.get("journal_id")), None)
+                if hit:
+                    return {"cancellation": fresh, "payment": hit, "replay": True}
+                await asyncio.sleep(0.1)
+        raise
     await add_activity(entity_type="lead", entity_id=cancel.get("lead_id"), type="system",
                        body=(f"Refund pembatalan {cancel['number']} dibayar {_rp(amount)} "
                              f"({ref.label_of('refund_method', method)})."

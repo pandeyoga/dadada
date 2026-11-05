@@ -14,6 +14,7 @@ import cancellation_engine as cx
 import contracts_engine as ce
 from core_utils import parse_pagination, serialize_doc
 from db import ORG_ID, db
+from idempotency import Conflict
 from models_p56 import CancellationDecisionIn, CancellationRequestIn, RefundPayIn
 from rbac import audit_log, can, is_scoped_sales, require_permission
 
@@ -120,7 +121,8 @@ async def pay_refund(cid: str, payload: RefundPayIn,
                                   may_override=may_override,
                                   cash_account_id=payload.cash_account_id)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Conflict (balapan / refund yang sama sedang diproses) → 409 (PK-02).
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     if not out.get("replay"):
         await audit_log(user, "update", "cancellation", cid,
                         {"refund": out["payment"]["amount"], "method": payload.method,

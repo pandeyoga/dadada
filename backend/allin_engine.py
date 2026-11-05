@@ -16,6 +16,7 @@ import sequences as seq
 from core_utils import new_id, now_iso
 from db import db
 from engine import add_activity
+from idempotency import mutex, once
 
 logger = logging.getLogger("sipro.allin")
 
@@ -420,26 +421,43 @@ async def pay_cost_invoice(org: str, invoice_id: str, amount: int, method: str, 
 
 async def disburse_titipan(org: str, contract: dict, component_code: str, amount: int,
                            payee: str, note: str, actor: str) -> dict:
-    """Salurkan titipan ke notaris/BPN → Titipan / Kas. Tidak boleh melebihi sisa titipan."""
-    led = await ledger(org, contract)
+    """Salurkan titipan ke notaris/BPN → Titipan / Kas. Tidak boleh melebihi sisa titipan.
+
+    PK-02: dua penyaluran bersamaan dulu sama-sama membaca sisa titipan yang sama lalu keduanya
+    mengeluarkan kas. Sekarang diserialkan per kontrak (mutex) dengan kunci klik ganda; sisa titipan
+    dibaca ULANG di dalam kunci, lalu dana kas diperiksa (PK-06).
+    """
     amount = int(amount or 0)
     if amount <= 0:
         raise ValueError("Nominal penyaluran wajib > 0.")
-    if amount > led["titipan_balance"]:
-        raise ValueError(f"Penyaluran Rp {amount:,} melebihi sisa titipan Rp {led['titipan_balance']:,}.".replace(",", "."))
     if not (payee or "").strip():
         raise ValueError("Penerima (notaris/BPN) wajib diisi.")
-    ts = now_iso()
-    doc = {"id": new_id(), "org_id": org, "contract_id": contract.get("id"), "deal_id": contract.get("deal_id"),
-           "component_code": component_code, "amount": amount, "payee": payee.strip(), "note": note,
-           "actor": actor, "created_at": ts}
-    await db.cost_disbursements.insert_one(dict(doc))
-    doc.pop("_id", None)
-    je = await gl.post_journal(org, f"Penyaluran titipan biaya ({component_code}) ke {payee.strip()}", [
-        {"account_code": GL_TITIPAN_BIAYA, "debit": amount, "credit": 0},
-        {"account_code": GL_BANK, "debit": 0, "credit": amount}],
-        source_type="cost_disbursement", source_id=doc["id"], source_event=f"cost_disb:{doc['id']}",
-        posted_by=actor, source_deal_id=contract.get("deal_id"))
+    led = await ledger(org, contract)
+    if amount > led["titipan_balance"]:
+        raise ValueError(f"Penyaluran Rp {amount:,} melebihi sisa titipan Rp {led['titipan_balance']:,}.".replace(",", "."))
+    import cash_bank as _cb
+    async with once("allin.disburse", org, contract.get("id"), component_code, amount, payee.strip(), actor,
+                    what="Penyaluran titipan ini"):
+        async with mutex(f"allin.titipan:{org}:{contract.get('id')}", what="Titipan biaya kontrak ini"):
+            led = await ledger(org, contract)
+            if amount > led["titipan_balance"]:
+                raise ValueError(f"Penyaluran Rp {amount:,} melebihi sisa titipan "
+                                 f"Rp {led['titipan_balance']:,}.".replace(",", "."))
+            bank_code = await _cb.resolve_code(org, None, GL_BANK)
+            async with _cb.cash_lock(org, bank_code):
+                await _cb.assert_funds(org, amount, code=bank_code, kind="penyaluran titipan biaya")
+                ts = now_iso()
+                doc = {"id": new_id(), "org_id": org, "contract_id": contract.get("id"),
+                       "deal_id": contract.get("deal_id"), "component_code": component_code,
+                       "amount": amount, "payee": payee.strip(), "note": note,
+                       "actor": actor, "created_at": ts}
+                await db.cost_disbursements.insert_one(dict(doc))
+                doc.pop("_id", None)
+                je = await gl.post_journal(org, f"Penyaluran titipan biaya ({component_code}) ke {payee.strip()}", [
+                    {"account_code": GL_TITIPAN_BIAYA, "debit": amount, "credit": 0},
+                    {"account_code": GL_BANK, "debit": 0, "credit": amount}],
+                    source_type="cost_disbursement", source_id=doc["id"], source_event=f"cost_disb:{doc['id']}",
+                    posted_by=actor, source_deal_id=contract.get("deal_id"))
     return {"disbursement": doc, "journal_id": je.get("id"), "titipan_balance": led["titipan_balance"] - amount}
 
 
@@ -455,21 +473,23 @@ async def record_developer_expense(org: str, contract: dict, component_code: str
         raise ValueError("Nominal beban wajib > 0.")
     if await db.cost_expenses.find_one({"org_id": org, "contract_id": contract["id"], "component_code": component_code}):
         raise ValueError(f"Beban {component_code} untuk kontrak ini sudah dicatat.")
-    deal = await db.deals.find_one({"id": contract.get("deal_id")}, {"_id": 0, "project_id": 1}) or {}
-    bill = await fe.create_ap_bill(vendor or "Notaris/BPN", deal.get("project_id"), amount, 0, None,
-                                   f"Biaya {comp['name']} all-in kontrak {contract.get('number')}", actor, org_id=org)
-    ts = now_iso()
-    await db.ap_invoices.update_one({"id": bill["id"]}, {"$set": {
-        "status": "approved", "approved_by": actor, "approved_at": ts, "kind": "sales_cost",
-        "contract_id": contract["id"], "component_code": component_code, "gl_expense": comp.get("gl_expense")}})
-    je = await gl.post_journal(org, f"Beban penjualan {comp['name']} (all-in) — {contract.get('number')}", [
-        {"account_code": comp.get("gl_expense") or GL_BEBAN_PENJUALAN, "debit": amount, "credit": 0},
-        {"account_code": comp.get("gl_ap") or GL_AP, "debit": 0, "credit": amount}],
-        source_type="ap_bill", source_id=bill["id"], source_event=f"ap.sales_cost:{bill['id']}",
-        posted_by=actor, source_deal_id=contract.get("deal_id"))
-    doc = {"id": new_id(), "org_id": org, "contract_id": contract["id"], "deal_id": contract.get("deal_id"),
-           "component_code": component_code, "amount": amount, "vendor": vendor or "Notaris/BPN",
-           "ap_bill_id": bill["id"], "journal_id": je.get("id"), "note": note, "actor": actor, "created_at": ts}
-    await db.cost_expenses.insert_one(dict(doc))
-    doc.pop("_id", None)
+    # PK-02: dua pencatatan beban yang sama bersamaan dulu sama-sama lolos cek di atas (2 tagihan + 2 jurnal).
+    async with once("allin.devexpense", org, contract["id"], component_code, what="Pencatatan beban ini"):
+        deal = await db.deals.find_one({"id": contract.get("deal_id")}, {"_id": 0, "project_id": 1}) or {}
+        bill = await fe.create_ap_bill(vendor or "Notaris/BPN", deal.get("project_id"), amount, 0, None,
+                                       f"Biaya {comp['name']} all-in kontrak {contract.get('number')}", actor, org_id=org)
+        ts = now_iso()
+        await db.ap_invoices.update_one({"id": bill["id"]}, {"$set": {
+            "status": "approved", "approved_by": actor, "approved_at": ts, "kind": "sales_cost",
+            "contract_id": contract["id"], "component_code": component_code, "gl_expense": comp.get("gl_expense")}})
+        je = await gl.post_journal(org, f"Beban penjualan {comp['name']} (all-in) — {contract.get('number')}", [
+            {"account_code": comp.get("gl_expense") or GL_BEBAN_PENJUALAN, "debit": amount, "credit": 0},
+            {"account_code": comp.get("gl_ap") or GL_AP, "debit": 0, "credit": amount}],
+            source_type="ap_bill", source_id=bill["id"], source_event=f"ap.sales_cost:{bill['id']}",
+            posted_by=actor, source_deal_id=contract.get("deal_id"))
+        doc = {"id": new_id(), "org_id": org, "contract_id": contract["id"], "deal_id": contract.get("deal_id"),
+               "component_code": component_code, "amount": amount, "vendor": vendor or "Notaris/BPN",
+               "ap_bill_id": bill["id"], "journal_id": je.get("id"), "note": note, "actor": actor, "created_at": ts}
+        await db.cost_expenses.insert_one(dict(doc))
+        doc.pop("_id", None)
     return {"expense": doc, "ap_bill": bill}
