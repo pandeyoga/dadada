@@ -117,6 +117,8 @@ export const DEALS = {
   createSprBtn: "deal-create-spr-button",
   legalBtn: "deal-legal-button",
   legalDialog: "deal-legal-dialog",
+  legalContractNote: "deal-legal-contract-note",
+  legalOpenContractBtn: "deal-legal-open-contract-button",
   ppjbSignBtn: "deal-ppjb-sign-button",
   ajbSignBtn: "deal-ajb-sign-button",
   legalNumberInput: "deal-legal-number-input",

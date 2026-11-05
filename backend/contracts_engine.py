@@ -35,6 +35,7 @@ import payment_scheme_engine as psx
 import reference as ref
 import sequences as seq
 import settings_store as cfg
+import stage_clock as clock
 from core_utils import due_in, new_id, now_iso
 from db import ORG_ID, db
 from engine import add_activity, auto_create_task, dispatch_pending, emit
@@ -707,6 +708,15 @@ async def activate(org: str, contract_id: str, actor: str) -> dict:
     return await get_raw(org, contract_id)
 
 
+async def _pay_snapshot(org: str, deal_id: str) -> dict:
+    """Ringkasan pembayaran AR deal (terbayar, sisa, persen) untuk cermin legal ke `deals`."""
+    inv = await db.ar_invoices.find_one({"org_id": org, "deal_id": deal_id}, {"_id": 0}) or {}
+    total = int(inv.get("total") or 0)
+    paid = int(inv.get("paid") or 0)
+    return {"paid": paid, "outstanding": int(inv.get("outstanding", total - paid) or 0),
+            "paid_pct": round(paid / total * 100) if total > 0 else 0}
+
+
 # ============================================================ tahap legal
 async def legal_advance(org: str, contract_id: str, stage: str, payload: dict,
                         actor: str) -> dict:
@@ -778,9 +788,14 @@ async def legal_advance(org: str, contract_id: str, stage: str, payload: dict,
                            body=(f"PENGECUALIAN {entry['label']} unit {c.get('unit_code')}: "
                                  f"{override['detail']} Alasan: {override['reason']}"))
     if stage == "ppjb":
+        pay = await _pay_snapshot(org, c["deal_id"])
         deal_set.update({"legal_stage": "ppjb", "ppjb": {
             "number": number, "signed_date": entry["date"], "signed_by": c.get("customer_name"),
+            # DP/persen terbayar SAAT PPJB: dibaca layar Deal & Unit (dulu hanya diisi jalur lama).
+            "dp_paid": pay["paid"], "dp_pct": pay["paid_pct"],
             "note": entry["note"], "created_at": ts}})
+        await emit("deal.ppjb", "deal", c["deal_id"],
+                   {"unit_id": c.get("unit_id"), "number": number}, org_id=org)
         await auto_create_task(
             source_event=f"contract.ajb:{contract_id}",
             title=f"Jadwalkan AJB / akad: {c.get('customer_name')} · unit {c.get('unit_code')}",
@@ -788,11 +803,14 @@ async def legal_advance(org: str, contract_id: str, stage: str, payload: dict,
             assigned_to=c.get("assigned_to"), due_date=due_in(days=14), priority="medium",
             org_id=org)
     if stage == "ajb":
+        pay = await _pay_snapshot(org, c["deal_id"])
         deal_set.update({"legal_stage": "ajb", "status": "completed", "sold_at": ts,
                          "ajb": {"number": number, "notary": entry["notary"],
                                  "signed_date": entry["date"],
-                                 "buyer": c.get("customer_name"), "note": entry["note"],
-                                 "created_at": ts}})
+                                 "buyer": c.get("customer_name"),
+                                 "outstanding_at_ajb": pay["outstanding"], "note": entry["note"],
+                                 "created_at": ts},
+                         **await clock.patch_for("deal", "completed", org_id=org, at=ts)})
         await db.units.update_one({"id": c.get("unit_id"), "org_id": org}, {"$set": {
             "status": "sold", "sold_at": ts, "sold_by_deal": c["deal_id"],
             "updated_at": ts}})
@@ -802,8 +820,15 @@ async def legal_advance(org: str, contract_id: str, stage: str, payload: dict,
                    {"unit_id": c.get("unit_id"), "number": number}, org_id=org)
         await emit("deal.sold", "deal", c["deal_id"], {"unit_id": c.get("unit_id")},
                    org_id=org)
-        await dispatch_pending()
     await db.deals.update_one({"id": c["deal_id"]}, {"$set": deal_set})
+    if stage == "ajb":
+        # Setelah deal benar-benar `completed` (penangan `deal.sold` membaca deal itu), baru diproses.
+        await dispatch_pending()
+        try:
+            import build_engine as be
+            await be.sync_unit_binding(org, c.get("unit_id"))
+        except Exception:  # noqa: BLE001 — ikatan denormalisasi tidak boleh menggagalkan AJB
+            logger.exception("sync_unit_binding gagal setelah AJB kontrak %s", contract_id)
     await add_activity(entity_type="customer", entity_id=c.get("customer_id"), type="system",
                        actor=actor, org_id=org,
                        body=(f"{entry['label']}" + (f" {number}" if number else "")

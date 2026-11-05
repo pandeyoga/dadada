@@ -4,12 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException
 import listing as lst
 import settings_store as cfg
 import stage_clock as clock
-import sequences as seq
 from db import db, ORG_ID, BOOKING_HOLD_DAYS
-from core_utils import new_id, now_iso, serialize_doc, parse_pagination, due_in
+from core_utils import new_id, now_iso, serialize_doc, parse_pagination
 from rbac import can, require_permission, scope_query, is_scoped_sales, audit_log, has_role
 import lead_lifecycle as lc
-from engine import emit, add_activity, auto_create_task, dispatch_pending
+from engine import emit, add_activity, dispatch_pending
 from models import DealReserve, DealAction, DealCancel, DealPricingDecision, PpjbSign, AjbSign
 
 router = APIRouter(tags=["deals"])
@@ -475,14 +474,6 @@ async def _deal_payment_summary(deal_id: str, org: str, price: int) -> dict:
             "outstanding": outstanding, "paid_pct": pct, "ar_status": (inv or {}).get("status")}
 
 
-async def _legal_number(org: str, prefix: str, deal: dict = None) -> str:
-    field = "ppjb" if prefix == "PPJB" else "ajb"
-    d = deal or {}
-    return await seq.next_number(f"legal:{field}", org, prefix=prefix, context={
-        "stage": prefix, "project_id": d.get("project_id"), "unit_id": d.get("unit_id"),
-        "customer_id": d.get("customer_id"), "customer_name": d.get("customer_name")})
-
-
 @router.get("/deals/{deal_id}/legal")
 async def deal_legal(deal_id: str, user: dict = Depends(require_permission("deals", "view"))):
     d = await _get_deal_editable(deal_id, user)
@@ -493,6 +484,8 @@ async def deal_legal(deal_id: str, user: dict = Depends(require_permission("deal
     payment = await _deal_payment_summary(deal_id, org, d.get("price", 0))
     return {"data": {
         "deal_id": deal_id, "status": d.get("status"), "legal_stage": d.get("legal_stage"),
+        # Tahap legal DICATAT di kontrak pembeli (Kontrak & Legal); layar Deal hanya membaca.
+        "contract_id": d.get("contract_id"), "customer_id": d.get("customer_id"),
         "unit_code": unit.get("code"), "unit_status": unit.get("status"), "lead_name": lead.get("name"),
         "reserved_at": d.get("reserved_at"), "booked_at": d.get("booked_at"),
         "ppjb": d.get("ppjb"), "ajb": d.get("ajb"), "sold_at": d.get("sold_at"),
@@ -502,62 +495,60 @@ async def deal_legal(deal_id: str, user: dict = Depends(require_permission("deal
     }}
 
 
-@router.post("/deals/{deal_id}/ppjb")
-async def sign_ppjb(deal_id: str, payload: PpjbSign,
-                    user: dict = Depends(require_permission("deals", "update"))):
+async def _legal_via_contract(deal_id: str, stage: str, entry: dict, user: dict) -> dict:
+    """PPJB/AJB lewat endpoint deal LAMA = PEMBUNGKUS TIPIS atas `contracts_engine.legal_advance`.
+
+    Audit KT-01 (kritis): dulu `POST /deals/{id}/ppjb|ajb` cukup izin `deals:update`, menulis
+    `deals.legal_stage` sendiri dan menjadikan unit SOLD hanya dengan booking fee — melewati
+    gerbang DP/pelunasan/BAST/akad dan pemisahan tugas manajer jalur kontrak. Sekarang tidak
+    ada lagi jalur legal kedua: izin = `contracts:manage` (sama dengan jalur kontrak), gerbang
+    bukti = `legal_gates` yang sama, dan `deals.legal_stage/ppjb/ajb` hanyalah CERMIN yang
+    ditulis `legal_advance` (satu sumber kebenaran: `contracts.legal`).
+    """
+    import contracts_engine as ce
     d = await _get_deal_editable(deal_id, user)
-    if d.get("status") != "booked":
-        raise HTTPException(status_code=400, detail="PPJB hanya untuk deal berstatus 'booked'.")
-    if d.get("legal_stage") in ("ppjb", "ajb"):
-        raise HTTPException(status_code=400, detail="PPJB sudah ditandatangani untuk deal ini.")
     org = user.get("org_id", ORG_ID)
-    ts = now_iso()
-    lead = await db.leads.find_one({"id": d.get("lead_id")}, {"_id": 0, "name": 1}) or {}
-    unit = await db.units.find_one({"id": d.get("unit_id")}, {"_id": 0, "code": 1}) or {}
-    pay = await _deal_payment_summary(deal_id, org, d.get("price", 0))
-    ppjb = {"number": payload.number or await _legal_number(org, "PPJB", d),
-            "signed_date": payload.signed_date or ts[:10], "signed_by": lead.get("name"),
-            "dp_paid": pay["paid"], "dp_pct": pay["paid_pct"], "note": payload.note, "created_at": ts}
-    await db.deals.update_one({"id": deal_id, "org_id": org},
-                              {"$set": {"legal_stage": "ppjb", "ppjb": ppjb, "updated_at": ts}})
-    await emit("deal.ppjb", "deal", deal_id, {"unit_id": d["unit_id"], "number": ppjb["number"]}, org_id=org)
-    await auto_create_task(
-        source_event=f"deal.ajb:{deal_id}",
-        title=f"Jadwalkan AJB (notaris): {lead.get('name')} / unit {unit.get('code')}",
-        type="follow_up", related_entity_type="deal", related_entity_id=deal_id,
-        assigned_to=d.get("assigned_to"), due_date=due_in(days=14), priority="medium", org_id=org)
-    await add_activity(entity_type="lead", entity_id=d["lead_id"], type="system",
-                       body=f"PPJB {ppjb['number']} ditandatangani untuk unit {unit.get('code')}.",
-                       actor=user.get("email"), org_id=org)
+    contract = await db.contracts.find_one({"org_id": org, "deal_id": deal_id}, {"_id": 0})
+    if not contract:
+        raise HTTPException(status_code=400, detail=(
+            f"Deal ini belum menjadi pembeli, jadi belum ada kontrak untuk mencatat "
+            f"{stage.upper()}. Klik 'Jadikan Pembeli' lebih dulu, lalu catat tahap legal di "
+            "Kontrak & Legal pembeli (gerbang DP/pelunasan/BAST berlaku di sana)."))
+    if contract.get("state") == "cancelled":
+        raise HTTPException(status_code=400, detail="Kontrak deal ini sudah dibatalkan.")
+    legal = contract.get("legal") or {}
+    if stage == "ppjb" and (legal.get("ppjb") or d.get("legal_stage") in ("ppjb", "ajb")):
+        raise HTTPException(status_code=400, detail="PPJB sudah ditandatangani untuk deal ini.")
+    if stage == "ajb":
+        if legal.get("ajb") or d.get("legal_stage") == "ajb":
+            raise HTTPException(status_code=400, detail="AJB sudah ditandatangani untuk deal ini.")
+        if not legal.get("ppjb"):
+            raise HTTPException(status_code=400,
+                                detail="AJB memerlukan PPJB yang sudah ditandatangani.")
+    try:
+        await ce.legal_advance(org, contract["id"], stage, entry, user.get("email"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await audit_log(user, "update", "contract", contract["id"],
+                    {"legal_stage": stage, "via": "deals_legacy_endpoint"})
     fresh = await db.deals.find_one({"id": deal_id}, {"_id": 0})
     return {"data": serialize_doc(fresh)}
+
+
+@router.post("/deals/{deal_id}/ppjb")
+async def sign_ppjb(deal_id: str, payload: PpjbSign,
+                    user: dict = Depends(require_permission("contracts", "manage"))):
+    """PPJB — pembungkus jalur kontrak (`/contracts/{id}/legal/ppjb`): gerbang DP berlaku."""
+    return await _legal_via_contract(deal_id, "ppjb", {
+        k: v for k, v in {"number": payload.number, "date": payload.signed_date,
+                          "note": payload.note}.items() if v}, user)
 
 
 @router.post("/deals/{deal_id}/ajb")
 async def sign_ajb(deal_id: str, payload: AjbSign,
-                   user: dict = Depends(require_permission("deals", "update"))):
-    d = await _get_deal_editable(deal_id, user)
-    if d.get("legal_stage") != "ppjb":
-        raise HTTPException(status_code=400, detail="AJB memerlukan PPJB yang sudah ditandatangani.")
-    org = user.get("org_id", ORG_ID)
-    ts = now_iso()
-    lead = await db.leads.find_one({"id": d.get("lead_id")}, {"_id": 0, "name": 1}) or {}
-    unit = await db.units.find_one({"id": d.get("unit_id")}, {"_id": 0, "code": 1}) or {}
-    pay = await _deal_payment_summary(deal_id, org, d.get("price", 0))
-    ajb = {"number": payload.number or await _legal_number(org, "AJB", d),
-           "notary": payload.notary, "signed_date": payload.signed_date or ts[:10],
-           "buyer": lead.get("name"), "outstanding_at_ajb": pay["outstanding"],
-           "note": payload.note, "created_at": ts}
-    await db.deals.update_one({"id": deal_id, "org_id": org}, {"$set": {
-        "legal_stage": "ajb", "ajb": ajb, "status": "completed", "sold_at": ts,
-        "updated_at": ts, **await clock.patch_for("deal", "completed", org_id=org, at=ts)}})
-    await db.units.update_one({"id": d["unit_id"], "org_id": org}, {"$set": {
-        "status": "sold", "sold_at": ts, "sold_by_deal": deal_id, "updated_at": ts}})
-    await _bind_unit(org, d["unit_id"])
-    await emit("deal.ajb", "deal", deal_id, {"unit_id": d["unit_id"], "number": ajb["number"]}, org_id=org)
-    await emit("deal.sold", "deal", deal_id, {"unit_id": d["unit_id"]}, org_id=org)
-    await add_activity(entity_type="lead", entity_id=d["lead_id"], type="system",
-                       body=f"AJB {ajb['number']} ditandatangani — unit {unit.get('code')} SOLD.",
-                       actor=user.get("email"), org_id=org)
-    fresh = await db.deals.find_one({"id": deal_id}, {"_id": 0})
-    return {"data": serialize_doc(fresh)}
+                   user: dict = Depends(require_permission("contracts", "manage"))):
+    """AJB — pembungkus jalur kontrak (`/contracts/{id}/legal/ajb`): pelunasan + BAST (tunai)
+    atau akad kredit (KPR) wajib; hanya dengan itu unit menjadi SOLD."""
+    return await _legal_via_contract(deal_id, "ajb", {
+        k: v for k, v in {"number": payload.number, "date": payload.signed_date,
+                          "notary": payload.notary, "note": payload.note}.items() if v}, user)
