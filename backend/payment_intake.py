@@ -45,6 +45,19 @@ async def create_from_portal(org: str, *, customer: dict, deal: dict, amount: in
                              transfer_date: str, file_ids: list, bank_name: str = None,
                              note: str = None, actor: str = None) -> dict:
     """Catat klaim setoran dari portal. TIDAK mengubah tagihan."""
+    # IN-16: tanggal transfer harus tanggal sah yang tidak di masa depan; nominal tidak boleh melampaui
+    # seluruh nilai tagihan deal ini (dulu "abcdefghij", "2099-12-31", dan Rp 999 miliar diterima).
+    from p27_utils import clean_cash_date
+    transfer_date = clean_cash_date(transfer_date, "Tanggal transfer")
+    try:
+        import datetime as _dt
+        _dt.date.fromisoformat(str(transfer_date)[:10])
+    except ValueError:
+        raise ValueError(f"Tanggal transfer '{transfer_date}' tidak valid — gunakan format tahun-bulan-tanggal.")
+    cap = (await db.ar_invoices.find_one({"org_id": org, "deal_id": deal["id"]}, {"_id": 0, "total": 1}) or {}).get("total")
+    if cap and int(amount) > int(cap):
+        raise ValueError(f"Nominal Rp {int(amount):,} melebihi seluruh nilai tagihan unit ini (Rp {int(cap):,}) — "
+                         "periksa kembali nominal pada bukti transfer Anda.".replace(",", "."))
     files = await _files(org, file_ids)
     if not files:
         raise ValueError("Bukti transfer (foto/PDF) wajib dilampirkan.")

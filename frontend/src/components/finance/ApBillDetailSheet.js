@@ -1,10 +1,17 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ExternalLink } from "lucide-react";
+import { toast } from "sonner";
+import { AlertTriangle, ExternalLink, Undo2 } from "lucide-react";
 
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { useAuth } from "@/context/AuthContext";
 import StatusPill from "@/components/patterns/StatusPill";
 import { LoadingCards, ErrorState } from "@/components/patterns/StateViews";
 import api from "@/services/apiClient";
@@ -36,6 +43,10 @@ const Empty = ({ text }) => <p className="text-xs text-muted-foreground">{text}<
 export default function ApBillDetailSheet({ billId, open, onOpenChange }) {
   const [d, setD] = useState(null);
   const [error, setError] = useState("");
+  const { can } = useAuth();
+  const [voidTarget, setVoidTarget] = useState(null);   // PK-09: pembatalan resmi pembayaran vendor
+  const [voidReason, setVoidReason] = useState("");
+  const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
     if (!billId) return;
     setError("");
@@ -43,6 +54,17 @@ export default function ApBillDetailSheet({ billId, open, onOpenChange }) {
     catch (e) { setError(e?.response?.data?.detail || "Gagal memuat detail tagihan."); }
   }, [billId]);
   useEffect(() => { if (open) { setD(null); load(); } }, [open, load]);
+
+  const voidIt = async () => {
+    setBusy(true);
+    try {
+      await api.post(`/finance/ap/payments/${voidTarget.id}/void`, { reason: voidReason.trim() });
+      toast.success("Pembayaran dibatalkan; jurnal pembalik terbit dan tagihan kembali berutang.");
+      setVoidTarget(null); setVoidReason(""); load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Gagal membatalkan pembayaran.");
+    } finally { setBusy(false); }
+  };
 
   const b = d?.bill;
   const s = d?.summary || {};
@@ -117,7 +139,7 @@ export default function ApBillDetailSheet({ billId, open, onOpenChange }) {
             <Section title="Riwayat pembayaran" count={d.payments.length} testId="ap-bill-detail-payments">
               {!d.payments.length ? <Empty text="Belum ada pembayaran." /> : (
                 <table className="w-full text-xs">
-                  <thead className="text-left text-muted-foreground"><tr><th className="py-1">Tanggal</th><th>Rekening</th><th className="text-right">Jumlah</th><th className="text-right">PPh dipotong</th><th className="text-right">Kas keluar</th><th>Oleh</th></tr></thead>
+                  <thead className="text-left text-muted-foreground"><tr><th className="py-1">Tanggal</th><th>Rekening</th><th className="text-right">Jumlah</th><th className="text-right">PPh dipotong</th><th className="text-right">Kas keluar</th><th>Oleh</th><th /></tr></thead>
                   <tbody>
                     {d.payments.map((p) => (
                       <tr key={p.id} className="border-t" data-testid="ap-bill-detail-payment-row">
@@ -127,6 +149,17 @@ export default function ApBillDetailSheet({ billId, open, onOpenChange }) {
                         <td className="text-right tabular-nums text-muted-foreground">{p.withheld_amount ? formatIDR(p.withheld_amount) : "-"}</td>
                         <td className="text-right tabular-nums">{formatIDR(p.cash_out ?? p.amount)}</td>
                         <td className="text-muted-foreground">{p.actor}{p.note ? ` · ${p.note}` : ""}</td>
+                        <td className="text-right">
+                          {p.status === "void" ? (
+                            <span data-testid="ap-payment-void-badge" title={p.void_reason || ""}
+                              className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">DIBATALKAN</span>
+                          ) : p.bill_id && can("finance", "approve") ? (
+                            <Button data-testid="ap-payment-void-btn" size="sm" variant="ghost" className="h-6 px-1.5 text-amber-700"
+                              title="Batalkan pembayaran (jurnal pembalik)" onClick={() => { setVoidTarget(p); setVoidReason(""); }}>
+                              <Undo2 className="h-3.5 w-3.5" />
+                            </Button>
+                          ) : null}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -176,6 +209,27 @@ export default function ApBillDetailSheet({ billId, open, onOpenChange }) {
           </div>
         )}
       </SheetContent>
+      <Dialog open={!!voidTarget} onOpenChange={(v) => !v && setVoidTarget(null)}>
+        <DialogContent data-testid="ap-payment-void-dialog" className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Batalkan pembayaran {voidTarget ? formatIDR(voidTarget.amount) : ""}?</DialogTitle>
+            <DialogDescription>
+              Jurnal pembalik terbit, tagihan kembali berutang sebesar pembayaran ini, dan bukti potong PPh (bila ada)
+              dibatalkan. Pembayaran &amp; jurnal asli tetap tersimpan sebagai jejak. Pembayaran yang Anda catat sendiri
+              tidak bisa Anda batalkan (pemisahan tugas). Wajib alasan (≥10 huruf).
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea data-testid="ap-payment-void-reason" rows={2} value={voidReason}
+            onChange={(e) => setVoidReason(e.target.value)} placeholder="Alasan pembatalan pembayaran" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVoidTarget(null)} disabled={busy}>Tutup</Button>
+            <Button data-testid="ap-payment-void-confirm" variant="destructive"
+              disabled={busy || voidReason.trim().length < 10} onClick={voidIt}>
+              {busy ? "Membatalkan…" : "Batalkan pembayaran"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sheet>
   );
 }

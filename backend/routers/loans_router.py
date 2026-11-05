@@ -84,7 +84,8 @@ async def activate(loan_id: str, payload: LoanActivate,
                    user: dict = Depends(require_permission("loans", "approve"))):
     try:
         doc = await ln.activate_loan(loan_id, payload.source, payload.date, payload.note,
-                                     user.get("email"), user.get("org_id", ORG_ID))
+                                     user.get("email"), user.get("org_id", ORG_ID),
+                                     cash_account_id=payload.cash_account_id)
     except ValueError as e:
         raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "activate", "loans", loan_id, {"principal": doc["principal"]})
@@ -98,7 +99,8 @@ async def pay(loan_id: str, payload: InstallmentPay,
     try:
         doc = await ln.pay_installment(loan_id, payload.installment_no, payload.amount,
                                        payload.source, payload.date, payload.note,
-                                       user.get("email"), user.get("org_id", ORG_ID))
+                                       user.get("email"), user.get("org_id", ORG_ID),
+                                       cash_account_id=payload.cash_account_id)
     except ValueError as e:
         raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "pay_installment", "loans", loan_id,

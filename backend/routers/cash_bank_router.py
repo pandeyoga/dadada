@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 
 import cash_bank as cb
-from core_utils import now_iso, serialize_doc
+from core_utils import serialize_doc, today_wib
 from db import ORG_ID, db
 from models_p82 import CashAccountIn, CashAccountUpdate, CashTransferIn, CashTransferReject
 from rbac import audit_log, can, require_permission
@@ -75,7 +75,7 @@ async def position(user: dict = Depends(require_permission("bank", "view"))):
 async def book(account_id: str = Query(None), date_from: str = Query(None),
                date_to: str = Query(None), format: str = Query("json"),
                user: dict = Depends(require_permission("bank", "view"))):
-    today = now_iso()[:10]
+    today = today_wib()
     date_to = (date_to or today)[:10]
     date_from = (date_from or f"{date_to[:7]}-01")[:10]
     if date_from > date_to:

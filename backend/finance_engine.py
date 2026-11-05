@@ -565,7 +565,7 @@ async def _deal_closed_reason(org_id, deal_id, inv: dict = None) -> str:
 async def apply_receipt(deal_id, amount, method, note, actor, org_id=ORG_ID,
                         allow_overpay=False, cash_account_id=None, targets: dict = None,
                         proof_file_ids: list = None, allow_bank_portion: bool = False,
-                        kpr_disbursement: bool = False) -> dict:
+                        kpr_disbursement: bool = False, value_date: str = None) -> dict:
     """Terima pembayaran -> alokasi ke item termin (pilihan kasir dulu, lalu jatuh tempo terlama) ->
     recalc outstanding -> naikkan contract_liability -> update unit.payment_status.
 
@@ -631,7 +631,7 @@ async def apply_receipt(deal_id, amount, method, note, actor, org_id=ORG_ID,
         "cash_account_id": cash_account_id, "cash_account_name": (cash_acc or {}).get("name"),
         "cash_account_code": cash_code,
         "proof_file_ids": [str(f) for f in (proof_file_ids or []) if f],
-        "note": note, "allocations": allocations, "actor": actor, "created_at": ts}
+        "note": note, "allocations": allocations, "actor": actor, "created_at": ts, "value_date": value_date}
     split = await gl_split(org_id, deal_id, items, allocations, applied) if applied > 0 else None
     if split:
         receipt["gl_split"] = split
@@ -645,7 +645,7 @@ async def apply_receipt(deal_id, amount, method, note, actor, org_id=ORG_ID,
         # deal dengan beberapa penerimaan tetap bisa direkonstruksi & dibalik satu per satu.
         await emit("payment.received", "deal", deal_id,
                    {"amount": applied, "receipt_id": receipt["id"], "split": split,
-                    "cash_account_id": cash_account_id}, org_id=org_id)
+                    "cash_account_id": cash_account_id, "value_date": value_date}, org_id=org_id)
     deposit = None
     if excess > 0:
         deposit = await _deposit_move(org_id, deal_id, inv, "in", excess,

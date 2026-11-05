@@ -154,7 +154,9 @@ async def revenue_recognized(*, org_id: str = ORG_ID, date_from: str = None,
 async def cash_in(*, org_id: str = ORG_ID, date_from: str = None, date_to: str = None,
                   **_) -> dict:
     """Kas masuk = `Σ receipts.amount` pada periode (pembayaran yang benar-benar diterima)."""
-    q = {"org_id": org_id, **day_range_query("created_at", date_from, date_to)}
+    # IN-20: kuitansi dibatalkan (void) dan refund booking fee bukan kas masuk.
+    q = {"org_id": org_id, "status": {"$ne": "void"}, "kind": {"$ne": "booking_fee_refund"},
+         **day_range_query("created_at", date_from, date_to)}
     rows = await db.receipts.find(q, {"_id": 0}).to_list(20000)
     total = sum(int(r.get("amount") or 0) for r in rows)
     per_method = {}

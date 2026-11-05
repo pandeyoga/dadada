@@ -3,7 +3,10 @@
 Fase 49F menambah satu pintu: pembayaran yang MEMOTONG PPh (vendor terima neto, potongan
 menjadi utang pajak + bukti potong bernomor terbit otomatis).
 """
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from db import db, ORG_ID
 from core_utils import serialize_doc, parse_pagination
@@ -16,6 +19,22 @@ from idempotency import Conflict
 from sod import assert_separate
 
 router = APIRouter(prefix="/finance/ap", tags=["finance-ap"])
+
+
+class ApPayDated(ApPay):
+    """`ApPay` + tanggal bayar nyata (GL-15). Dipisah dari models.py yang sudah melewati batas ukuran."""
+    value_date: Optional[str] = None
+
+
+async def _value_date(org: str, value, cash_account_id: str = None):
+    """Validasi tanggal bayar (tidak masa depan / periode tertutup / rekening terkunci) → HTTP 400 bila tidak sah."""
+    import cash_bank as _cb
+    import value_date as vd
+    try:
+        code = await _cb.resolve_code(org, cash_account_id, "1-1200") if value else None
+        return await vd.check(org, value, cash_code=code)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/bills")
@@ -76,7 +95,7 @@ async def bill_detail(bill_id: str, user: dict = Depends(require_permission("fin
     src_ids = [bill_id] + ([retention["id"]] if retention else []) + ([source_retention["id"]] if source_retention else [])
     journals = await db.journal_entries.find({"org_id": org, "source_id": {"$in": src_ids}}, {"_id": 0}).sort([("date", 1), ("created_at", 1)]).to_list(200)
     project = (await db.projects.find_one({"org_id": org, "id": bill["project_id"]}, {"_id": 0, "id": 1, "name": 1}) if bill.get("project_id") else None)
-    paid = sum(int(p.get("amount", 0)) for p in payments)
+    paid = sum(int(p.get("amount", 0)) for p in payments if p.get("status") != "void")  # PK-09: yang dibatalkan tak dihitung
     return {"data": serialize_doc({
         "bill": bill, "project": project, "payments": payments, "withholding": withholding,
         "retention": retention, "source_retention": source_retention, "release_bill": release_bill,
@@ -125,17 +144,18 @@ async def approve_bill(bill_id: str,
 
 
 @router.post("/bills/{bill_id}/pay")
-async def pay_bill(bill_id: str, payload: ApPay,
+async def pay_bill(bill_id: str, payload: ApPayDated,
                    user: dict = Depends(require_permission("finance", "approve"))):
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="Jumlah bayar harus lebih dari 0")
     org = user.get("org_id", ORG_ID)
+    value_date = await _value_date(org, payload.value_date, payload.cash_account_id)
     try:
         await _assert_payer_separate(user, bill_id, org)
         bill = await fe.pay_ap_bill(bill_id, payload.amount, payload.note,
                                     user.get("email"), org,
                                     cash_account_id=payload.cash_account_id,
-                                    client_ref=payload.client_ref)
+                                    client_ref=payload.client_ref, value_date=value_date)
     except Conflict:
         raise
     except ValueError as e:
@@ -169,6 +189,7 @@ async def pay_bill_with_withholding(bill_id: str, payload: BillPayWithholding,
             "Pakai pembayaran biasa bila memang tidak ada potongan PPh."))
     memo = (f"PPh {payload.kind} {payload.rate}% atas "
             f"{bill.get('vendor')} (dasar Rp {base:,})")
+    value_date = await _value_date(org, payload.value_date, payload.cash_account_id)
     try:
         await _assert_payer_separate(user, bill_id, org)
         updated, payment = await fe.pay_ap_bill(
@@ -176,7 +197,7 @@ async def pay_bill_with_withholding(bill_id: str, payload: BillPayWithholding,
             withhold={"kind": payload.kind, "base": base, "rate": payload.rate,
                       "amount": withheld, "memo": memo},
             return_payment=True, cash_account_id=payload.cash_account_id,
-            client_ref=payload.client_ref)
+            client_ref=payload.client_ref, value_date=value_date)
         doc = await wh.issue_for_bill_payment(
             org, user.get("email"), bill=bill, payment=payment, kind=payload.kind,
             base=base, rate=payload.rate, object_code=payload.object_code,
@@ -208,6 +229,36 @@ async def list_payments(bill_id: str = None, skip: int = 0, limit: int = 50,
     total = await db.payments_out.count_documents(q)
     rows = await db.payments_out.find(q, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     paid_total = 0
-    async for r in db.payments_out.aggregate([{"$match": q}, {"$group": {"_id": None, "s": {"$sum": "$amount"}}}]):
+    async for r in db.payments_out.aggregate([{"$match": {**q, "status": {"$ne": "void"}}},
+                                              {"$group": {"_id": None, "s": {"$sum": "$amount"}}}]):
         paid_total = int(r.get("s") or 0)
     return {"data": serialize_doc(rows), "total": total, "summary": {"paid_total": paid_total}}
+
+
+class ApPaymentVoidIn(BaseModel):
+    reason: str = Field(min_length=10, max_length=500)
+
+
+@router.post("/payments/{payment_id}/void")
+async def void_payment(payment_id: str, payload: ApPaymentVoidIn,
+                       user: dict = Depends(require_permission("finance", "approve"))):
+    """BATALKAN satu pembayaran tagihan AP secara resmi (audit PK-09): jurnal pembalik terbit, subledger tagihan
+    dikembalikan, bukti potong dibatalkan, pembayaran asli tetap tersimpan sebagai jejak. Pemisahan tugas:
+    yang membayar tidak boleh membatalkan pembayarannya sendiri (kecuali Super Admin)."""
+    import ap_void
+    org = user.get("org_id", ORG_ID)
+    pay = await db.payments_out.find_one({"id": payment_id, "org_id": org}, {"_id": 0})
+    if not pay:
+        raise HTTPException(status_code=404, detail="Pembayaran tidak ditemukan.")
+    try:
+        assert_separate(user, pay.get("actor"),
+                        "Pemisahan tugas: pembayaran yang Anda catat sendiri tidak boleh Anda batalkan "
+                        "— minta Keuangan lain / Direksi.")
+        out = await ap_void.void_payment(org, payment_id, user.get("email"), payload.reason)
+    except Conflict:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await audit_log(user, "void", "payments_out", payment_id,
+                    {"reason": payload.reason.strip(), "bill_id": pay.get("bill_id"), "amount": pay.get("amount")})
+    return {"data": out}

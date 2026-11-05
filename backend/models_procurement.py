@@ -197,3 +197,5 @@ class JournalCreate(BaseModel):
     memo: str
     date: Optional[str] = None
     lines: List[JournalLineIn]
+    # GL-21: alasan WAJIB (>=10 huruf) bila jurnal manual menyentuh akun kendali / induk kas (hanya peran berizin).
+    control_reason: Optional[str] = None

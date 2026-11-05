@@ -1,6 +1,6 @@
 """AR (piutang pembeli): jadwal, receipts, aging, BAST->RevRec. Slice Finance."""
 from fastapi import APIRouter, Depends, HTTPException
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 import listing as lst
@@ -10,12 +10,18 @@ from db import db, ORG_ID
 from idempotency import Conflict
 from core_utils import serialize_doc, parse_pagination
 from rbac import audit_log, require_permission
+import evidence
 import finance_engine as fe
 from idempotency import Conflict, once
 from models import ArScheduleCreate, ReceiptCreate
 from models_finance import DepositApply, DepositReceive, DepositRefund
 
 router = APIRouter(prefix="/finance/ar", tags=["finance-ar"])
+
+
+class ReceiptCreateDated(ReceiptCreate):
+    """`ReceiptCreate` + tanggal bayar nyata (GL-15 / IN-19), dipisah dari models.py yang sudah melewati batas ukuran."""
+    value_date: Optional[str] = None   # YYYY-MM-DD, tidak di masa depan, tidak di periode tertutup/terkunci
 
 
 AR_SORTS = {"unit_code": "unit_code", "lead_name": "lead_name", "status": "status",
@@ -105,8 +111,14 @@ async def deposit_receive(deal_id: str, payload: DepositReceive,
         # Klik ganda / dua tab / retry jaringan = satu penerimaan (audit IN-01).
         async with once("ar.deposit_in", deal_id, payload.amount, user.get("email"),
                         client_ref=payload.client_ref, what="Penerimaan titipan yang sama"):
+            await evidence.validate_proof(user.get("org_id", ORG_ID), payload.proof_file_ids,
+                                          actor=user.get("email"), deal_id=deal_id)  # IN-17
+            if payload.cash_account_id:   # GL-17: rekening tujuan harus sah/aktif (galat jelas, bukan jatuh ke default)
+                import cash_bank as _cb
+                await _cb.resolve_code(user.get("org_id", ORG_ID), payload.cash_account_id)
             res = await fe.receive_deposit(deal_id, payload.amount, payload.note,
                                           user.get("email"), user.get("org_id", ORG_ID),
+                                          cash_account_id=payload.cash_account_id,
                                           proof_file_ids=payload.proof_file_ids)
     except Conflict:
         raise
@@ -137,7 +149,8 @@ async def deposit_refund(deal_id: str, payload: DepositRefund,
         async with once("ar.deposit_refund", deal_id, payload.amount, user.get("email"),
                         client_ref=payload.client_ref, what="Pengembalian titipan yang sama"):
             res = await fe.refund_deposit(deal_id, payload.amount, payload.note,
-                                          user.get("email"), user.get("org_id", ORG_ID))
+                                          user.get("email"), user.get("org_id", ORG_ID),
+                                          cash_account_id=payload.cash_account_id)
     except Conflict:
         raise
     except ValueError as e:
@@ -205,7 +218,7 @@ async def create_schedule(deal_id: str, payload: ArScheduleCreate,
 
 
 @router.post("/receipts")
-async def create_receipt(payload: ReceiptCreate,
+async def create_receipt(payload: ReceiptCreateDated,
                          user: dict = Depends(require_permission("finance", "create"))):
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="Jumlah pembayaran harus lebih dari 0")
@@ -216,6 +229,16 @@ async def create_receipt(payload: ReceiptCreate,
             "lewat tab KPR pada kontrak (tombol Cairkan); bila pembeli menyetor sendiri, pilih "
             "Transfer bank."))
     targets = {a.item_id: a.amount for a in (payload.allocations or [])} or None
+    value_date = None
+    if payload.value_date:
+        import cash_bank as _cb
+        import value_date as vd
+        try:
+            code = await _cb.resolve_code(user.get("org_id", ORG_ID), payload.cash_account_id,
+                                          "1-1100" if str(payload.method) in ("cash", "tunai") else "1-1200")
+            value_date = await vd.check(user.get("org_id", ORG_ID), payload.value_date, cash_code=code)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
     try:
         # Klik ganda / dua tab / dua staf dengan isian yang sama = SATU kuitansi (audit IN-01).
         # `client_ref` (opsional) membuat kiriman ulang yang sama tidak pernah menjadi kuitansi kedua.
@@ -224,13 +247,18 @@ async def create_receipt(payload: ReceiptCreate,
                         sorted((targets or {}).items()), user.get("email"),
                         client_ref=payload.client_ref,
                         what="Pembayaran dengan nominal & tujuan yang sama untuk deal ini"):
+            # IN-17: bukti bayar harus berkas nyata milik pencatat & belum dipakai kuitansi lain (di BAWAH `once`
+            # supaya kirim-ulang bersama client_ref tetap 409, bukan "berkas sudah dipakai").
+            await evidence.validate_proof(user.get("org_id", ORG_ID), payload.proof_file_ids,
+                                          actor=user.get("email"), deal_id=payload.deal_id)
             res = await fe.apply_receipt(payload.deal_id, payload.amount, payload.method,
                                          payload.note, user.get("email"), user.get("org_id", ORG_ID),
                                          allow_overpay=payload.allow_overpay,
                                          cash_account_id=payload.cash_account_id,
                                          targets=targets,
                                          proof_file_ids=payload.proof_file_ids,
-                                         allow_bank_portion=payload.allow_bank_portion)
+                                         allow_bank_portion=payload.allow_bank_portion,
+                                         value_date=value_date)
     except Conflict:
         raise
     except ValueError as e:
@@ -360,10 +388,13 @@ async def receipt_pdf(rid: str, user: dict = Depends(require_permission("finance
         f"Catatan : {doc.get('note') or '-'}",
         f"Bukti bayar : {len([p for p in (doc.get('proof_file_ids') or []) if p])} lampiran terarsip di sistem",
         "",
-        "Kwitansi ini sah sebagai bukti penerimaan pembayaran dan dicetak dari sistem.",
+        (f"*** KWITANSI INI DIBATALKAN pada {str(doc.get('void_at') or '')[:10]} oleh {doc.get('void_by') or '-'} "
+         f"(alasan: {doc.get('void_reason') or '-'}) dan TIDAK sah sebagai bukti penerimaan pembayaran. ***"
+         if doc.get("status") == "void" else
+         "Kwitansi ini sah sebagai bukti penerimaan pembayaran dan dicetak dari sistem."),
     ])
     layout = await dl.get_layout(org, "KWITANSI")
-    pdf = build_document_pdf(title="Kwitansi Penerimaan Pembayaran",
+    pdf = build_document_pdf(title="Kwitansi Penerimaan Pembayaran" + (" — DIBATALKAN" if doc.get("status") == "void" else ""),
                              doc_number=doc.get("receipt_no") or doc.get("id"),
                              content=isi, signatures=None, org_name=ORG_NAME, layout=layout,
                              script_context={"date": str(doc.get("created_at") or "")[:10]},

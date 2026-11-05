@@ -196,7 +196,8 @@ async def pay_fee(fee_id: str, payload: MarketingFeePay,
                   user: dict = Depends(require_permission("marketing_fee", "approve"))):
     try:
         doc = await mf.pay_fee(fee_id, payload.amount, payload.source, payload.note,
-                               user.get("email"), user.get("org_id", ORG_ID))
+                               user.get("email"), user.get("org_id", ORG_ID),
+                               cash_account_id=payload.cash_account_id)
     except ValueError as e:
         raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "pay", "marketing_fee", fee_id, {"amount": doc.get("paid_amount")})

@@ -12,7 +12,7 @@ Aturan (anti-manipulasi angka historis, tapi tetap jujur soal transaksi nyata):
 from datetime import datetime, timezone
 
 from db import db, ORG_ID
-from core_utils import period_of  # noqa: F401 — CFG-01: satu definisi periode (WIB)
+from core_utils import WIB, period_of  # noqa: F401 — CFG-01: satu definisi periode (WIB)
 
 
 def next_period(period: str) -> str:
@@ -34,7 +34,13 @@ async def is_closed(org_id, date_str) -> bool:
 
 
 async def resolve_post_date(org_id, date_str, auto: bool):
-    """(tanggal_final, periode_asal_bila_digeser). Raise ValueError untuk jurnal manual."""
+    """(tanggal_final, periode_asal_bila_digeser). Raise ValueError untuk jurnal manual.
+
+    Posting OTOMATIS ke periode tertutup digeser ke periode TERBUKA TERDEKAT (sesudahnya): bila itu sudah
+    lewat dan bulan berjalan masih terbuka → hari ini; selain itu hari pertama periode terbuka terdekat.
+    Bulan berjalan memakai WIB (satu definisi periode, GL-15) — dulu UTC. Periode yang belum berakhir tidak
+    bisa ditutup lagi (`closing_engine.close_period`), jadi pergeseran ke "masa depan jauh" (mis. 2027-01-01)
+    tidak lagi terjadi pada alur normal."""
     p = period_of(date_str)
     if not p:
         return date_str, None
@@ -45,7 +51,7 @@ async def resolve_post_date(org_id, date_str, auto: bool):
         raise ValueError(
             f"Periode {p} sudah ditutup — jurnal manual tidak dapat dibukukan di periode tertutup. "
             "Buka kembali periode tersebut atau gunakan tanggal di periode terbuka.")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(WIB)
     current = now.strftime("%Y-%m")
     target = p
     for _ in range(240):
@@ -54,7 +60,7 @@ async def resolve_post_date(org_id, date_str, auto: bool):
             break
     if target <= current and current not in closed:
         return now.isoformat(), p
-    return f"{target}-01T00:00:00+00:00", p
+    return f"{target}-01T00:00:00+07:00", p
 
 
 async def close_period(org_id, period: str, actor: str, note: str = None) -> dict:

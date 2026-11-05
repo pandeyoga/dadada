@@ -308,21 +308,28 @@ async def receipts_report(org_id=ORG_ID, limit: int = 500) -> dict:
                     "amount": int(r.get("amount") or 0), "applied": int(r.get("applied") or 0),
                     "deposit_amount": int(r.get("deposit_amount") or 0),
                     "cash_account_name": r.get("cash_account_name"), "note": r.get("note"),
-                    "actor": r.get("actor"), "proof_file_ids": proofs, "has_proof": bool(proofs)})
-    return {"rows": out, "totals": {"count": len(out), "amount": sum(x["amount"] for x in out),
-                                    "with_proof": sum(1 for x in out if x["has_proof"]),
-                                    "without_proof": sum(1 for x in out if not x["has_proof"])}}
+                    "actor": r.get("actor"), "proof_file_ids": proofs, "has_proof": bool(proofs),
+                    "status": r.get("status") or "active"})
+    # IN-20: kuitansi DIBATALKAN (void) dan refund booking fee bukan penerimaan — tetap tampil sebagai baris
+    # (jejak) tetapi tidak masuk total (dulu total Rp 4,35 M vs Rp 4,05 M tanpa yang dibatalkan).
+    live = [x for x in out if x["status"] != "void" and x["kind"] != "booking_fee_refund"]
+    return {"rows": out, "totals": {"count": len(live), "amount": sum(x["amount"] for x in live),
+                                    "with_proof": sum(1 for x in live if x["has_proof"]),
+                                    "without_proof": sum(1 for x in live if not x["has_proof"]),
+                                    "void_count": sum(1 for x in out if x["status"] == "void")}}
 
 
 async def report_dataset(kind, org_id=ORG_ID) -> dict:
     if kind == "receipts":
         rp = await receipts_report(org_id)
-        rows = [[_fmt_date(r["created_at"]), r["receipt_no"] or "-", r["unit_code"] or "-",
+        rows = [[_fmt_date(r["created_at"]), (r["receipt_no"] or "-") + (" (DIBATALKAN)" if r["status"] == "void" else ""),
+                 r["unit_code"] or "-",
                  r["method"] or "-", _rp(r["amount"]),
                  f"Ya ({len(r['proof_file_ids'])})" if r["has_proof"] else "Tidak"]
                 for r in rp["rows"]]
         tt = rp["totals"]
-        return {"title": "Penerimaan Pembayaran", "subtitle": f"{tt['count']} kuitansi · {tt['with_proof']} berbukti · {tt['without_proof']} tanpa bukti",
+        return {"title": "Penerimaan Pembayaran", "subtitle": (f"{tt['count']} kuitansi · {tt['with_proof']} berbukti · {tt['without_proof']} tanpa bukti"
+                     + (f" · {tt['void_count']} dibatalkan (tidak dihitung)" if tt["void_count"] else "")),
                 "columns": ["Tanggal", "No. Kuitansi", "Unit", "Metode", "Nominal", "Bukti bayar"], "rows": rows,
                 "total_row": ["Total", "", "", "", _rp(tt["amount"]), ""]}
     if kind == "ar-aging":

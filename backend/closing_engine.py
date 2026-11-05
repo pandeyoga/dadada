@@ -25,7 +25,7 @@ import gl_engine as gl
 import gl_periods as glp
 import gl_reports as glr
 import reference as ref
-from core_utils import new_id, now_iso, valid_period
+from core_utils import new_id, now_iso, period_of, valid_period
 from db import db, ORG_ID
 import finance_engine as fe
 from engine import auto_create_task
@@ -56,7 +56,7 @@ def _rp(n) -> str:
 
 
 def _in_period(value, period: str) -> bool:
-    return str(value or "")[:7] == period
+    return period_of(value) == period  # GL-15: satu definisi periode (WIB)
 
 
 async def _gl_balance(org: str, code: str, end_exclusive: str = None) -> int:
@@ -324,6 +324,11 @@ async def close_period(org, period: str, actor: str, note: str = None,
     """Tutup periode. Menahan bila daftar periksa belum bersih (kecuali diterobos)."""
     if period in await glp.closed_periods(org):
         raise ValueError(f"Periode {period} sudah ditutup.")
+    if period >= period_of(now_iso()):
+        # GL-15: periode yang belum berakhir tidak boleh ditutup — transaksi nyata yang masuk sesudahnya
+        # terpaksa digeser ke bulan depan (dulu sampai '2027-01-01' setelah Nov–Des ditutup lebih awal).
+        raise ValueError(f"Periode {period} belum berakhir — hanya bulan yang sudah lewat yang bisa ditutup. "
+                         "Tunggu sampai bulan berikutnya.")
     check = await close_check(org, period)
     blocking = [i for i in check["items"] if i["state"] == BLOCKING]
     if blocking and not override:
@@ -359,7 +364,9 @@ async def close_period(org, period: str, actor: str, note: str = None,
 
 # =============================================================== tutup tahun
 def _year_range(year: str) -> tuple:
-    return f"{year}-01-01T00:00:00+00:00", f"{int(year) + 1}-01-01T00:00:00+00:00"
+    # Batas berupa tanggal polos: cocok untuk jurnal bertanggal polos, UTC lama, maupun WIB baru (dulu batas
+    # '...T00:00:00+00:00' membuang jurnal manual bertanggal polos 1 Januari dari tahun bukunya).
+    return f"{year}-01-01", f"{int(year) + 1}-01-01"
 
 
 async def _year_pl(org, year: str) -> dict:
@@ -394,7 +401,7 @@ async def year_check(org=ORG_ID, year: str = None) -> dict:
     for je in await db.journal_entries.find(
             {"org_id": org, "date": {"$gte": start, "$lt": end}},
             {"_id": 0, "date": 1, "total_debit": 1, "total_credit": 1}).to_list(200000):
-        m = str(je.get("date"))[:7]
+        m = period_of(je.get("date"))
         if valid_period(m):
             months.add(m)
         if int(je.get("total_debit", 0)) != int(je.get("total_credit", 0)):
@@ -483,9 +490,10 @@ async def year_close(org, year: str, actor: str, note: str = None) -> dict:
     prev_cycle = int((existing or {}).get("cycle") or (1 if existing else 0))
     cycle = prev_cycle + 1
     ev_key = f"year_close:{org}:{year}" if cycle == 1 else f"year_close:{org}:{year}:c{cycle}"
+    # Tanggal POLOS 31 Des: stempel '23:59:59+00:00' dulu menjadi 1 Jan tahun berikutnya setelah dikanonkan ke WIB (GL-15).
     entry = await gl.post_journal(
         org, f"Jurnal penutup tahun buku {year}" + (f" (penutupan ke-{cycle})" if cycle > 1 else ""), lines,
-        date=f"{year}-12-31T23:59:59+00:00", source_type=YEAR_CLOSING_SOURCE, source_id=year,
+        date=f"{year}-12-31", source_type=YEAR_CLOSING_SOURCE, source_id=year,
         source_event=ev_key, posted_by=actor, auto=True, allow_closed=True)
     ts = now_iso()
     doc = {
@@ -520,7 +528,7 @@ async def year_reopen(org, year: str, actor: str, reason: str) -> dict:
     cycle = int(doc.get("cycle") or 1)  # GL-03: pasangkan pembalik dengan siklus penutupnya
     rev = await gl.post_journal(
         org, f"Balik jurnal penutup tahun {year} — {reason}", mirror,
-        date=f"{year}-12-31T23:59:59+00:00", source_type=YEAR_CLOSING_SOURCE, source_id=year,
+        date=f"{year}-12-31", source_type=YEAR_CLOSING_SOURCE, source_id=year,
         source_event=(f"year_reopen:{org}:{year}" if cycle == 1 else f"year_reopen:{org}:{year}:c{cycle}"),
         posted_by=actor, auto=True, allow_closed=True)
     ts = now_iso()

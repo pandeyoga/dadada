@@ -15,6 +15,7 @@ import { formatIDR } from "@/utils/formatters";
 import api from "@/services/apiClient";
 import { FINANCE } from "@/constants/testIds";
 import CashAccountSelect from "@/components/cashBank/CashAccountSelect";
+import PaymentDateField from "@/components/finance/PaymentDateField";
 
 const openOf = (it) => Number(it.amount || 0) - Number(it.paid_amount || 0);
 const isBank = (it) => it.payer === "bank" && !it.kpr_excluded;
@@ -37,6 +38,7 @@ export default function ReceiptDialog({ open, onOpenChange, deal, onDone }) {
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState("transfer");
   const [cashAccountId, setCashAccountId] = useState("");
+  const [valueDate, setValueDate] = useState("");   // GL-15: tanggal bayar nyata (opsional)
   const [note, setNote] = useState("");
   const [allowOverpay, setAllowOverpay] = useState(false);
   const [allowBank, setAllowBank] = useState(false);
@@ -114,7 +116,7 @@ export default function ReceiptDialog({ open, onOpenChange, deal, onDone }) {
       const res = await api.post("/finance/ar/receipts", {
         deal_id: deal.deal_id, amount: amt, method, note: note || null,
         allow_overpay: allowOverpay, allow_bank_portion: allowBank, cash_account_id: cashAccountId || null,
-        proof_file_ids: proofFiles, client_ref: clientRef.current,
+        proof_file_ids: proofFiles, client_ref: clientRef.current, value_date: valueDate || null,
         allocations: Object.entries(alloc).filter(([, v]) => Number(v) > 0).map(([item_id, v]) => ({ item_id, amount: Number(v) })),
       });
       const rec = res.data?.data?.receipt || {};
@@ -205,6 +207,8 @@ export default function ReceiptDialog({ open, onOpenChange, deal, onDone }) {
           <CashAccountSelect value={cashAccountId} onChange={setCashAccountId}
             kind={method === "cash" || method === "tunai" ? "cash" : "bank"}
             label="Masuk ke rekening / kas" testId="ar-receipt-cash-account" />
+          <PaymentDateField value={valueDate} onChange={setValueDate} id="receipt-value-date"
+            testId="ar-receipt-value-date" />
           <div className="space-y-1.5">
             <Label htmlFor="note">Catatan (opsional)</Label>
             <Textarea id="note" value={note} onChange={(e) => setNote(e.target.value)}

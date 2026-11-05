@@ -47,6 +47,7 @@ class PayIn(BaseModel):
     note: Optional[str] = None
     proof_file_ids: List[str] = Field(min_length=1)
     client_ref: Optional[str] = Field(default=None, max_length=64)   # penanda sekali-pakai (anti ganda)
+    cash_account_id: Optional[str] = None   # GL-17: rekening/kas tujuan (kosong = default menurut metode)
 
 
 class DisburseIn(BaseModel):
@@ -56,6 +57,7 @@ class DisburseIn(BaseModel):
     vendor: Optional[str] = None
     note: Optional[str] = None
     client_ref: Optional[str] = Field(default=None, max_length=64)
+    cash_account_id: Optional[str] = None   # GL-17: rekening/kas sumber penyaluran (kosong = bank default)
 
 
 class KprSchemeIn(BaseModel):
@@ -257,7 +259,8 @@ async def pay_cost_invoice(iid: str, p: PayIn, user: dict = Depends(require_perm
         async with once("allin.cost_pay", iid, p.amount, p.method, user.get("email"),
                         client_ref=p.client_ref, what="Pembayaran invoice biaya yang sama"):
             return {"data": await ae.pay_cost_invoice(_org(user), iid, p.amount, p.method, p.note,
-                                                      user.get("email"), proof_file_ids=p.proof_file_ids)}
+                                                      user.get("email"), proof_file_ids=p.proof_file_ids,
+                                                      cash_account_id=p.cash_account_id)}
     except ValueError as e:
         raise _err(e)
 
@@ -269,7 +272,7 @@ async def disburse_titipan(cid: str, p: DisburseIn, user: dict = Depends(require
         async with once("allin.titipan_out", cid, p.component_code, p.amount, p.payee, user.get("email"),
                         client_ref=p.client_ref, what="Penyaluran titipan yang sama"):
             return {"data": await ae.disburse_titipan(_org(user), c, p.component_code, p.amount, p.payee,
-                                                      p.note, user.get("email"))}
+                                                      p.note, user.get("email"), cash_account_id=p.cash_account_id)}
     except ValueError as e:
         raise _err(e)
 

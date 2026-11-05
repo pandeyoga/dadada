@@ -23,6 +23,8 @@ import { useReference } from "@/context/ReferenceContext";
 import CashAccountSelect from "@/components/cashBank/CashAccountSelect";
 
 
+const TAX_RANK = { pending: 0, reported: 1, paid: 2 };
+
 export default function TaxRecordsPanel() {
   const { labelOf, options } = useReference();
   const TYPE_FILTERS = [{ v: "all", l: "Semua jenis" },
@@ -163,7 +165,8 @@ export default function TaxRecordsPanel() {
               <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}>
                 <SelectTrigger data-testid={TAX.recordStatusSelect}><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {STATUSES.map((s) => <SelectItem key={s} value={s}>{s === "pending" ? "Menunggu" : s === "reported" ? "Dilaporkan" : "Disetor"}</SelectItem>)}
+                  {/* PK-09: status yang sudah dijurnal tidak bisa dimundurkan (tanpa jurnal balik buku besar menyimpang). */}
+                  {STATUSES.map((s) => <SelectItem key={s} value={s} disabled={(TAX_RANK[s] ?? 0) < (TAX_RANK[edit?.status] ?? 0)}>{s === "pending" ? "Menunggu" : s === "reported" ? "Dilaporkan" : "Disetor"}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

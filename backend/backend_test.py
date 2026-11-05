@@ -103,7 +103,8 @@ class GLTester:
 
     def test_coa_create_new_account(self):
         """Test 3: CoA - POST /api/gl/accounts creates new account"""
-        new_code = f"9-TEST-{int(time.time()) % 10000}"
+        # GL-13: kode akun baru wajib berformat "angka-4 digit"; dulu "9-TEST-nnnn" lolos tanpa validasi.
+        new_code = f"9-{int(time.time()) % 10000:04d}"
         r = self.post("/gl/accounts", "finance@sipro.co.id", {
             "code": new_code,
             "name": "Test Account",
@@ -157,7 +158,8 @@ class GLTester:
             "date": None,
             "lines": [
                 {"account_code": "6-1300", "debit": 1000000, "credit": 0},
-                {"account_code": "1-1200", "debit": 0, "credit": 1000000}
+                # GL-21: induk kas 1-1200 tidak boleh diposting manual -> pakai akun non-kendali
+                {"account_code": "4-1200", "debit": 0, "credit": 1000000}
             ]
         }, expected_status=200)
         data = r.json()["data"]
@@ -173,7 +175,7 @@ class GLTester:
             "date": None,
             "lines": [
                 {"account_code": "6-1300", "debit": 1000000, "credit": 0},
-                {"account_code": "1-1200", "debit": 0, "credit": 500000}  # Unbalanced!
+                {"account_code": "4-1200", "debit": 0, "credit": 500000}  # Unbalanced!
             ]
         }, expected_status=400)
         detail = r.json()["detail"].lower()

@@ -6,6 +6,7 @@ dicatat oleh keuangan (`finance:create`) — sama seperti kwitansi termin.
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 import booking_fee as bf
+import evidence
 from core_utils import serialize_doc
 from db import ORG_ID, ORG_NAME, db
 from idempotency import Conflict, once
@@ -54,9 +55,11 @@ async def pay(deal_id: str, payload: BookingFeePayIn,
         # Klik ganda / dua tab / retry = satu pembayaran booking fee (audit IN-01).
         async with once("bf.pay", deal_id, payload.amount, payload.method, user.get("email"),
                         client_ref=payload.client_ref, what="Pembayaran booking fee yang sama"):
+            await evidence.validate_proof(org, payload.proof_file_ids, actor=user.get("email"),
+                                          deal_id=deal_id)  # IN-17
             out = await bf.pay(org, deal_id, amount=payload.amount, method=payload.method,
                                note=payload.note, actor=user.get("email"),
-                               proof_file_ids=payload.proof_file_ids)
+                               proof_file_ids=payload.proof_file_ids, cash_account_id=payload.cash_account_id)
     except Conflict:
         raise
     except ValueError as e:

@@ -104,7 +104,7 @@ def _validate_payment(bill, amount: int, withheld: int) -> None:
 
 async def pay_ap_bill(bill_id, amount, note, actor, org_id=ORG_ID, withhold: dict = None,
                       return_payment: bool = False, cash_account_id: str = None,
-                      client_ref: str = None, skip_funds_check: bool = False):
+                      client_ref: str = None, skip_funds_check: bool = False, value_date: str = None):
     """Bayar tagihan AP. `withhold` (Fase 49F) memotong PPh dari kas yang keluar.
 
     Tanpa fitur ini, potongan PPh jasa konstruksi/PPh 23 hanya bisa dicatat di luar sistem,
@@ -165,13 +165,14 @@ async def pay_ap_bill(bill_id, amount, note, actor, org_id=ORG_ID, withhold: dic
                     "withheld_rate": float((withhold or {}).get("rate", 0) or 0),
                     "cash_account_id": cash_account_id, "cash_account_name": (cash_acc or {}).get("name"),
                     "cash_account_code": cash_code,
-                    "note": note, "actor": actor, "created_at": ts,
+                    "note": note, "actor": actor, "created_at": ts, "value_date": value_date,
                 }
                 await db.payments_out.insert_one(dict(payment))
                 payment.pop("_id", None)
                 await emit("ap.paid", "ap_bill", bill_id,
                            {"amount": amount, "withheld": withheld, "cash_account_id": cash_account_id,
-                            "withheld_memo": (withhold or {}).get("memo")}, org_id=org_id)
+                            "withheld_memo": (withhold or {}).get("memo"), "value_date": value_date},
+                           org_id=org_id)
                 await dispatch_pending()
     body = f"Bayar Rp {amount:,} ke {bill.get('vendor')}. Sisa Rp {max(0, outstanding):,}."
     if withheld:

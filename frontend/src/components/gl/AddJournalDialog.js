@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RupiahInput } from "@/components/ui/rupiah-input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -25,10 +26,11 @@ export default function AddJournalDialog({ open, onOpenChange, onDone }) {
   const [closed, setClosed] = useState([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [controlReason, setControlReason] = useState("");
 
   useEffect(() => {
     if (!open) return;
-    setMemo(""); setDate(""); setLines([NEW_LINE(), NEW_LINE()]); setErr("");
+    setMemo(""); setDate(""); setLines([NEW_LINE(), NEW_LINE()]); setErr(""); setControlReason("");
     api.get("/gl/accounts").then((r) => setAccounts(r.data.data || [])).catch(() => setAccounts([]));
     api.get("/gl/periods")
       .then((r) => setClosed((r.data.data || []).filter((p) => p.status === "closed").map((p) => p.period)))
@@ -42,6 +44,11 @@ export default function AddJournalDialog({ open, onOpenChange, onDone }) {
     return { td, tc, balanced: td === tc && td > 0 };
   }, [lines]);
 
+  // GL-21: akun kendali (piutang/utang/kewajiban kontrak, dst.) hanya boleh lewat jurnal manual dengan alasan.
+  const controlNames = lines.map((l) => accounts.find((a) => a.code === l.account_code))
+    .filter((a) => a?.is_control).map((a) => `${a.code} ${a.name}`);
+  const needReason = controlNames.length > 0;
+
   // Periode tertutup: cegah lebih awal (jelas di UI) — backend juga menolak (400).
   const periodClosed = date ? closed.includes(date.slice(0, 7)) : false;
 
@@ -52,9 +59,11 @@ export default function AddJournalDialog({ open, onOpenChange, onDone }) {
     const payloadLines = lines.filter((l) => l.account_code && ((Number(l.debit) || 0) > 0 || (Number(l.credit) || 0) > 0))
       .map((l) => ({ account_code: l.account_code, debit: Math.round(Number(l.debit) || 0), credit: Math.round(Number(l.credit) || 0) }));
     if (payloadLines.length < 2) { setErr("Minimal 2 baris akun bernilai."); return; }
+    if (needReason && controlReason.trim().length < 10) { setErr("Isi alasan (minimal 10 huruf) untuk jurnal ke akun kendali."); return; }
     setBusy(true);
     try {
-      await api.post("/gl/journals", { memo, date: date ? new Date(date).toISOString() : null, lines: payloadLines });
+      await api.post("/gl/journals", { memo, date: date ? new Date(date).toISOString() : null, lines: payloadLines,
+        control_reason: needReason ? controlReason.trim() : undefined });
       toast.success("Jurnal manual diposting.");
       onOpenChange(false); onDone && onDone();
     } catch (e) {
@@ -118,7 +127,9 @@ export default function AddJournalDialog({ open, onOpenChange, onDone }) {
                     aria-label={`Akun baris ${i + 1}`} className="h-9">
                     <SelectValue placeholder="Pilih akun…" />
                   </SelectTrigger>
-                  <SelectContent>{accounts.map((a) => <SelectItem key={a.code} value={a.code}>{a.code} — {a.name}</SelectItem>)}</SelectContent>
+                  <SelectContent>{accounts.filter((a) => a.is_active !== false && !a.is_header).map((a) => (
+                    <SelectItem key={a.code} value={a.code}>{a.code} — {a.name}{a.is_control ? " (akun kendali)" : ""}</SelectItem>
+                  ))}</SelectContent>
                 </Select>
               </div>
               <div className="col-span-5 sm:col-span-3">
@@ -143,6 +154,14 @@ export default function AddJournalDialog({ open, onOpenChange, onDone }) {
             </div>
           ))}
         </div>
+        {needReason ? (
+          <div className="space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <p>Jurnal menyentuh akun kendali ({controlNames.join(", ")}). Saldonya dijaga tie-out terhadap subledger —
+              hanya Manajer Keuangan/Direksi yang boleh, dan alasannya wajib.</p>
+            <Textarea data-testid="journal-control-reason" rows={2} value={controlReason}
+              onChange={(e) => setControlReason(e.target.value)} placeholder="Alasan jurnal manual ke akun kendali (min. 10 huruf)" />
+          </div>
+        ) : null}
         <div className={`flex items-center justify-between rounded-lg p-3 text-sm ${totals.balanced ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>
           <span>Debit: <b className="tabular-nums">{formatIDR(totals.td)}</b> · Kredit: <b className="tabular-nums">{formatIDR(totals.tc)}</b></span>
           <span className="font-semibold">{totals.balanced ? "Seimbang" : "Belum seimbang"}</span>

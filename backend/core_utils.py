@@ -74,6 +74,30 @@ def period_of(value) -> str:
     return dt.astimezone(WIB).strftime("%Y-%m")
 
 
+def to_wib_iso(value):
+    """Bentuk KANONIK tanggal jurnal (GL-15): tanggal polos tetap; stempel waktu diubah ke WIB (+07:00).
+
+    Dulu jurnal bertanggal UTC ('2026-10-31T20:00:00+00:00' = 1 Nov WIB). Pemeriksaan periode tertutup memakai
+    `period_of` (WIB) sedangkan laporan memotong string (UTC), jadi jurnal itu lolos periode Oktober yang sudah
+    ditutup lalu masuk Laba Rugi Oktober. Menyimpan dalam WIB membuat potongan string, `period_of`, dan filter
+    rentang tanggal memandang jurnal yang SAMA berada di bulan yang sama."""
+    s = str(value or "").strip()
+    if len(s) <= 10:
+        return s
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return s
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(WIB).isoformat()
+
+
+def today_wib() -> str:
+    """Hari ini (YYYY-MM-DD) menurut zona waktu bisnis (WIB) — pasangan `to_wib_iso` untuk 'per hari ini'."""
+    return datetime.now(WIB).strftime("%Y-%m-%d")
+
+
 _PERIOD_RE = None
 
 

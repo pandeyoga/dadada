@@ -678,12 +678,14 @@ async def dispatch_pending(limit: int = 200) -> int:
     event hanya dipegang satu pemanggil; yang lain melewatinya.
     """
     from pymongo import ReturnDocument
+    import event_retry as er
     await _release_stale_claims()
     done = 0
     failed_now = []  # event yang gagal pada putaran ini dicoba lagi di tick berikutnya, bukan saat itu juga
     for _ in range(limit):
+        # GL-09: event yang gagal dijadwalkan ulang berjeda (`next_retry_at`); belum waktunya = dilewati.
         ev = await db.events.find_one_and_update(
-            {"status": "pending", "id": {"$nin": failed_now}},
+            {"status": "pending", "id": {"$nin": failed_now}, **er.due_filter(now_iso())},
             {"$set": {"status": "processing", "claimed_at": now_iso()}},
             sort=[("created_at", 1)], projection={"_id": 0},
             return_document=ReturnDocument.AFTER)
@@ -698,11 +700,8 @@ async def dispatch_pending(limit: int = 200) -> int:
         except Exception as e:  # noqa: BLE001
             logger.exception("Event dispatch failed: %s", ev.get("type"))
             failed_now.append(ev["id"])
-            retries = ev.get("retries", 0) + 1
             await db.events.update_one({"id": ev["id"]}, {
-                "$set": {"last_error": str(e), "status": "failed" if retries >= 3 else "pending"},
-                "$inc": {"retries": 1},
-            })
+                "$set": er.failure_set(ev, e), "$inc": {"retries": 1}})
     return done
 
 

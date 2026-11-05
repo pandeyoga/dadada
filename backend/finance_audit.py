@@ -46,6 +46,19 @@ async def reconcile(org: str) -> dict:
     com = await db.commissions.find({"org_id": org, "status": "approved"}, {"_id": 0, "amount": 1}).to_list(5000)
     await add("2-1600", "Utang Komisi vs Σ komisi disetujui belum dibayar",
               sum(_i(c.get("amount")) for c in com), "Komisi disetujui/dibayar tanpa jurnal.")
+    # GL-16/PK-21: DUA modul kas bon (menu Kas Bon & Pengajuan Dana jenis advance) menjurnal akun 1-1500 yang
+    # sama sebagai dua subledger terpisah; tie-out harus menjumlahkan keduanya dan menyebut sumbernya.
+    adv_a = sum(_i(r.get("disbursed_amount")) for r in await db.cash_advances.find(
+        {"org_id": org, "status": "disbursed"}, {"_id": 0, "disbursed_amount": 1}).to_list(5000))
+    adv_b = sum(_i(r.get("disbursed_amount")) for r in await db.fund_requests.find(
+        {"org_id": org, "type": "advance", "status": "disbursed"}, {"_id": 0, "disbursed_amount": 1}).to_list(5000))
+    gl_adv = await account_balance(org, "1-1500")   # aset: debit − kredit
+    checks.append({
+        "code": "1-1500", "label": ("Kas Bon vs Σ kas bon belum dipertanggungjawabkan — Kas Bon "
+                                    f"Rp {adv_a:,} + Pengajuan Dana Rp {adv_b:,}").replace(",", "."),
+        "gl": gl_adv, "subledger": adv_a + adv_b, "diff": gl_adv - adv_a - adv_b,
+        "ok": gl_adv == adv_a + adv_b, "sources": {"cash_advances": adv_a, "fund_requests": adv_b},
+        "hint": "Kas bon dicairkan/dipertanggungjawabkan tanpa jurnal, atau jurnal manual langsung ke 1-1500."})
     td = tc = 0
     async for je in db.journal_entries.find({"org_id": org}, {"_id": 0, "total_debit": 1, "total_credit": 1}):
         td += _i(je.get("total_debit"))
@@ -56,8 +69,14 @@ async def reconcile(org: str) -> dict:
     failed = [c for c in checks if not c["ok"]]
     pending = await db.events.count_documents({"org_id": org, "status": {"$in": ["pending", "processing"]}})
     failed_ev = await db.events.count_documents({"org_id": org, "status": "failed"})
+    # GL-09: event yang menunggu percobaan ulang & rincian yang gagal permanen ikut dilaporkan
+    # supaya layar tahu (dulu hanya angka) dan orang berwenang bisa memprosesnya ulang.
+    import event_retry as er
+    retrying = await db.events.count_documents(
+        {"org_id": org, "status": "pending", "next_retry_at": {"$ne": None}})
     return {"ok": not failed and not failed_ev, "checks": checks, "failed": len(failed),
-            "events_pending": pending, "events_failed": failed_ev}
+            "events_pending": pending, "events_failed": failed_ev, "events_retrying": retrying,
+            "failed_events": await er.list_problems(org, "failed", 20) if failed_ev else []}
 
 
 async def hpp_per_unit(org: str, project_id: str) -> dict:

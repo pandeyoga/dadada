@@ -408,7 +408,7 @@ async def _issue_cost_invoice_locked(org: str, contract: dict, actor: str) -> di
 
 
 async def pay_cost_invoice(org: str, invoice_id: str, amount: int, method: str, note: str, actor: str,
-                           proof_file_ids: list = None) -> dict:
+                           proof_file_ids: list = None, cash_account_id: str = None) -> dict:
     """Kuitansi biaya → jurnal Kas / Titipan biaya customer (kewajiban, BUKAN pendapatan)."""
     inv = await db.cost_invoices.find_one({"org_id": org, "id": invoice_id}, {"_id": 0})
     if not inv or inv.get("status") == "void":
@@ -418,6 +418,10 @@ async def pay_cost_invoice(org: str, invoice_id: str, amount: int, method: str, 
         raise ValueError("Nominal pembayaran biaya wajib > 0.")
     if amount > int(inv["outstanding"]):
         raise ValueError(f"Nominal Rp {amount:,} melebihi sisa invoice biaya Rp {inv['outstanding']:,}.".replace(",", "."))
+    # GL-17: rekening/kas pilihan kasir; tanpa pilihan, tunai -> Kas (dulu `GL_BANK` tetap walau metode tunai).
+    import cash_bank as _cb
+    cash_code = await _cb.resolve_code(org, cash_account_id, "1-1100" if str(method).lower() in ("cash", "tunai") else GL_BANK)
+    cash_acc = await _cb.account_by_code(org, cash_code) or {}
     ts = now_iso()
     paid = int(inv["paid"]) + amount
     rid = new_id()
@@ -437,11 +441,12 @@ async def pay_cost_invoice(org: str, invoice_id: str, amount: int, method: str, 
                                                            "customer_id": inv.get("customer_id")}),
               "amount": amount, "method": method or "transfer", "note": note, "status": "posted",
               "proof_file_ids": [str(f) for f in (proof_file_ids or []) if f],
-              "actor": actor, "created_at": ts}
+              "cash_account_id": cash_acc.get("id"), "cash_account_name": cash_acc.get("name"),
+              "cash_account_code": cash_code, "actor": actor, "created_at": ts}
         await db.cost_receipts.insert_one(dict(rc))
         rc.pop("_id", None)
         je = await gl.post_journal(org, f"Titipan biaya pembeli diterima — {rc['receipt_no']}", [
-            {"account_code": GL_BANK, "debit": amount, "credit": 0},
+            {"account_code": cash_code, "debit": amount, "credit": 0},
             {"account_code": GL_TITIPAN_BIAYA, "debit": 0, "credit": amount}],
             source_type="cost_receipt", source_id=rc["id"], source_event=f"cost_receipt:{rc['id']}",
             posted_by=actor, source_deal_id=inv.get("deal_id"))
@@ -455,7 +460,7 @@ async def pay_cost_invoice(org: str, invoice_id: str, amount: int, method: str, 
 
 
 async def disburse_titipan(org: str, contract: dict, component_code: str, amount: int,
-                           payee: str, note: str, actor: str) -> dict:
+                           payee: str, note: str, actor: str, cash_account_id: str = None) -> dict:
     """Salurkan titipan ke notaris/BPN → Titipan / Kas. Tidak boleh melebihi sisa titipan.
 
     PK-02: dua penyaluran bersamaan dulu sama-sama membaca sisa titipan yang sama lalu keduanya
@@ -478,7 +483,7 @@ async def disburse_titipan(org: str, contract: dict, component_code: str, amount
             if amount > led["titipan_balance"]:
                 raise ValueError(f"Penyaluran Rp {amount:,} melebihi sisa titipan "
                                  f"Rp {led['titipan_balance']:,}.".replace(",", "."))
-            bank_code = await _cb.resolve_code(org, None, GL_BANK)
+            bank_code = await _cb.resolve_code(org, cash_account_id, GL_BANK)
             async with _cb.cash_lock(org, bank_code):
                 await _cb.assert_funds(org, amount, code=bank_code, kind="penyaluran titipan biaya")
                 ts = now_iso()
@@ -490,7 +495,7 @@ async def disburse_titipan(org: str, contract: dict, component_code: str, amount
                 doc.pop("_id", None)
                 je = await gl.post_journal(org, f"Penyaluran titipan biaya ({component_code}) ke {payee.strip()}", [
                     {"account_code": GL_TITIPAN_BIAYA, "debit": amount, "credit": 0},
-                    {"account_code": GL_BANK, "debit": 0, "credit": amount}],
+                    {"account_code": bank_code, "debit": 0, "credit": amount}],
                     source_type="cost_disbursement", source_id=doc["id"], source_event=f"cost_disb:{doc['id']}",
                     posted_by=actor, source_deal_id=contract.get("deal_id"))
     return {"disbursement": doc, "journal_id": je.get("id"), "titipan_balance": led["titipan_balance"] - amount}

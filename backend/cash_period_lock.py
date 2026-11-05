@@ -10,11 +10,11 @@ subledger digeser ke hari pertama sesudah kunci dan memonya diberi catatan (tran
 pernah hilang). Kunci bisa dibuka kembali (`bank:approve`, alasan wajib) — jejaknya tersimpan.
 """
 import calendar
-from datetime import datetime, timezone
+from datetime import datetime
 
 import bank_recon
 import cash_bank as cb
-from core_utils import new_id, now_iso
+from core_utils import WIB, new_id, now_iso, period_of, today_wib
 from db import ORG_ID, db
 
 ELIGIBLE_RECON = ("seimbang", "dijelaskan")
@@ -44,19 +44,20 @@ async def locked_through(org: str) -> dict:
 async def resolve_date(org: str, date_str: str, codes: list, auto: bool):
     """(tanggal_final, keterangan_pergeseran|None). ValueError untuk jurnal manual ke periode terkunci."""
     locks = await locked_through(org)
-    hit = [(c, locks[c]) for c in codes if c in locks and str(date_str)[:7] <= locks[c]]
+    dp = period_of(date_str)  # GL-15: satu definisi periode (WIB), bukan potongan string
+    hit = [(c, locks[c]) for c in codes if dp and c in locks and dp <= locks[c]]
     if not hit:
         return date_str, None
     code, period = max(hit, key=lambda x: x[1])
     acc = await db.bank_accounts.find_one({"org_id": org, "gl_account_code": code}, {"_id": 0, "name": 1})
     name = (acc or {}).get("name") or code
     if not auto:
-        raise ValueError(f"Periode {str(date_str)[:7]} rekening/kas {name} sudah dikunci (rekonsiliasi "
+        raise ValueError(f"Periode {dp} rekening/kas {name} sudah dikunci (rekonsiliasi "
                          f"seimbang s.d. {period}) — jurnal manual ditolak. Buka kunci dulu atau pakai "
                          "tanggal sesudah periode terkunci.")
     target = next_month_start(period)
-    now = datetime.now(timezone.utc)
-    final = now.isoformat() if target <= now.strftime("%Y-%m-%d") else f"{target}T00:00:00+00:00"
+    now = datetime.now(WIB)
+    final = now.isoformat() if target <= now.strftime("%Y-%m-%d") else f"{target}T00:00:00+07:00"
     return final, f"kunci kas {name} s.d. {period}"
 
 
@@ -66,7 +67,7 @@ async def preview(org: str, account_id: str, period: str, counted_balance: int =
         raise ValueError("Rekening/kas tidak ditemukan.")
     if len(period) != 7 or period[4] != "-":
         raise ValueError("Periode harus berformat YYYY-MM.")
-    today = now_iso()[:10]
+    today = today_wib()
     end = period_end(period)
     code = acc["gl_account_code"]
     book = (await cb.balances(org, date_to=end)).get(code, 0)

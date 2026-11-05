@@ -95,7 +95,8 @@ async def dispose(asset_id: str, payload: AssetDispose,
                   user: dict = Depends(require_permission("fixed_assets", "approve"))):
     try:
         doc = await fa.dispose_asset(asset_id, payload.proceeds, payload.source, payload.date,
-                                     payload.note, user.get("email"), user.get("org_id", ORG_ID))
+                                     payload.note, user.get("email"), user.get("org_id", ORG_ID),
+                                     cash_account_id=payload.cash_account_id)
     except ValueError as e:
         raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "dispose", "fixed_assets", asset_id,

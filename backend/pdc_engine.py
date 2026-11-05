@@ -11,6 +11,8 @@ dicatat sebagai instrumen tersendiri dengan jurnal memorandum berpasangan:
 Neraca jujur: giro di tangan terlihat sebagai aset dengan kewajiban kontra sebesar yang sama —
 tidak menggelembungkan kas maupun mengurangi piutang sebelum uangnya ada.
 """
+import re
+
 import gl_engine as gl
 import sequences as seq
 from core_utils import new_id, now_iso
@@ -35,7 +37,23 @@ async def _get(org: str, pdc_id: str) -> dict:
     return doc
 
 
+def _norm(value) -> str:
+    """Bentuk pembanding nomor warkat / nama bank: tanpa spasi & tanda pemisah, huruf besar (IN-21)."""
+    return re.sub(r"[\s\-./_]+", "", str(value or "")).upper()
+
+
 async def receive(org: str, payload: dict, actor: str) -> dict:
+    """Terima giro/cek. Nomor warkat kembar dideteksi pada bentuk TERNORMALISASI (huruf besar/spasi/tanda
+    hubung diabaikan) dan pendaftaran warkat yang sama diserialkan — dulu 'audit-bg-001 ' lolos sebagai
+    warkat kedua yang bisa dikliring lagi menjadi uang masuk kedua."""
+    if payload.get("instrument_no"):
+        payload = {**payload, "instrument_no": str(payload["instrument_no"]).strip()}
+    async with locked("pdc.receive", org, _norm(payload.get("bank_name")), _norm(payload.get("instrument_no")),
+                      what="Pendaftaran warkat ini"):
+        return await _receive_locked(org, payload, actor)
+
+
+async def _receive_locked(org: str, payload: dict, actor: str) -> dict:
     kind = payload.get("kind") or "bg"
     if kind not in KINDS:
         raise ValueError("Jenis warkat harus 'cek' atau 'bg'.")
@@ -58,10 +76,11 @@ async def receive(org: str, payload: dict, actor: str) -> dict:
                                             {"_id": 0, "outstanding": 1, "unit_code": 1, "lead_name": 1, "customer_name": 1})
         if not inv:
             raise ValueError("Deal ini belum punya jadwal AR — giro tidak bisa dialokasikan.")
-    if await db.pdc_instruments.find_one({"org_id": org, "bank_name": payload.get("bank_name"),
-                                          "instrument_no": payload["instrument_no"], "status": {"$ne": "cancelled"}},
-                                         {"_id": 0, "id": 1}):
-        raise ValueError("Nomor warkat ini dari bank yang sama sudah tercatat.")
+    bank_n, no_n = _norm(payload.get("bank_name")), _norm(payload["instrument_no"])
+    for r in await db.pdc_instruments.find({"org_id": org, "status": {"$ne": "cancelled"}},
+                                           {"_id": 0, "bank_name": 1, "instrument_no": 1}).to_list(20000):
+        if _norm(r.get("bank_name")) == bank_n and _norm(r.get("instrument_no")) == no_n:
+            raise ValueError("Nomor warkat ini dari bank yang sama sudah tercatat.")
     pid = new_id()
     no = await seq.next_number("pdc", org, prefix="GIRO", width=4, year=ts[:4])
     issuer = (payload.get("issuer_name") or (inv or {}).get("lead_name") or (inv or {}).get("customer_name")

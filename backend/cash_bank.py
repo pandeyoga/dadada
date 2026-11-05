@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 
 import gl_engine as gl
 import sequences as seq
-from core_utils import new_id, now_iso
+from core_utils import new_id, now_iso, today_wib
 from db import ORG_ID, db
 
 logger = logging.getLogger("sipro.cashbank")
@@ -201,6 +201,52 @@ async def account_by_code(org: str, code: str) -> dict:
     return await db.bank_accounts.find_one({"org_id": org, "gl_account_code": code}, {"_id": 0})
 
 
+# ------------------------------------------- akun GL yang SAH untuk sebuah rekening bank (GL-08)
+async def bank_gl_options(org: str) -> list:
+    """Pilihan akun GL untuk dialog "Rekonsiliasi Bank → + Rekening".
+
+    Hanya dua macam yang sah: (1) induk `1-1200` = "buat sub-akun baru otomatis" (cara normal), atau
+    (2) sub-akun Bank (induk `1-1200`, aset, aktif) yang BELUM dipakai rekening mana pun. Akun lain
+    (Piutang, WIP, Persediaan, induk kas, sub-akun rekening lain) dulu ikut tampil dan bila dipilih
+    menggandakan saldo kas atau membuat piutang tampil sebagai "saldo bank" (audit GL-08).
+    """
+    used = set(await db.bank_accounts.distinct("gl_account_code", {"org_id": org}))
+    out = [{"code": HEADER["bank"], "name": "Buat sub-akun baru otomatis (di bawah 1-1200 Bank)",
+            "auto": True}]
+    async for a in db.accounts.find({"org_id": org, "parent_code": HEADER["bank"], "type": "asset",
+                                     "is_active": {"$ne": False}}, {"_id": 0, "code": 1, "name": 1}) \
+            .sort("code", 1):
+        if a["code"] not in used and a["code"] not in HEADER_CODES:
+            out.append({"code": a["code"], "name": a["name"], "auto": False})
+    return out
+
+
+async def assert_valid_bank_gl(org: str, code: str, exclude_id: str = None) -> None:
+    """Tolak akun GL yang bukan sub-akun Bank sah / sudah dipakai rekening lain (ValueError)."""
+    code = (code or "").strip()
+    if code == HEADER["bank"]:
+        return  # induk = minta sub-akun baru; tidak pernah diposting langsung
+    acct = await db.accounts.find_one({"org_id": org, "code": code}, {"_id": 0, "code": 1, "name": 1,
+                                                                        "type": 1, "parent_code": 1,
+                                                                        "is_active": 1})
+    if not acct:
+        raise ValueError(f"Akun GL {code} tidak ada di Bagan Akun — pilih sub-akun Bank yang tersedia.")
+    if acct.get("type") != "asset" or acct.get("parent_code") != HEADER["bank"]:
+        raise ValueError(
+            f"Akun {code} {acct.get('name')} bukan sub-akun Bank (induk 1-1200), jadi tidak boleh dipakai "
+            "sebagai rekening bank — saldo kas di laporan akan berbeda dari neraca. Pilih akun dari "
+            "daftar yang tersedia, atau biarkan 'buat sub-akun baru otomatis'.")
+    if acct.get("is_active") is False:
+        raise ValueError(f"Akun {code} {acct.get('name')} nonaktif — pilih akun lain.")
+    q = {"org_id": org, "gl_account_code": code}
+    if exclude_id:
+        q["id"] = {"$ne": exclude_id}
+    dup = await db.bank_accounts.find_one(q, {"_id": 0, "name": 1})
+    if dup:
+        raise ValueError(f"Akun GL {code} sudah dipakai rekening '{dup.get('name')}'. Satu akun hanya "
+                         "boleh untuk satu rekening (kalau tidak, saldo kas terhitung dobel).")
+
+
 # ----------------------------------------------------------- cek dana sebelum uang keluar
 # Dinyalakan HANYA selama seed/startup (lihat server.lifespan): seed demo memposting pembayaran
 # sebelum saldo awal dijurnal sehingga urutannya tidak mewakili saldo nyata.
@@ -297,7 +343,7 @@ async def list_accounts(org: str, active_only: bool = False) -> list:
 
 async def position(org: str) -> dict:
     rows = await list_accounts(org)
-    today = now_iso()[:10]
+    today = today_wib()
     month = today[:7]
     codes = [r["gl_account_code"] for r in rows]
     flow = {c: {"in": 0, "out": 0} for c in codes}
