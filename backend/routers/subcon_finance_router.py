@@ -23,6 +23,7 @@ import offline_intake as intake
 import subcon_finance as sf
 import vendor_engine as ve
 from db import db, ORG_ID
+from idempotency import Conflict
 from core_utils import serialize_doc
 from engine import add_activity, create_notification
 from models_p48 import AdvanceDecisionIn, AdvanceIn, AdvancePayIn, AssessmentIn, DeductionIn, ReasonIn
@@ -76,7 +77,7 @@ async def create_advance(payload: AdvanceIn,
     try:
         doc = await sf.create_advance(org, spk, payload.model_dump(), user.get("email"))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "create", "subcon_advance", doc["id"],
                     {"spk": spk.get("spk_number"), "amount": doc["amount"]})
     await add_activity(entity_type="project", entity_id=spk["project_id"], type="system",
@@ -94,7 +95,7 @@ async def decide_advance(aid: str, payload: AdvanceDecisionIn,
     try:
         doc = await sf.decide_advance(org, adv, payload.approve, payload.reason, user.get("email"))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "approve" if payload.approve else "reject", "subcon_advance", aid,
                     {"reason": payload.reason})
     await create_notification(
@@ -114,7 +115,7 @@ async def pay_advance(aid: str, payload: AdvancePayIn,
     try:
         doc = await sf.pay_advance(org, adv, user.get("email"), payload.note)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "pay", "subcon_advance", aid, {"amount": adv["amount"]})
     await add_activity(entity_type="project", entity_id=adv["project_id"], type="system",
                        body=(f"Uang muka {adv.get('advance_number')} dibayar Rp {adv['amount']:,} "
@@ -141,7 +142,7 @@ async def create_deduction(payload: DeductionIn,
     try:
         doc = await sf.create_deduction(org, spk, payload.model_dump(), user.get("email"))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "create", "subcon_deduction", doc["id"],
                     {"kind": doc["kind"], "amount": doc["amount"], "spk": spk.get("spk_number")})
     return {"data": serialize_doc(doc)}
@@ -155,7 +156,7 @@ async def cancel_deduction(did: str, payload: ReasonIn,
     try:
         doc = await sf.cancel_deduction(org, ded, payload.reason, user.get("email"))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "cancel", "subcon_deduction", did, {"reason": payload.reason})
     return {"data": serialize_doc(doc)}
 
@@ -179,7 +180,7 @@ async def request_release(rid: str, payload: ReasonIn,
     try:
         doc = await sf.request_release(org, ret, payload.reason, user.get("email"))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "request", "subcon_retention", rid, {"amount": ret["amount"]})
     fin = await db.users.find_one({"org_id": org, "role": "finance_manager", "is_active": True},
                                   {"_id": 0, "email": 1})
@@ -208,7 +209,7 @@ async def waive_retention_hold(rid: str, payload: RetentionWaiveIn,
     try:
         doc = await sf.waive(org, ret, payload.codes, payload.reason, user.get("email"))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "override", "subcon_retention", rid,
                     {"codes": payload.codes, "reason": payload.reason,
                      "amount": ret.get("amount")})
@@ -263,7 +264,7 @@ async def release_retention(rid: str, payload: RetentionReleaseIn,
     except ValueError as e:
         if payload.client_ref:
             await intake.rollback(org, "retention_release", payload.client_ref)
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     if payload.client_ref:
         await intake.commit(org, "retention_release", payload.client_ref,
                             collection="subcon_retentions", doc_id=rid,

@@ -14,6 +14,7 @@ import opname as op
 import sequences as seq
 from denorm import cascade_master_change
 from db import db, ORG_ID
+from idempotency import Conflict
 from core_utils import new_id, now_iso, serialize_doc
 from rbac import has_role, require_permission, assert_project_access, project_query
 from engine import add_activity
@@ -190,7 +191,7 @@ async def create_spk_from_rab(payload: SPKFromRabIn,
         lines = re_.validate_lines(payload.lines)
         await re_.assert_boq_not_contracted(user.get("org_id", ORG_ID), lines)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     if not lines:
         raise HTTPException(status_code=400, detail="SPK dari RAB harus punya minimal satu baris.")
     total = sum(ln["value"] for ln in lines)
@@ -301,6 +302,32 @@ async def update_spk(sid: str, payload: SPKUpdate,
     upd = {k: v for k, v in payload.dict(exclude_unset=True).items()}
     scope = await op.scope_rows(doc["org_id"], sid)
     s = op.summarize(scope)
+    # PK-11: nilai kontrak / retensi / progres adalah field KEUANGAN. Sesudah SPK mulai ditagih, PM/site
+    # tidak boleh mengubahnya langsung (melewati Change Order yang disetujui Keuangan, atau me-reset
+    # progres lalu menagih pekerjaan yang sama dua kali — terukur Σ termin 150 jt untuk SPK 100 jt).
+    claims = await db.progress_claims.find(
+        {"org_id": doc["org_id"], "spk_id": sid, "status": {"$nin": ["rejected", "cancelled"]}},
+        {"_id": 0, "gross": 1, "status": 1}).to_list(500)
+    billed = sum(int(c.get("gross", 0) or 0) for c in claims if c.get("status") == "approved")
+    has_billing = bool(claims) or doc.get("status") not in (None, "draft")
+    from rbac import can
+    finance_authority = await can(user.get("role"), "progress_claims", "approve")
+    if has_billing and not finance_authority:
+        locked = [f for f in ("contract_value", "retention_pct") if upd.get(f) is not None
+                  and upd[f] != doc.get(f)]
+        if locked:
+            raise HTTPException(status_code=403, detail=(
+                "Nilai kontrak dan persentase retensi tidak bisa diubah langsung setelah SPK berjalan/"
+                "ditagih. Ajukan Change Order (nilai kontrak) yang disetujui Keuangan."))
+    if claims and upd.get("progress_pct") is not None and int(upd["progress_pct"]) != int(doc.get("progress_pct") or 0):
+        raise HTTPException(status_code=400, detail=(
+            "Progres SPK ini dihitung dari termin yang diajukan/disetujui "
+            f"(sekarang {int(doc.get('progress_pct') or 0)}%) dan tidak bisa diketik ulang — "
+            "mengubahnya membuka jalan menagih pekerjaan yang sama dua kali."))
+    if upd.get("contract_value") is not None and int(upd["contract_value"]) < billed:
+        raise HTTPException(status_code=400, detail=(
+            f"Nilai kontrak {op.rp(int(upd['contract_value']))} lebih kecil dari yang sudah ditagih "
+            f"{op.rp(billed)} (total termin disetujui)."))
     if scope and upd.get("progress_pct") is not None:
         # INV-33-5: progres SPK berbasis item LAHIR DARI BUKTI, tidak boleh diketik.
         raise HTTPException(status_code=400, detail=(

@@ -16,7 +16,8 @@ from core_utils import new_id, now_iso
 from db import db, ORG_ID
 from engine import add_activity, auto_create_task
 from finance_engine import notify_finance
-from p27_utils import (cash_account, current_period, days_overdue, month_add, period_of, rp)
+from idempotency import expect_of, once, reserved
+from p27_utils import (cash_account, clean_cash_date, current_period, days_overdue, month_add, period_of, rp)
 
 logger = logging.getLogger("sipro.loans")
 LOAN_ACC = "2-2100"
@@ -97,6 +98,7 @@ async def activate_loan(loan_id: str, source: str, date, note, actor: str,
     loan = await _get(loan_id, org_id)
     if loan["status"] != "draft":
         raise ValueError("Hanya fasilitas berstatus 'Draf' yang dapat dicairkan.")
+    date = clean_cash_date(date, "Tanggal pencairan")
     principal = int(loan["principal"])
     provision = int(loan.get("provision_fee", 0))
     net = principal - provision
@@ -112,14 +114,17 @@ async def activate_loan(loan_id: str, source: str, date, note, actor: str,
         lines.append({"account_code": INTEREST_ACC, "debit": provision, "credit": 0,
                       "memo": "biaya provisi & administrasi"})
     lines.append({"account_code": LOAN_ACC, "debit": 0, "credit": principal})
-    je = await gl.post_journal(
-        org_id, f"Pencairan pembiayaan {loan['no']} — {loan['lender']}", lines,
-        date=start, source_type="loan", source_id=loan_id,
-        source_event=f"loan.activate:{loan_id}", posted_by=actor)
-    await db.loans.update_one({"id": loan_id}, {"$set": {
-        "status": "active", "schedule": rows, "outstanding_principal": principal,
-        "disbursed_at": start, "activated_by": actor, "activate_note": note,
-        "start_date": start, "updated_at": ts}, "$push": {"journal_ids": je["id"]}})
+    # PK-02: klaim atomik draft → active SEBELUM jurnal (pencairan ganda = jadwal & jurnal ganda).
+    async with reserved("loans", {"id": loan_id, "org_id": org_id}, {"status": "draft"},
+                        {"$set": {"status": "active", "schedule": rows, "outstanding_principal": principal,
+                                  "disbursed_at": start, "activated_by": actor, "activate_note": note,
+                                  "start_date": start, "updated_at": ts}},
+                        undo={"$set": {"status": "draft"}}, what="Fasilitas pembiayaan"):
+        je = await gl.post_journal(
+            org_id, f"Pencairan pembiayaan {loan['no']} — {loan['lender']}", lines,
+            date=start, source_type="loan", source_id=loan_id,
+            source_event=f"loan.activate:{loan_id}", posted_by=actor)
+        await db.loans.update_one({"id": loan_id}, {"$push": {"journal_ids": je["id"]}})
     await add_activity(entity_type="loan", entity_id=loan_id, type="system",
                        body=f"Fasilitas {loan['no']} dicairkan {rp(net)} (provisi {rp(provision)}). "
                             f"{len(rows)} angsuran terjadwal. Jurnal {je['entry_no']}.",
@@ -131,13 +136,11 @@ async def activate_loan(loan_id: str, source: str, date, note, actor: str,
     return await _get(loan_id, org_id)
 
 
-async def pay_installment(loan_id: str, no: int, amount: int, source: str, date, note,
-                          actor: str, org_id=ORG_ID) -> dict:
-    """Bayar angsuran: alokasi ke bunga dulu, sisanya pokok (mengurangi utang bank)."""
-    loan = await _get(loan_id, org_id)
+def _locate_installment(loan: dict, no: int, amount: int):
+    """Validasi angsuran (isi & pesan tak berubah) → (rows, idx, item, remaining)."""
     if loan["status"] != "active":
         raise ValueError("Angsuran hanya dapat dibayar untuk fasilitas berstatus 'Aktif'.")
-    rows = list(loan.get("schedule") or [])
+    rows = [dict(r) for r in (loan.get("schedule") or [])]
     idx = next((k for k, r in enumerate(rows) if int(r["no"]) == int(no)), None)
     if idx is None:
         raise ValueError(f"Angsuran nomor {no} tidak ada pada jadwal fasilitas ini.")
@@ -145,47 +148,79 @@ async def pay_installment(loan_id: str, no: int, amount: int, source: str, date,
     remaining = int(item["total"]) - int(item.get("paid_total", 0))
     if remaining <= 0:
         raise ValueError(f"Angsuran ke-{no} sudah lunas.")
-    amount = int(amount)
     if amount > remaining:
         raise ValueError(f"Pembayaran {rp(amount)} melebihi sisa angsuran ke-{no} "
                          f"sebesar {rp(remaining)}.")
-    rem_interest = int(item["interest"]) - int(item.get("paid_interest", 0))
-    pay_interest = min(amount, max(0, rem_interest))
-    pay_principal = amount - pay_interest
-    ts = now_iso()
-    payment_id = new_id()
-    lines = []
-    if pay_principal:
-        lines.append({"account_code": LOAN_ACC, "debit": pay_principal, "credit": 0,
-                      "memo": "pokok angsuran"})
-    if pay_interest:
-        lines.append({"account_code": INTEREST_ACC, "debit": pay_interest, "credit": 0,
-                      "memo": "bunga angsuran"})
-    lines.append({"account_code": cash_account(source), "debit": 0, "credit": amount})
-    je = await gl.post_journal(
-        org_id, f"Angsuran ke-{no} pembiayaan {loan['no']} — {loan['lender']}", lines,
-        date=date or ts, source_type="loan_payment", source_id=payment_id,
-        source_event=f"loan.pay:{payment_id}", posted_by=actor)
-    item["paid_principal"] = int(item.get("paid_principal", 0)) + pay_principal
-    item["paid_interest"] = int(item.get("paid_interest", 0)) + pay_interest
-    item["paid_total"] = int(item.get("paid_total", 0)) + amount
-    item["status"] = "paid" if item["paid_total"] >= int(item["total"]) else "partial"
-    item["paid_at"] = ts if item["status"] == "paid" else item.get("paid_at")
-    rows[idx] = item
-    paid_principal = sum(int(r.get("paid_principal", 0)) for r in rows)
-    paid_interest = sum(int(r.get("paid_interest", 0)) for r in rows)
-    outstanding = int(loan["principal"]) - paid_principal
-    status = "paid_off" if all(r["status"] == "paid" for r in rows) else "active"
-    await db.loans.update_one({"id": loan_id}, {"$set": {
-        "schedule": rows, "paid_principal": paid_principal, "paid_interest": paid_interest,
-        "outstanding_principal": outstanding, "status": status, "updated_at": ts},
-        "$push": {"journal_ids": je["id"]}})
-    await db.loan_payments.insert_one({
-        "id": payment_id, "org_id": org_id, "loan_id": loan_id, "loan_no": loan["no"],
-        "lender": loan["lender"], "installment_no": int(no), "amount": amount,
-        "principal_part": pay_principal, "interest_part": pay_interest, "source": source,
-        "note": note, "journal_id": je["id"], "entry_no": je["entry_no"],
-        "paid_by": actor, "paid_at": date or ts, "created_at": ts})
+    return rows, idx, item, remaining
+
+
+async def pay_installment(loan_id: str, no: int, amount: int, source: str, date, note,
+                          actor: str, org_id=ORG_ID) -> dict:
+    """Bayar angsuran: alokasi ke bunga dulu, sisanya pokok (mengurangi utang bank).
+
+    PK-02: dua pembayaran angsuran bersamaan dulu sama-sama membaca jadwal yang sama dan keduanya
+    mengeluarkan kas (angsuran ke-1 Rp 10,66 jt keluar 2x). Sekarang: kunci klik ganda, cek dana
+    (PK-06), tanggal valid (PK-14), lalu CAS atas versi pinjaman yang dibaca SEBELUM jurnal diposting
+    — jurnal tidak lagi terbit bila request gagal setelahnya.
+    """
+    loan = await _get(loan_id, org_id)
+    amount = int(amount)
+    _locate_installment(loan, no, amount)
+    date = clean_cash_date(date, "Tanggal pembayaran")
+    async with once("loan.pay", loan_id, int(no), amount, source, actor, what="Pembayaran angsuran ini"):
+        loan = await _get(loan_id, org_id)
+        rows, idx, item, remaining = _locate_installment(loan, no, amount)
+        rem_interest = int(item["interest"]) - int(item.get("paid_interest", 0))
+        pay_interest = min(amount, max(0, rem_interest))
+        pay_principal = amount - pay_interest
+        ts = now_iso()
+        payment_id = new_id()
+        lines = []
+        if pay_principal:
+            lines.append({"account_code": LOAN_ACC, "debit": pay_principal, "credit": 0,
+                          "memo": "pokok angsuran"})
+        if pay_interest:
+            lines.append({"account_code": INTEREST_ACC, "debit": pay_interest, "credit": 0,
+                          "memo": "bunga angsuran"})
+        lines.append({"account_code": cash_account(source), "debit": 0, "credit": amount})
+        item["paid_principal"] = int(item.get("paid_principal", 0)) + pay_principal
+        item["paid_interest"] = int(item.get("paid_interest", 0)) + pay_interest
+        item["paid_total"] = int(item.get("paid_total", 0)) + amount
+        item["status"] = "paid" if item["paid_total"] >= int(item["total"]) else "partial"
+        item["paid_at"] = ts if item["status"] == "paid" else item.get("paid_at")
+        rows[idx] = item
+        paid_principal = sum(int(r.get("paid_principal", 0)) for r in rows)
+        paid_interest = sum(int(r.get("paid_interest", 0)) for r in rows)
+        outstanding = int(loan["principal"]) - paid_principal
+        status = "paid_off" if all(r["status"] == "paid" for r in rows) else "active"
+        import cash_bank as _cb
+        cash_code = await _cb.resolve_code(org_id, None, cash_account(source))
+        async with _cb.cash_lock(org_id, cash_code):
+            await _cb.assert_funds(org_id, amount, code=cash_code,
+                                   kind=f"angsuran ke-{no} pembiayaan {loan['no']}")
+            async with reserved(
+                    "loans", {"id": loan_id, "org_id": org_id},
+                    expect_of(loan, "updated_at", "status"),
+                    {"$set": {"schedule": rows, "paid_principal": paid_principal,
+                              "paid_interest": paid_interest, "outstanding_principal": outstanding,
+                              "status": status, "updated_at": ts}},
+                    undo={"$set": {"schedule": loan.get("schedule"),
+                                   "paid_principal": int(loan.get("paid_principal", 0)),
+                                   "paid_interest": int(loan.get("paid_interest", 0)),
+                                   "outstanding_principal": loan.get("outstanding_principal"),
+                                   "status": loan["status"], "updated_at": loan.get("updated_at")}},
+                    what="Fasilitas pembiayaan"):
+                je = await gl.post_journal(
+                    org_id, f"Angsuran ke-{no} pembiayaan {loan['no']} — {loan['lender']}", lines,
+                    date=date or ts, source_type="loan_payment", source_id=payment_id,
+                    source_event=f"loan.pay:{payment_id}", posted_by=actor)
+                await db.loans.update_one({"id": loan_id}, {"$push": {"journal_ids": je["id"]}})
+                await db.loan_payments.insert_one({
+                    "id": payment_id, "org_id": org_id, "loan_id": loan_id, "loan_no": loan["no"],
+                    "lender": loan["lender"], "installment_no": int(no), "amount": amount,
+                    "principal_part": pay_principal, "interest_part": pay_interest, "source": source,
+                    "note": note, "journal_id": je["id"], "entry_no": je["entry_no"],
+                    "paid_by": actor, "paid_at": date or ts, "created_at": ts})
     await add_activity(entity_type="loan", entity_id=loan_id, type="system",
                        body=f"Angsuran ke-{no} dibayar {rp(amount)} (pokok {rp(pay_principal)}, "
                             f"bunga {rp(pay_interest)}). Sisa pokok {rp(outstanding)}.",

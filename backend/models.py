@@ -441,15 +441,17 @@ class ApBillCreate(BaseModel):
     vendor: str
     project_id: Optional[str] = None
     claimed: int
-    retention_pct: float = 5
+    retention_pct: float = Field(5, ge=0, le=100)  # PK-08: retensi 0–100%
     due_date: Optional[str] = None
     note: Optional[str] = None
+    vendor_invoice_no: Optional[str] = None  # PK-15: nomor faktur vendor (opsional, unik per vendor)
 
 
 class ApPay(BaseModel):
     amount: int
     note: Optional[str] = None
     cash_account_id: Optional[str] = None
+    client_ref: Optional[str] = None  # kunci idempotensi dari klien (retry tidak membayar dua kali)
 
 
 class CommissionComputeReq(BaseModel):

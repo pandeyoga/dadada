@@ -53,6 +53,7 @@ from core_utils import new_id, now_iso
 from db import ORG_ID, ORG_NAME, db
 from engine import add_activity, emit
 from finance_engine import notify_finance
+from idempotency import Conflict, expect_of, mutex, once, reserved  # noqa: F401
 from money_lock import locked
 
 logger = logging.getLogger("sipro.cancellation")
@@ -549,7 +550,10 @@ async def pay_refund(org: str, cid: str, actor: str, *, method: str, amount: int
     berjalan di bawah KUNCI per pengajuan; dua pembayaran bersamaan dulu sama-sama membaca total
     lama dan sama-sama mengeluarkan kas (600 jt keluar, sistem mencatat 300 jt).
     """
-    async with locked("cancel.refund", cid, what="Pembayaran refund pembatalan ini"):
+    # `mutex` ANTRE (bukan gagal-cepat seperti `locked`): kiriman ulang dengan client_ref yang sama
+    # menunggu pemenangnya selesai lalu dijawab sebagai `replay` (idempoten); pembayaran sebagian
+    # yang sah dengan nominal berbeda tetap diserialkan.
+    async with mutex(f"cancel.refund:{cid}", what="Pembayaran refund pembatalan ini"):
         cancel = await db.cancellations.find_one({"id": cid, "org_id": org}, {"_id": 0})
         if not cancel:
             raise ValueError("Pengajuan pembatalan tidak ditemukan.")
@@ -583,6 +587,10 @@ async def pay_refund(org: str, cid: str, actor: str, *, method: str, amount: int
         akun_kas = AKUN_KAS if method == "tunai" else AKUN_BANK
         import cash_bank as _cb
         akun_kas = await _cb.resolve_code(org, cash_account_id, akun_kas)
+        # PK-06: uang refund tidak boleh keluar dari rekening yang saldonya tidak cukup. Berada di
+        # bawah kunci per pengajuan, jadi pembacaan saldo dan jurnal tidak terselip refund lain
+        # dari pengajuan yang sama.
+        await _cb.assert_funds(org, amount, code=akun_kas, kind=f"refund pembatalan {cancel['number']}")
         ts = now_iso()
         pid = new_id()
         entry = await gl.post_journal(

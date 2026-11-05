@@ -21,6 +21,7 @@ from core_utils import new_id, now_iso
 from db import db, ORG_ID
 from engine import add_activity
 from finance_engine import notify_finance
+from idempotency import once
 from p27_utils import (cash_account, current_period, period_end_iso, period_of, rp,
                        validate_period)
 
@@ -133,6 +134,19 @@ async def create_asset(payload, actor: str, org_id=ORG_ID) -> dict:
                          "(agar utangnya tercatat di daftar tagihan vendor).")
     ts = now_iso()
     acquired = payload.acquired_date or ts
+    if payload.funding in ("kas", "bank"):
+        # PK-06: perolehan tunai/bank mengeluarkan kas → dana harus cukup (aset Rp 99 M dari bank
+        # ber-saldo Rp 7 M dulu lolos dan membuat rekening −Rp 92 M).
+        import cash_bank as _cb
+        await _cb.assert_funds(org_id, cost, code=FUNDING_ACCOUNT[payload.funding],
+                               kind=f"perolehan aset {payload.name}")
+    # PK-02/22: klik ganda / retry membuat aset kembar (uang keluar 2x) → kunci permintaan identik.
+    async with once("asset.create", org_id, payload.name, cost, payload.acquired_date, payload.funding, actor,
+                    what="Pencatatan aset ini"):
+        return await _create_asset_locked(payload, actor, org_id, cost, salvage, method, life, ts, acquired)
+
+
+async def _create_asset_locked(payload, actor, org_id, cost, salvage, method, life, ts, acquired) -> dict:
     code = await seq.next_number("fixed_asset", org_id, prefix="AST", width=4,
                                  context={"category": payload.tax_group})
     project = None

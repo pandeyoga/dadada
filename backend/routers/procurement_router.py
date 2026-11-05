@@ -22,6 +22,8 @@ from rbac import has_role, require_permission, assert_project_access, project_qu
 from engine import add_activity, auto_create_task, create_notification
 import finance_engine as fe
 from models import POCreate, POAction, GRNCreate, ProcurementBillCreate
+from idempotency import Conflict, cas, expect_of, reserved
+from sod import assert_separate
 
 router = APIRouter(prefix="/procurement", tags=["procurement"])
 
@@ -182,9 +184,18 @@ async def approve_po(pid: str, payload: POAction,
     if doc.get("high_value") and not has_role(user, *SENIOR_ROLES):
         raise HTTPException(status_code=403,
                             detail=f"PO nilai tinggi (> Rp {HIGH_VALUE_THRESHOLD:,}) memerlukan persetujuan Owner.")
+    try:
+        # PK-07: pembuat PO tidak boleh menyetujui PO-nya sendiri (rantai PO→GRN→tagihan→bayar
+        # tidak boleh selesai di satu akun).
+        assert_separate(user, doc.get("created_by"),
+                        "Pemisahan tugas: pembuat PO tidak boleh menyetujui PO-nya sendiri.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     ts = now_iso()
-    await db.purchase_orders.update_one({"id": pid, "org_id": doc["org_id"]}, {"$set": {
-        "status": "approved", "approved_by": user.get("email"), "approved_at": ts, "updated_at": ts}})
+    # PK-02: transisi draft → approved atomik (dua persetujuan bersamaan = satu efek).
+    await cas("purchase_orders", {"id": pid, "org_id": doc["org_id"]}, {"status": "draft"}, {"$set": {
+        "status": "approved", "approved_by": user.get("email"), "approved_at": ts, "updated_at": ts}},
+        what="PO")
     await audit_log(user, "approve", "purchase_order", pid, {"total": doc.get("total"), "vendor": doc.get("vendor")})
     await add_activity(entity_type="project", entity_id=doc["project_id"], type="system",
                        body=f"PO {doc.get('po_number')} disetujui oleh {user.get('email')}.",
@@ -235,8 +246,11 @@ async def create_grn(payload: GRNCreate,
         raise HTTPException(status_code=400, detail="PO harus berstatus 'disetujui' untuk penerimaan barang.")
     if not payload.items:
         raise HTTPException(status_code=400, detail="GRN harus memiliki minimal 1 item diterima.")
+    import copy
     items = po.get("items", [])
+    items_before = copy.deepcopy(items)  # untuk pengembalian bila penulisan gagal
     grn_items = []
+    txns = []  # PK-02: stok baru ditulis SETELAH PO diklaim atomik (bukan di dalam loop)
     received_value = 0
     ts = now_iso()
     grn_number = await _next_number("GRN", db.grns, org, {"project_id": po.get("project_id"),
@@ -267,7 +281,7 @@ async def create_grn(payload: GRNCreate,
         if it.get("material_id"):
             mat = await db.materials.find_one({"id": it["material_id"], "org_id": org}, {"_id": 0, "id": 1})
             if mat:
-                await db.material_txns.insert_one({
+                txns.append({
                     "id": new_id(), "org_id": org, "project_id": po["project_id"],
                     "material_id": it["material_id"], "type": "in", "qty": qty_recv,
                     # Fase 48E: harga ikut dicatat supaya NILAI persediaan bisa dihitung
@@ -284,13 +298,25 @@ async def create_grn(payload: GRNCreate,
         "items": grn_items, "received_value": int(received_value), "note": payload.note,
         "received_by": user.get("email"), "created_at": ts,
     }
-    await db.grns.insert_one(dict(grn))
     # Recompute PO received rollup + status.
     total_received_value = int(po.get("received_value", 0)) + int(received_value)
     fully = all(float(i.get("received_qty", 0)) >= float(i.get("qty", 0)) - 1e-9 for i in items)
     new_status = "received" if fully else "partially_received"
-    await db.purchase_orders.update_one({"id": po["id"], "org_id": org}, {"$set": {
-        "items": items, "received_value": total_received_value, "status": new_status, "updated_at": ts}})
+    # PK-02: dua GRN bersamaan dulu sama-sama membaca sisa PO yang sama lalu menulis `items`
+    # absolut (stok +200 untuk PO 100 sak). Sekarang PO diklaim dengan CAS atas versi yang dibaca
+    # (`updated_at`, `status`, `received_value`); yang kalah mendapat Conflict (409) dan tidak
+    # menulis stok maupun GRN.
+    async with reserved(
+            "purchase_orders", {"id": po["id"], "org_id": org},
+            expect_of(po, "updated_at", "status", "received_value"),
+            {"$set": {"items": items, "received_value": total_received_value, "status": new_status,
+                      "updated_at": ts}},
+            undo={"$set": {"items": items_before, "received_value": int(po.get("received_value", 0)),
+                           "status": po.get("status"), "updated_at": po.get("updated_at")}},
+            what="PO"):
+        for tx in txns:
+            await db.material_txns.insert_one(tx)
+        await db.grns.insert_one(dict(grn))
     await add_activity(entity_type="project", entity_id=po["project_id"], type="system",
                        body=f"GRN {grn_number} diterima untuk PO {po.get('po_number')} (Rp {int(received_value):,}).",
                        actor=user.get("email"), org_id=org)
@@ -360,21 +386,34 @@ async def create_bill(payload: ProcurementBillCreate,
         override = True
         match = {**match, "state": "overridden"}
     # Create the AP invoice via finance engine (retention + aging aware), then attach match info.
-    bill = await fe.create_ap_bill(po.get("vendor"), po["project_id"], int(payload.claimed),
-                                   payload.retention_pct, payload.due_date,
-                                   payload.note or f"Tagihan PO {po.get('po_number')}",
-                                   user.get("email"), org)
     ts = now_iso()
-    await db.ap_invoices.update_one({"id": bill["id"], "org_id": org}, {"$set": {
-        "po_id": po["id"], "po_number": po.get("po_number"), "grn_id": payload.grn_id,
-        "subcontractor_id": po.get("subcontractor_id"), "spk_id": po.get("spk_id"),
-        "vendor_id": po.get("vendor_id"),
-        "match_status": match["status"], "match_state": match["state"], "match_detail": match,
-        "override_by": user.get("email") if override else None,
-        "override_reason": payload.override_reason if override else None,
-        "requires_senior_approval": override, "updated_at": ts}})
-    await db.purchase_orders.update_one({"id": po["id"], "org_id": org}, {"$set": {
-        "billed_value": match["billed_after"], "updated_at": ts}})
+    # PK-02: dua tagihan PO bersamaan dulu sama-sama membaca `billed_value` lama (lolos 3-way match)
+    # lalu masing-masing membuat tagihan penuh (PO 7 jt → 2 tagihan @7 jt). PO diklaim lebih dulu
+    # dengan CAS atas `billed_value` yang dibaca; yang kalah mendapat Conflict (409).
+    try:
+        async with reserved(
+                "purchase_orders", {"id": po["id"], "org_id": org},
+                expect_of(po, "billed_value", "updated_at"),
+                {"$set": {"billed_value": match["billed_after"], "updated_at": ts}},
+                undo={"$set": {"billed_value": int(po.get("billed_value", 0)),
+                               "updated_at": po.get("updated_at")}}, what="PO"):
+            bill = await fe.create_ap_bill(po.get("vendor"), po["project_id"], int(payload.claimed),
+                                           payload.retention_pct, payload.due_date,
+                                           payload.note or f"Tagihan PO {po.get('po_number')}",
+                                           user.get("email"), org,
+                                           vendor_invoice_no=payload.vendor_invoice_no)
+            await db.ap_invoices.update_one({"id": bill["id"], "org_id": org}, {"$set": {
+                "po_id": po["id"], "po_number": po.get("po_number"), "grn_id": payload.grn_id,
+                "subcontractor_id": po.get("subcontractor_id"), "spk_id": po.get("spk_id"),
+                "vendor_id": po.get("vendor_id"),
+                "match_status": match["status"], "match_state": match["state"], "match_detail": match,
+                "override_by": user.get("email") if override else None,
+                "override_reason": payload.override_reason if override else None,
+                "requires_senior_approval": override, "updated_at": ts}})
+    except Conflict:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "create", "procurement_bill", bill["id"],
                     {"po": po.get("po_number"), "claimed": int(payload.claimed),
                      "match": match["state"]})

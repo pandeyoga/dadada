@@ -192,8 +192,15 @@ def test_vendor_payment_flow_end_to_end(h_finance, h_pm):
         bal_before = asyncio.get_event_loop().run_until_complete(_bal("6-1300"))
 
         # disburse
+        # PK-13: bukti pencairan wajib & divalidasi di API → unggah berkas bukti dulu.
+        rup = requests.post(f"{BASE}/files/upload", headers=h_finance,
+                            data={"owner_type": "fund_request_payment", "owner_id": fr_id, "optimize": "false"},
+                            files={"file": ("bukti.txt", f"bukti {uuid.uuid4().hex}".encode(), "text/plain")},
+                            timeout=30)
+        assert rup.status_code in (200, 201), rup.text
         rdis = requests.post(f"{BASE}/fund-requests/{fr_id}/disburse",
-                             headers=h_finance, json={"source": "bank"}, timeout=20)
+                             headers=h_finance, json={"source": "bank", "proof_ids": [rup.json()["data"]["id"]]},
+                             timeout=20)
         assert rdis.status_code in (200, 201), rdis.text
         settled = rdis.json().get("data", rdis.json())
         assert settled.get("status") == "settled"

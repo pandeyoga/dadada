@@ -391,6 +391,14 @@ DEFAULTS: dict = {d["key"]: d for d in [
        impact="Mematikan ini membuat kas kecil bisa keluar tanpa bukti — audit lemah.",
        sensitive=True),
     # ============ Fase 47A — rekonsiliasi bank ============
+    _d("cash.allow_negative", False, "bool", "bank",
+       "Izinkan saldo kas/bank menjadi negatif",
+       "Bawaan MATI: setiap uang KELUAR (bayar tagihan, upah, komisi, fee, pinjaman, pajak, "
+       "refund, kas bon, pengajuan, aset) ditolak bila saldo rekening/kas yang dipakai lebih kecil "
+       "dari nominalnya. Nyalakan hanya bila kebijakan perusahaan memperbolehkan saldo minus "
+       "(mis. fasilitas overdraft).",
+       impact="Menyalakan ini membuat uang keluar fiktif melebihi dana nyata tidak tertahan lagi.",
+       sensitive=True),
     _d("bank.match_amount_tolerance", 0, "money", "bank",
        "Toleransi selisih nominal saat mencocokkan",
        "Selisih rupiah yang masih dianggap 'nominal sama' saat sistem MENGUSULKAN kandidat "

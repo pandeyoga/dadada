@@ -154,6 +154,11 @@ logger = logging.getLogger("sipro")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Cek dana sebelum uang keluar (cash_bank.assert_funds, PK-06) ditunda selama seed/startup:
+    # seed demo memposting pembayaran SEBELUM saldo awal dijurnal. Dinyalakan lagi sebelum
+    # scheduler dan request pertama.
+    import cash_bank as _cb_flag
+    _cb_flag.FUNDS_CHECK_SUSPENDED = True
     await ensure_indexes()
     seeded = await seed_if_empty()
     if seeded:
@@ -397,6 +402,7 @@ async def lifespan(app: FastAPI):
     for _ in range(20):
         if not await dispatch_pending():
             break
+    _cb_flag.FUNDS_CHECK_SUSPENDED = False
     start_scheduler()
     yield
     stop_scheduler()

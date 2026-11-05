@@ -7,6 +7,7 @@ import listing as lst
 import stage_clock as clock
 import reference as ref
 from db import db, ORG_ID
+from idempotency import Conflict
 from core_utils import serialize_doc, parse_pagination
 from rbac import audit_log, require_permission
 import finance_engine as fe
@@ -140,7 +141,8 @@ async def deposit_refund(deal_id: str, payload: DepositRefund,
     except Conflict:
         raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Conflict (pengembalian ganda / saldo berubah) → 409 (PK-02).
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     return {"data": serialize_doc(res)}
 
 

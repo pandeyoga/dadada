@@ -12,12 +12,14 @@ sebesar batas − saldo lewat transfer internal `isi_kas_kecil` (tetap butuh per
 import logging
 
 import cash_bank as cb
+import evidence as ev
 import gl_engine as gl
 import reference_p27 as r27
 import sequences as seq
 import settings_store as cfg
 from core_utils import new_id, now_iso
 from db import ORG_ID, db
+from idempotency import reserved
 
 logger = logging.getLogger("sipro.pettyexpense")
 
@@ -105,6 +107,14 @@ async def imprest_status(org: str = ORG_ID) -> dict:
 
 
 async def create_expense(org: str, payload: dict, actor: str, actor_name: str = None) -> dict:
+    """Catat pengeluaran kas kecil. Diserialkan per kas (PK-02): tiga pengeluaran Rp 600 rb yang
+    bersamaan dulu sama-sama lolos cek saldo Rp 1 jt dan membuat saldo −Rp 800 rb."""
+    acc = await _cash_account(org, payload["cash_account_id"])
+    async with cb.cash_lock(org, acc["gl_account_code"]):
+        return await _create_expense(org, payload, actor, actor_name)
+
+
+async def _create_expense(org: str, payload: dict, actor: str, actor_name: str = None) -> dict:
     pol = await policy(org)
     acc = await _cash_account(org, payload["cash_account_id"])
     amount = int(payload.get("amount") or 0)
@@ -120,6 +130,9 @@ async def create_expense(org: str, payload: dict, actor: str, actor_name: str = 
     file_ids = [f for f in (payload.get("file_ids") or []) if f]
     if pol["require_proof"] and not file_ids:
         raise ValueError("Bukti (nota/kuitansi) wajib dilampirkan untuk pengeluaran kas kecil.")
+    # PK-13: id berkas harus nyata, milik org & pengunggah, belum terikat dokumen lain / dipakai ulang.
+    await ev.validate(org, file_ids, actor=actor, owner_types=("petty_expense", "generic"),
+                      minimum=1 if pol["require_proof"] else 0, label="bukti kas kecil")
     bal = (await cb.balances(org)).get(acc["gl_account_code"], 0)
     if bal < amount:
         raise ValueError(f"Saldo {acc['name']} Rp {bal:,} tidak cukup untuk Rp {amount:,} — "
@@ -169,18 +182,23 @@ async def void_expense(org: str, expense_id: str, actor: str, reason: str) -> di
         raise ValueError("Pengeluaran ini sudah dibatalkan.")
     if doc["created_by"] == actor:
         raise ValueError("Pemisahan tugas: pencatat tidak boleh membatalkan pengeluarannya sendiri.")
-    je = await gl.post_journal(
-        org, f"Pembatalan kas kecil {doc['no']} — {reason}",
-        [{"account_code": doc["cash_account_code"], "debit": doc["amount"], "credit": 0,
-          "memo": "Kas kecil dikembalikan"},
-         {"account_code": doc["expense_account_code"], "debit": 0, "credit": doc["amount"],
-          "memo": f"Balik beban {doc['no']}"}],
-        source_type=SOURCE_TYPE, source_id=expense_id, source_event=f"petty.expense.void:{expense_id}",
-        posted_by=actor, auto=False)
     ts = now_iso()
-    await db.petty_expenses.update_one({"id": expense_id}, {"$set": {
-        "status": "voided", "voided_by": actor, "voided_at": ts, "void_reason": reason,
-        "void_journal_id": je["id"], "void_journal_no": je["entry_no"], "updated_at": ts}})
+    # PK-02: klaim atomik posted → voiding SEBELUM jurnal balik (void ganda = kas +2x).
+    async with reserved("petty_expenses", {"id": expense_id, "org_id": org}, {"status": "posted"},
+                        {"$set": {"status": "voiding", "updated_at": ts}},
+                        undo={"$set": {"status": "posted"}}, what="Pengeluaran kas kecil"):
+        je = await gl.post_journal(
+            org, f"Pembatalan kas kecil {doc['no']} — {reason}",
+            [{"account_code": doc["cash_account_code"], "debit": doc["amount"], "credit": 0,
+              "memo": "Kas kecil dikembalikan"},
+             {"account_code": doc["expense_account_code"], "debit": 0, "credit": doc["amount"],
+              "memo": f"Balik beban {doc['no']}"}],
+            source_type=SOURCE_TYPE, source_id=expense_id, source_event=f"petty.expense.void:{expense_id}",
+            posted_by=actor, auto=False)
+        ts = now_iso()
+        await db.petty_expenses.update_one({"id": expense_id}, {"$set": {
+            "status": "voided", "voided_by": actor, "voided_at": ts, "void_reason": reason,
+            "void_journal_id": je["id"], "void_journal_no": je["entry_no"], "updated_at": ts}})
     return await db.petty_expenses.find_one({"id": expense_id}, {"_id": 0})
 
 

@@ -17,6 +17,7 @@ import opname as op
 import sequences as seq
 import subcon_finance as sf
 from db import db, ORG_ID
+from idempotency import Conflict, reserved
 from core_utils import new_id, now_iso, serialize_doc
 from rbac import has_role, require_permission, assert_project_access
 from engine import add_activity, emit, dispatch_pending
@@ -103,7 +104,7 @@ async def create_claim(payload: ProgressClaimCreate,
         try:
             re_.assert_fasum_claim_within_phase(await re_.fasum_phase_cap(org, spk), claimed)
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     cv = int(spk.get("contract_value", 0) or 0)
     gross_est = round((claimed - prev) / 100 * cv)
     ts = now_iso()
@@ -311,8 +312,18 @@ async def approve_claim(cid: str,
     spk = await db.spk.find_one({"id": claim["spk_id"], "org_id": org}, {"_id": 0})
     if not spk:
         raise HTTPException(status_code=404, detail="SPK tidak ditemukan")
-    if claim.get("basis") == "items":
-        return await _approve_item_claim(org, claim, spk, user)
+    # PK-04: dua persetujuan bersamaan dulu sama-sama lolos cek status → 2 tagihan AP + 2 retensi untuk
+    # satu termin. Termin diklaim atomik (submitted/verified → approving) SEBELUM tagihan dibuat;
+    # yang kalah mendapat Conflict (409). Bila persetujuan gagal di tengah, status dikembalikan.
+    async with reserved("progress_claims", {"id": cid, "org_id": org}, {"status": claim["status"]},
+                        {"$set": {"status": "approving", "updated_at": now_iso()}},
+                        undo={"$set": {"status": claim["status"]}}, what="Termin"):
+        if claim.get("basis") == "items":
+            return await _approve_item_claim(org, claim, spk, user)
+        return await _approve_lumpsum_claim(org, cid, claim, spk, user)
+
+
+async def _approve_lumpsum_claim(org: str, cid: str, claim: dict, spk: dict, user: dict) -> dict:
     prev = int(spk.get("progress_pct", 0) or 0)
     eff = int(claim.get("verified_pct") or claim.get("claimed_pct"))
     if eff <= prev:
@@ -320,12 +331,18 @@ async def approve_claim(cid: str,
                             detail=f"Progres SPK sudah {prev}%; termin ini tidak menambah progres.")
     cv = int(spk.get("contract_value", 0) or 0)
     gross = round((eff - prev) / 100 * cv)
+    billed_before = sum(int(c.get("gross", 0) or 0) for c in await db.progress_claims.find(
+        {"org_id": org, "spk_id": spk["id"], "status": "approved"}, {"_id": 0, "gross": 1}).to_list(500))
     if eff >= 100:
         # Termin penutup = sisa kontrak yang belum ditagih, supaya Σ termin == nilai kontrak
         # (pembulatan persen per termin tidak boleh menyisakan/melebihi beberapa rupiah).
-        billed_before = sum(int(c.get("gross", 0) or 0) for c in await db.progress_claims.find(
-            {"org_id": org, "spk_id": spk["id"], "status": "approved"}, {"_id": 0, "gross": 1}).to_list(500))
         gross = max(0, cv - billed_before)
+    elif cv and billed_before + gross > cv + 1:
+        # PK-11: Σ termin tidak boleh melebihi nilai kontrak (dulu hanya dijaga di termin 100%; progres
+        # yang di-reset membuat 50% pekerjaan yang sama ditagih dua kali: Σ 150 jt untuk SPK 100 jt).
+        raise HTTPException(status_code=400, detail=(
+            f"Total termin {_rp(billed_before + gross)} melebihi nilai kontrak {_rp(cv)} "
+            f"(sudah ditagih {_rp(billed_before)}). Periksa progres SPK / ajukan Change Order."))
     if gross <= 0:
         raise HTTPException(status_code=400, detail="Nilai termin nol — tidak ada sisa kontrak yang bisa ditagih.")
     note = f"Termin {claim.get('claim_number')} SPK {spk.get('spk_number')} ({prev}%→{eff}%)"

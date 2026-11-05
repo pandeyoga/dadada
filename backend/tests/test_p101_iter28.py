@@ -9,6 +9,16 @@ BASE = os.environ["REACT_APP_BACKEND_URL"].rstrip("/") + "/api"
 PW = "Sipro#2026"
 
 
+def _proof(sess, owner_id):
+    """Foto bukti pencairan (PK-13: wajib & divalidasi di API) — unggah berkas baru per pencairan."""
+    r = sess.post(f"{BASE}/files/upload", data={"owner_type": "fund_request_payment", "owner_id": owner_id,
+                                                "optimize": "false"},
+                  files={"file": ("bukti.txt", ("bukti transfer %s" % time.time()).encode(), "text/plain")},
+                  timeout=30)
+    assert r.status_code in (200, 201), r.text
+    return r.json()["data"]["id"]
+
+
 def _login(email):
     s = requests.Session()
     r = s.post(f"{BASE}/auth/login", json={"email": email, "password": PW}, timeout=30)
@@ -192,7 +202,8 @@ class TestFundRequests:
         assert r.json()["data"]["status"] == "approved"
 
         # disburse non-advance → status settled with journal_ids
-        r = fin.post(f"{BASE}/fund-requests/{fr['id']}/disburse", json={"amount": 200000, "source": "bank"})
+        r = fin.post(f"{BASE}/fund-requests/{fr['id']}/disburse", json={
+            "amount": 200000, "source": "bank", "proof_ids": [_proof(fin, fr["id"])]})
         assert r.status_code == 200, r.text
         d = r.json()["data"]
         assert d["status"] == "settled"
@@ -200,7 +211,8 @@ class TestFundRequests:
 
         # advance approve then disburse (status disbursed), then settle
         fin.post(f"{BASE}/fund-requests/{adv['id']}/approve", json={})
-        r = fin.post(f"{BASE}/fund-requests/{adv['id']}/disburse", json={"source": "kas"})
+        r = fin.post(f"{BASE}/fund-requests/{adv['id']}/disburse", json={
+            "source": "kas", "proof_ids": [_proof(fin, adv["id"])]})
         assert r.status_code == 200, r.text
         assert r.json()["data"]["status"] == "disbursed"
         r = sales.post(f"{BASE}/fund-requests/{adv['id']}/settle", json={

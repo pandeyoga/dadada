@@ -194,7 +194,8 @@ export default function PettyCashPage() {
                             </>
                           ) : null}
                           {canApprove && r.status === "approved" ? (
-                            <Button size="sm" data-testid={PETTY.disburseBtn}
+                            <Button size="sm" data-testid={PETTY.disburseBtn} disabled={isMine(r)}
+                              title={isMine(r) ? "Pemohon tidak boleh mencairkan kas bonnya sendiri" : undefined}
                               onClick={() => setDisburse(r)}>
                               <HandCoins className="mr-1 h-3.5 w-3.5" /> Cairkan
                             </Button>

@@ -216,6 +216,7 @@ class BillPayWithholding(BaseModel):
     object_code: str = None
     note: str = None
     cash_account_id: str = None
+    client_ref: str = None  # kunci idempotensi dari klien
 
     @field_validator("kind")
     @classmethod

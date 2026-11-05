@@ -8,6 +8,7 @@ import petty_expense as pe
 import reference_p27 as r27
 from core_utils import serialize_doc
 from db import ORG_ID
+from idempotency import Conflict
 from models_p84 import PettyExpenseIn, PettyExpenseVoid, ReplenishIn
 from rbac import audit_log, can, require_permission
 
@@ -19,7 +20,8 @@ def _org(user: dict) -> str:
 
 
 def _err(e: Exception) -> HTTPException:
-    return HTTPException(status_code=400, detail=str(e))
+    # Conflict (balapan / kas sedang dipakai) → 409; selain itu 400.
+    return HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
 
 
 @router.get("/imprest")

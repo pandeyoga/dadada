@@ -26,6 +26,7 @@ import reference as ref
 import sequences as seq
 from db import db
 from core_utils import new_id, now_iso, today_iso_date
+from idempotency import cas, mutex, reserved
 from reference_p48 import (GL_AP, GL_BANK, GL_RETENTION_PAYABLE, GL_SUBCON_ADVANCE,
                           MAINTENANCE_DAYS_DEFAULT)
 
@@ -38,6 +39,13 @@ def _rp(n) -> str:
 async def create_advance(org: str, spk: dict, data: dict, actor: str) -> dict:
     if spk.get("status") not in ("draft", "active"):
         raise ValueError("Uang muka hanya untuk SPK yang masih berjalan.")
+    # PK-02: batas 30% dulu dihitung dari salinan basi — 4 pengajuan bersamaan lolos semua (total 47 jt
+    # untuk batas 30 jt). Pengecekan + penyisipan diserialkan per SPK.
+    async with mutex(f"subcon.advance:{org}:{spk['id']}", what="Uang muka SPK ini"):
+        return await _create_advance_locked(org, spk, data, actor)
+
+
+async def _create_advance_locked(org: str, spk: dict, data: dict, actor: str) -> dict:
     cv = int(spk.get("contract_value", 0) or 0)
     existing = await db.subcon_advances.find(
         {"org_id": org, "spk_id": spk["id"], "state": {"$in": ["draft", "approved", "paid"]}},
@@ -73,9 +81,9 @@ async def decide_advance(org: str, adv: dict, approve: bool, reason: str, actor:
         raise ValueError("Pengaju tidak boleh menyetujui uang muka yang diajukannya sendiri "
                          "(pemisahan tugas).")
     ts = now_iso()
-    await db.subcon_advances.update_one({"id": adv["id"], "org_id": org}, {"$set": {
+    await cas("subcon_advances", {"id": adv["id"], "org_id": org}, {"state": "draft"}, {"$set": {
         "state": "approved" if approve else "rejected", "decided_by": actor,
-        "decided_at": ts, "decision_reason": reason, "updated_at": ts}})
+        "decided_at": ts, "decision_reason": reason, "updated_at": ts}}, what="Uang muka")
     return await db.subcon_advances.find_one({"id": adv["id"]}, {"_id": 0})
 
 
@@ -83,22 +91,31 @@ async def pay_advance(org: str, adv: dict, actor: str, note: str = None) -> dict
     if adv.get("state") != "approved":
         raise ValueError("Uang muka harus DISETUJUI lebih dulu sebelum dibayar.")
     amount = int(adv["amount"])
+    import cash_bank as _cb
+    bank_code = await _cb.resolve_code(org, None, GL_BANK)
     ts = now_iso()
-    entry = await gl.post_journal(
-        org, f"Uang muka subkon {adv.get('advance_number')} — {adv.get('subcontractor_name')}",
-        [{"account_code": GL_SUBCON_ADVANCE, "debit": amount, "credit": 0,
-          "memo": adv.get("reason")},
-         {"account_code": GL_BANK, "debit": 0, "credit": amount}],
-        source_type="subcon_advance", source_id=adv["id"],
-        source_event=f"subcon_advance_paid:{adv['id']}", posted_by=actor)
-    await db.payments_out.insert_one({
-        "id": new_id(), "org_id": org, "bill_id": None, "advance_id": adv["id"],
-        "vendor": adv.get("subcontractor_name"), "amount": amount,
-        "note": note or f"Uang muka {adv.get('advance_number')}", "actor": actor,
-        "created_at": ts})
-    await db.subcon_advances.update_one({"id": adv["id"], "org_id": org}, {"$set": {
-        "state": "paid", "paid_at": ts, "paid_by": actor,
-        "journal_no": entry.get("entry_no"), "updated_at": ts}})
+    async with _cb.cash_lock(org, bank_code):
+        await _cb.assert_funds(org, amount, code=bank_code,
+                               kind=f"uang muka subkon {adv.get('advance_number')}")
+        # PK-02: klaim atomik approved → paying SEBELUM jurnal & payments_out (dulu payments_out 2 baris).
+        async with reserved("subcon_advances", {"id": adv["id"], "org_id": org}, {"state": "approved"},
+                            {"$set": {"state": "paying", "updated_at": ts}},
+                            undo={"$set": {"state": "approved"}}, what="Uang muka"):
+            entry = await gl.post_journal(
+                org, f"Uang muka subkon {adv.get('advance_number')} — {adv.get('subcontractor_name')}",
+                [{"account_code": GL_SUBCON_ADVANCE, "debit": amount, "credit": 0,
+                  "memo": adv.get("reason")},
+                 {"account_code": GL_BANK, "debit": 0, "credit": amount}],
+                source_type="subcon_advance", source_id=adv["id"],
+                source_event=f"subcon_advance_paid:{adv['id']}", posted_by=actor)
+            await db.payments_out.insert_one({
+                "id": new_id(), "org_id": org, "bill_id": None, "advance_id": adv["id"],
+                "vendor": adv.get("subcontractor_name"), "amount": amount,
+                "note": note or f"Uang muka {adv.get('advance_number')}", "actor": actor,
+                "created_at": ts})
+            await db.subcon_advances.update_one({"id": adv["id"], "org_id": org}, {"$set": {
+                "state": "paid", "paid_at": ts, "paid_by": actor,
+                "journal_no": entry.get("entry_no"), "updated_at": ts}})
     return await db.subcon_advances.find_one({"id": adv["id"]}, {"_id": 0})
 
 
@@ -146,7 +163,24 @@ async def create_deduction(org: str, spk: dict, data: dict, actor: str) -> dict:
         "cancelled_by": None, "cancel_reason": None,
         "created_by": actor, "created_at": ts, "updated_at": ts,
     }
-    await db.subcon_deductions.insert_one(dict(doc))
+    if adv:
+        # PK-10: potongan PENDING lain atas uang muka yang sama ikut dihitung (dua potongan @20 jt atas
+        # uang muka 20 jt dulu lolos semua → teramortisasi 40 jt, saldo 1-1800 negatif). Diserialkan
+        # per uang muka supaya dua pembuatan bersamaan tidak sama-sama membaca sisa yang sama.
+        async with mutex(f"subcon.deduction:{org}:{adv['id']}", what="Potongan uang muka ini"):
+            pend = await db.subcon_deductions.find(
+                {"org_id": org, "advance_id": adv["id"], "kind": "advance", "state": "pending"},
+                {"_id": 0, "amount": 1}).to_list(200)
+            reserved_amt = sum(int(x.get("amount", 0)) for x in pend)
+            free = int(adv.get("outstanding", 0)) - reserved_amt
+            if amount > free:
+                raise ValueError(
+                    f"Angsuran {_rp(amount)} melebihi sisa uang muka yang belum dijadwalkan "
+                    f"{_rp(max(0, free))} (sisa {_rp(adv.get('outstanding'))}, sudah ada potongan "
+                    f"menunggu {_rp(reserved_amt)}).")
+            await db.subcon_deductions.insert_one(dict(doc))
+    else:
+        await db.subcon_deductions.insert_one(dict(doc))
     doc.pop("_id", None)
     return doc
 
@@ -155,8 +189,9 @@ async def cancel_deduction(org: str, ded: dict, reason: str, actor: str) -> dict
     if ded.get("state") != "pending":
         raise ValueError("Hanya potongan yang belum dipotong di termin yang bisa dibatalkan.")
     ts = now_iso()
-    await db.subcon_deductions.update_one({"id": ded["id"], "org_id": org}, {"$set": {
-        "state": "cancelled", "cancelled_by": actor, "cancel_reason": reason, "updated_at": ts}})
+    await cas("subcon_deductions", {"id": ded["id"], "org_id": org}, {"state": "pending"}, {"$set": {
+        "state": "cancelled", "cancelled_by": actor, "cancel_reason": reason, "updated_at": ts}},
+        what="Potongan")
     return await db.subcon_deductions.find_one({"id": ded["id"]}, {"_id": 0})
 
 
@@ -201,6 +236,17 @@ async def attach_deductions(org: str, bill: dict, spk: dict, claim: dict, actor:
             f"Total potongan {_rp(total)} melebihi sisa termin setelah retensi {_rp(payable)} "
             f"(termin {_rp(gross)} − retensi {_rp(retention)}). Kurangi/batalkan potongan "
             "atau tunggu termin berikutnya — pembayaran tidak boleh minus.")
+    # PK-10: validasi SEBELUM ada yang diubah — total angsuran per uang muka tidak boleh melebihi sisanya.
+    per_adv = {}
+    for d in pend:
+        if d["kind"] == "advance" and d.get("advance_id"):
+            per_adv[d["advance_id"]] = per_adv.get(d["advance_id"], 0) + int(d["amount"])
+    for aid, need in per_adv.items():
+        adv = await db.subcon_advances.find_one({"id": aid, "org_id": org}, {"_id": 0})
+        if adv and need > int(adv.get("outstanding", 0)):
+            raise ValueError(
+                f"Total angsuran uang muka {adv.get('advance_number')} {_rp(need)} melebihi sisa uang muka "
+                f"{_rp(adv.get('outstanding'))}. Batalkan potongan yang berlebih lalu setujui lagi.")
     lines = [{"deduction_id": d["id"], "kind": d["kind"], "amount": int(d["amount"]),
               "reason": d["reason"], "advance_id": d.get("advance_id")} for d in pend]
     ts = now_iso()
@@ -216,12 +262,19 @@ async def attach_deductions(org: str, bill: dict, spk: dict, claim: dict, actor:
             adv = await db.subcon_advances.find_one({"id": d["advance_id"], "org_id": org},
                                                     {"_id": 0})
             if adv:
-                amort = int(adv.get("amortized", 0)) + int(d["amount"])
-                outstanding = max(0, int(adv["amount"]) - amort)
-                await db.subcon_advances.update_one({"id": adv["id"], "org_id": org}, {"$set": {
-                    "amortized": amort, "outstanding": outstanding,
-                    "state": "closed" if outstanding == 0 else adv.get("state"),
-                    "updated_at": ts}})
+                # PK-10: amortisasi BERSYARAT di database (outstanding ≥ angsuran) — tidak ada lagi
+                # `max(0, …)` yang menutupi selisih sehingga uang muka diangsur melebihi nilainya.
+                amt = int(d["amount"])
+                res = await db.subcon_advances.update_one(
+                    {"id": adv["id"], "org_id": org, "outstanding": {"$gte": amt}},
+                    {"$inc": {"amortized": amt, "outstanding": -amt}, "$set": {"updated_at": ts}})
+                if res.matched_count != 1:
+                    raise ValueError(
+                        f"Angsuran uang muka {_rp(amt)} melebihi sisa uang muka {adv.get('advance_number')} "
+                        f"({_rp(adv.get('outstanding'))}). Batalkan potongan yang berlebih lalu setujui lagi.")
+                await db.subcon_advances.update_one(
+                    {"id": adv["id"], "org_id": org, "outstanding": 0, "state": "paid"},
+                    {"$set": {"state": "closed"}})
     return await db.ap_invoices.find_one({"id": bill["id"], "org_id": org}, {"_id": 0})
 
 
@@ -443,9 +496,9 @@ async def request_release(org: str, ret: dict, reason: str, actor: str) -> dict:
     if not gate["ok"]:
         raise ValueError("Pencairan belum bisa diajukan. " + gate["detail"])
     ts = now_iso()
-    await db.subcon_retentions.update_one({"id": ret["id"], "org_id": org}, {"$set": {
+    await cas("subcon_retentions", {"id": ret["id"], "org_id": org}, {"state": "held"}, {"$set": {
         "state": "release_requested", "requested_by": actor, "requested_at": ts,
-        "request_reason": reason, "updated_at": ts}})
+        "request_reason": reason, "updated_at": ts}}, what="Retensi")
     return await db.subcon_retentions.find_one({"id": ret["id"]}, {"_id": 0})
 
 
@@ -476,21 +529,29 @@ async def release(org: str, ret: dict, reason: str, actor: str) -> dict:
         "approved_by": actor, "approved_at": ts, "created_by": actor,
         "created_at": ts, "updated_at": ts,
     }
-    await db.ap_invoices.insert_one(dict(bill))
-    entry = await gl.post_journal(
-        org, f"Pencairan retensi {ret.get('retention_number')} — {ret.get('subcontractor_name')}",
-        [{"account_code": GL_RETENTION_PAYABLE, "debit": amount, "credit": 0, "memo": reason},
-         {"account_code": GL_AP, "debit": 0, "credit": amount}],
-        source_type="subcon_retention", source_id=ret["id"],
-        source_event=f"retention_released:{ret['id']}", posted_by=actor)
-    await db.subcon_retentions.update_one({"id": ret["id"], "org_id": org}, {"$set": {
-        "state": "released", "released_by": actor, "released_at": ts, "release_reason": reason,
-        "release_bill_id": bill["id"], "journal_no": entry.get("entry_no"), "updated_at": ts}})
-    # Tagihan termin ASAL ditandai retensinya sudah dilepas — ringkasan AP, laporan, closing
-    # dan gate invarian membaca `ap_invoices.retention_released`, bukan daftar retensi.
-    await db.ap_invoices.update_one({"id": ret.get("ap_bill_id"), "org_id": org}, {"$set": {
-        "retention_released": True, "retention_released_at": ts,
-        "retention_release_bill_id": bill["id"], "updated_at": ts}})
+    # PK-05: pencairan paralel TANPA client_ref dulu sama-sama membuat tagihan AP (2 tagihan @ retensi).
+    # Retensi diklaim atomik release_requested → released (dengan id tagihan) SEBELUM tagihan & jurnal;
+    # yang kalah mendapat Conflict (409). Idempotensi tidak lagi bergantung pada `client_ref` opsional.
+    async with reserved(
+            "subcon_retentions", {"id": ret["id"], "org_id": org}, {"state": "release_requested"},
+            {"$set": {"state": "released", "released_by": actor, "released_at": ts,
+                      "release_reason": reason, "release_bill_id": bill["id"], "updated_at": ts}},
+            undo={"$set": {"state": "release_requested", "released_by": None, "released_at": None,
+                           "release_reason": None, "release_bill_id": None}}, what="Retensi"):
+        await db.ap_invoices.insert_one(dict(bill))
+        entry = await gl.post_journal(
+            org, f"Pencairan retensi {ret.get('retention_number')} — {ret.get('subcontractor_name')}",
+            [{"account_code": GL_RETENTION_PAYABLE, "debit": amount, "credit": 0, "memo": reason},
+             {"account_code": GL_AP, "debit": 0, "credit": amount}],
+            source_type="subcon_retention", source_id=ret["id"],
+            source_event=f"retention_released:{ret['id']}", posted_by=actor)
+        await db.subcon_retentions.update_one({"id": ret["id"], "org_id": org}, {"$set": {
+            "journal_no": entry.get("entry_no")}})
+        # Tagihan termin ASAL ditandai retensinya sudah dilepas — ringkasan AP, laporan, closing
+        # dan gate invarian membaca `ap_invoices.retention_released`, bukan daftar retensi.
+        await db.ap_invoices.update_one({"id": ret.get("ap_bill_id"), "org_id": org}, {"$set": {
+            "retention_released": True, "retention_released_at": ts,
+            "retention_release_bill_id": bill["id"], "updated_at": ts}})
     return {"retention": await db.subcon_retentions.find_one({"id": ret["id"]}, {"_id": 0}),
             "bill_id": bill["id"], "journal_no": entry.get("entry_no")}
 

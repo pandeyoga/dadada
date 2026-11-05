@@ -165,6 +165,9 @@ UNIQUE_INDEXES = [
     # (saldo terbelah, salah satunya tak pernah terbaca).
     ("customer_deposits", [("org_id", 1), ("deal_id", 1)], "uq_customer_deposit_deal"),
     ("contract_liabilities", [("org_id", 1), ("deal_id", 1)], "uq_contract_liability_deal"),
+    # PK-15: nomor faktur vendor (opsional) tidak boleh kembar per vendor — faktur yang sama
+    # tidak boleh dicatat & dibayar dua kali. Partial: tagihan tanpa nomor tidak dijaga.
+    ("ap_invoices", [("org_id", 1), ("vendor", 1), ("vendor_invoice_no", 1)], "uq_ap_vendor_invoice"),
 ]
 
 # Natural key yang boleh kosong (partial index: hanya baris yang punya nilai dijaga).
@@ -195,6 +198,7 @@ PARTIAL = {
     "uq_marketing_fee_no": "no",
     "uq_handover_number": "number",
     "uq_warranty_claim_number": "number",
+    "uq_ap_vendor_invoice": "vendor_invoice_no",
 }
 
 

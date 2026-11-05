@@ -139,7 +139,8 @@ async def pay_refund(cid: str, payload: RefundPayIn,
     except Conflict:
         raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Conflict (balapan / refund yang sama sedang diproses) → 409 (PK-02).
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     if not out.get("replay"):
         await audit_log(user, "update", "cancellation", cid,
                         {"refund": out["payment"]["amount"], "method": payload.method,

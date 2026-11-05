@@ -106,6 +106,8 @@ def _err(e):
         return HTTPException(status_code=403, detail=str(e))
     if isinstance(e, (LookupError, Conflict)):   # Conflict = bentrok dengan proses yang sama (klik ganda)
         return HTTPException(status_code=409, detail=str(e))
+    if isinstance(e, Conflict):  # PK-02: permintaan identik / balapan
+        return HTTPException(status_code=409, detail=str(e))
     return HTTPException(status_code=400, detail=str(e))
 
 

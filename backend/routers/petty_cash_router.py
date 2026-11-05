@@ -4,8 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException
 import petty_cash as pc
 from core_utils import parse_pagination, serialize_doc
 from db import db, ORG_ID
+from idempotency import Conflict
 from models_p27 import CashAdvanceCreate, CashAdvanceDisburse, CashAdvanceSettle, NoteOnly
 from rbac import audit_log, can, require_permission
+from sod import assert_separate
 
 router = APIRouter(prefix="/petty-cash", tags=["petty-cash"])
 
@@ -102,11 +104,18 @@ async def cancel(advance_id: str,
 @router.post("/advances/{advance_id}/disburse")
 async def disburse(advance_id: str, payload: CashAdvanceDisburse,
                    user: dict = Depends(require_permission("petty_cash", "approve"))):
+    org = user.get("org_id", ORG_ID)
     try:
+        cur = await db.cash_advances.find_one({"id": advance_id, "org_id": org},
+                                              {"_id": 0, "requested_by": 1})
+        # PK-07: pemohon tidak boleh mencairkan kas bonnya sendiri.
+        assert_separate(user, (cur or {}).get("requested_by"),
+                        "Pemisahan tugas: pemohon tidak boleh mencairkan kas bonnya sendiri.")
         doc = await pc.disburse_advance(advance_id, payload.amount, payload.source,
-                                        payload.note, user.get("email"),
-                                        user.get("org_id", ORG_ID),
+                                        payload.note, user.get("email"), org,
                                         cash_account_id=payload.cash_account_id)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "disburse", "petty_cash", advance_id,
@@ -128,6 +137,8 @@ async def settle(advance_id: str, payload: CashAdvanceSettle,
     try:
         doc = await pc.settle_advance(advance_id, payload.items, payload.note,
                                       user.get("email"), org)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "settle", "petty_cash", advance_id,

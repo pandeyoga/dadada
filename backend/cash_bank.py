@@ -10,6 +10,7 @@ Prinsip:
   * Migrasi startup: baris jurnal lama yang menunjuk akun induk dipindahkan ke rekening default.
 """
 import logging
+from contextlib import asynccontextmanager
 
 import gl_engine as gl
 import sequences as seq
@@ -198,6 +199,71 @@ async def resolve_code(org: str, cash_account_id: str = None, fallback_code: str
 
 async def account_by_code(org: str, code: str) -> dict:
     return await db.bank_accounts.find_one({"org_id": org, "gl_account_code": code}, {"_id": 0})
+
+
+# ----------------------------------------------------------- cek dana sebelum uang keluar
+# Dinyalakan HANYA selama seed/startup (lihat server.lifespan): seed demo memposting pembayaran
+# sebelum saldo awal dijurnal sehingga urutannya tidak mewakili saldo nyata.
+FUNDS_CHECK_SUSPENDED = False
+
+
+async def account_balance(org: str, code: str) -> int:
+    """Saldo (debit − kredit) SATU sub-akun kas/bank. Ringan: tidak memindai semua rekening."""
+    pipe = [{"$match": {"org_id": org, "lines.account_code": code}}, {"$unwind": "$lines"},
+            {"$match": {"lines.account_code": code}},
+            {"$group": {"_id": None, "d": {"$sum": "$lines.debit"}, "c": {"$sum": "$lines.credit"}}}]
+    async for r in db.journal_entries.aggregate(pipe):
+        return int(r.get("d") or 0) - int(r.get("c") or 0)
+    return 0
+
+
+@asynccontextmanager
+async def cash_lock(org: str, code: str, wait: float = 8.0):
+    """Mutex per sub-akun kas/bank: serialkan "cek dana → posting" antar transaksi KELUAR dari
+    rekening yang sama (kunci dilepas selalu; kedaluwarsa 30 dtk bila proses mati).
+
+    Tanpa ini dua pengeluaran berbeda yang bersamaan sama-sama membaca saldo lama (3 × Rp 600 rb
+    lolos dari kas kecil Rp 1 jt → saldo −Rp 800 rb). Yang menunggu antre sampai `wait` detik;
+    lewat itu → Conflict (409) "coba lagi", bukan ditolak diam-diam.
+    """
+    if FUNDS_CHECK_SUSPENDED:
+        yield
+        return
+    import idempotency as _idem
+    async with _idem.mutex(f"cash:{org}:{code}", wait=wait, what="Rekening/kas ini"):
+        yield
+
+
+async def assert_funds(org: str, amount, *, cash_account_id: str = None, code: str = None,
+                       kind: str = "Pembayaran") -> None:
+    """Tolak uang KELUAR bila saldo sub-akun kas/bank lebih kecil dari nominal (audit PK-06).
+
+    Dipakai SEMUA jalur uang keluar (AP, aset tetap, pinjaman, upah, pajak, refund, komisi, fee,
+    kas bon, pengajuan, titipan) sebelum mengubah subledger / memposting jurnal — satu sumber
+    kebenaran, bukan cek yang tercecer. Rekening yang dipakai = `cash_account_id` bila ada,
+    selain itu akun kas/bank `code` (induk 1-1100/1-1200 diarahkan ke rekening default, sama
+    seperti `post_journal`). Sakelar `cash.allow_negative` (Pusat Konfigurasi, default MATI)
+    mengizinkan saldo minus bila kebijakan perusahaan memang begitu.
+
+    Catatan batas: saldo diturunkan dari jurnal, jadi dua pengeluaran yang BENAR-BENAR bersamaan
+    dari rekening yang sama dengan dana pas-pasan bisa sama-sama lolos cek ini; yang menutup
+    pembayaran ganda atas dokumen yang sama adalah CAS/kunci idempotensi di tiap jalur.
+    """
+    amount = int(amount or 0)
+    if amount <= 0 or FUNDS_CHECK_SUSPENDED:
+        return
+    import settings_store as _st
+    if await _st.get("cash.allow_negative", org_id=org):
+        return
+    cash_code = await resolve_code(org, cash_account_id, code or "1-1200")
+    bal = await account_balance(org, cash_code)
+    if bal < amount:
+        acc = await account_by_code(org, cash_code) or {}
+        name = acc.get("name") or cash_code
+        raise ValueError(
+            f"Saldo {name} Rp {bal:,} tidak cukup untuk {kind} Rp {amount:,} "
+            f"(kurang Rp {amount - bal:,}). Isi dana ke rekening ini (transfer/penerimaan) atau "
+            "pilih rekening/kas lain.")
 
 
 # ----------------------------------------------------------------- saldo & buku

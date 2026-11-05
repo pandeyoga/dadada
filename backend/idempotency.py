@@ -130,3 +130,62 @@ async def transition(coll: str, filt: dict, expect: dict, update: dict,
         raise Conflict(f"{what} baru saja diubah oleh proses lain atau tidak lagi berstatus yang "
                        f"diharapkan. Muat ulang lalu coba lagi.")
     return doc
+
+
+@asynccontextmanager
+async def mutex(key: str, *, wait: float = 8.0, ttl: int = 30, what: str = "Sumber daya ini"):
+    """Kunci eksklusif sementara (antre sampai `wait` detik). Selalu dilepas di akhir (sukses/gagal);
+    kedaluwarsa sendiri setelah `ttl` detik bila prosesnya mati. Untuk menyerialkan "baca saldo →
+    cek → tulis" pada sumber yang dihitung dari banyak dokumen (saldo kas, saldo titipan kontrak)."""
+    import asyncio
+    import time
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            await claim("mutex:" + key, ttl, what)
+            break
+        except Conflict:
+            if time.monotonic() > deadline:
+                raise Conflict(f"{what} sedang dipakai transaksi lain. Tunggu sebentar lalu coba lagi.")
+            await asyncio.sleep(0.05)
+    try:
+        yield
+    finally:
+        await release("mutex:" + key)
+
+
+def expect_of(doc: dict, *fields) -> dict:
+    """Syarat CAS dari nilai yang tadi dibaca: {field: nilai} (atau {$exists: False} bila belum ada)."""
+    return {f: (doc[f] if f in doc else {"$exists": False}) for f in fields}
+
+
+def _landed(update: dict) -> dict:
+    """Nilai skalar yang di-`$set` oleh `update` — dipakai untuk mengenali dokumen hasil klaim kita."""
+    out = {}
+    for k, v in (update.get("$set") or {}).items():
+        if v is None or isinstance(v, (str, int, float, bool)):
+            out[k] = v
+    return out
+
+
+@asynccontextmanager
+async def reserved(coll: str, filt: dict, expect: dict, update: dict, *, undo: dict,
+                   what: str = "Data"):
+    """Klaim dokumen secara atomik SEBELUM efek samping (jurnal/emit/pembayaran), lalu kembalikan
+    bila efek samping gagal.
+
+    `async with reserved("ap_invoices", {"id": x}, {"paid": 0, "status": "approved"}, {"$set": ...}, undo={...}):`
+    1. `cas()` — hanya SATU dari dua permintaan bersamaan yang lolos; yang kalah → `Conflict` (409).
+    2. Blok dijalankan (post jurnal, emit, insert pembayaran, ...).
+    3. Bila blok melempar exception, `undo` diterapkan dengan syarat dokumen masih berada pada
+       keadaan hasil klaim kita (tidak menimpa perubahan proses lain).
+    """
+    await cas(coll, filt, expect, update, what)
+    try:
+        yield
+    except BaseException:
+        try:
+            await db[coll].update_one({**filt, **_landed(update)}, undo)
+        except Exception:  # noqa: BLE001 — pengembalian best-effort; jangan menutupi galat asli
+            logger.exception("Gagal mengembalikan klaim %s %s", coll, filt)
+        raise

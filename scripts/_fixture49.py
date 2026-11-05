@@ -141,7 +141,8 @@ def make_bill(headers: dict, vendor: str, project_id, claimed: int,
         "retention_pct": retention_pct, "due_date": day(30),
         "note": "Bahan uji Fase 49"}).json()["data"]
     db.ap_invoices.update_one({"id": bill["id"]}, {"$set": {TAG: True}})
-    api("POST", f"/finance/ap/bills/{bill['id']}/approve", headers)
+    # PK-07: pembuat tagihan tidak boleh menyetujui tagihannya sendiri (API) → Owner yang menyetujui.
+    api("POST", f"/finance/ap/bills/{bill['id']}/approve", login("owner@sipro.co.id"))
     wait_journal(bill["id"], "ap_bill")
     return bill
 

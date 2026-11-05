@@ -72,10 +72,14 @@ def main():
     print("list sales:", len(sales.get(f"{B}/fund-requests").json()["data"]), "can_approve", sales.get(f"{B}/fund-requests").json()["can_approve"])
     print("summary fin:", fin.get(f"{B}/fund-requests/summary").json()["data"])
     print("approve", fin.post(f"{B}/fund-requests/{fr['id']}/approve", json={"approved_amount": 1400000}).status_code)
-    r = fin.post(f"{B}/fund-requests/{fr['id']}/disburse", json={"amount": 1400000, "source": "bank"})
+    def proof(owner_id):  # PK-13: bukti pencairan wajib & divalidasi di API
+        up = fin.post(f"{B}/files/upload", data={"owner_type": "fund_request_payment", "owner_id": owner_id, "optimize": "false"},
+                      files={"file": ("bukti.txt", ("bukti %s" % owner_id).encode(), "text/plain")})
+        return up.json()["data"]["id"]
+    r = fin.post(f"{B}/fund-requests/{fr['id']}/disburse", json={"amount": 1400000, "source": "bank", "proof_ids": [proof(fr["id"])]})
     print("disburse", r.status_code, r.json()["data"]["status"], r.json()["data"]["journal_ids"])
     fin.post(f"{B}/fund-requests/{adv['id']}/approve", json={})
-    r = fin.post(f"{B}/fund-requests/{adv['id']}/disburse", json={"source": "kas"})
+    r = fin.post(f"{B}/fund-requests/{adv['id']}/disburse", json={"source": "kas", "proof_ids": [proof(adv["id"])]})
     print("adv disburse", r.status_code, r.json()["data"]["status"])
     r = sales.post(f"{B}/fund-requests/{adv['id']}/settle", json={"items": [{"category": "transport", "description": "Grab", "amount": 350000}]})
     d = r.json()["data"]

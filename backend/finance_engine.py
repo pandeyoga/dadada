@@ -813,9 +813,15 @@ async def refund_deposit(deal_id, amount, note, actor, org_id=ORG_ID, cash_accou
         raise ValueError("Nominal harus lebih dari 0.")
     if amount > balance:
         raise ValueError(f"Nominal Rp {amount:,} melebihi saldo titipan Rp {balance:,}.")
-    deposit = await _deposit_move(org_id, deal_id, inv, "refund", amount,
-                                  note or "Pengembalian titipan", actor,
-                                  cash_account_id=cash_account_id)
+    import cash_bank as _cb
+    from idempotency import once
+    async with once("deposit.refund", org_id, deal_id, amount, cash_account_id, actor,
+                    what="Pengembalian titipan ini"):
+        await _cb.assert_funds(org_id, amount, cash_account_id=cash_account_id, code="1-1200",
+                               kind="pengembalian titipan pembeli")
+        deposit = await _deposit_move(org_id, deal_id, inv, "refund", amount,
+                                      note or "Pengembalian titipan", actor,
+                                      cash_account_id=cash_account_id)
     await notify_finance(org_id, "Titipan dikembalikan",
                          f"Rp {amount:,} titipan dikembalikan ke pelanggan (unit "
                          f"{inv.get('unit_code') or '-'}).", "finance", "deal", deal_id)
@@ -880,49 +886,6 @@ async def create_commission_for_deal(deal: dict, scheme_id=None, org_id=ORG_ID, 
     return doc
 
 
-async def approve_commission(commission_id, approver, org_id=ORG_ID) -> dict:
-    com = await db.commissions.find_one({"id": commission_id, "org_id": org_id}, {"_id": 0})
-    if not com:
-        raise ValueError("Komisi tidak ditemukan.")
-    if com.get("status") == "approved":
-        return com
-    ts = now_iso()
-    await db.commissions.update_one({"id": commission_id},
-        {"$set": {"status": "approved", "approved_by": approver, "approved_at": ts, "updated_at": ts}})
-    await emit("commission.approved", "deal", com.get("deal_id"), {}, org_id=org_id)
-    await notify_finance(org_id, "Komisi disetujui",
-                         f"Komisi Rp {com.get('amount', 0):,} disetujui.", "finance",
-                         "deal", com.get("deal_id"), extra_emails=[com.get("assigned_to")])
-    return await db.commissions.find_one({"id": commission_id, "org_id": org_id}, {"_id": 0})
-
-
-async def pay_commission(commission_id, payer, org_id=ORG_ID, cash_account_id=None) -> dict:
-    """Bayarkan komisi yang sudah disetujui (approved -> paid). Idempotent."""
-    com = await db.commissions.find_one({"id": commission_id, "org_id": org_id}, {"_id": 0})
-    if not com:
-        raise ValueError("Komisi tidak ditemukan.")
-    if com.get("status") == "paid":
-        return com
-    if com.get("status") != "approved":
-        raise ValueError("Komisi harus disetujui terlebih dahulu sebelum dibayar.")
-    import cash_bank as _cb
-    cash_code = await _cb.resolve_code(org_id, cash_account_id, "1-1200")
-    cash_acc = await _cb.account_by_code(org_id, cash_code)
-    cash_account_id = (cash_acc or {}).get("id")
-    ts = now_iso()
-    await db.commissions.update_one({"id": commission_id},
-        {"$set": {"status": "paid", "paid_by": payer, "paid_at": ts, "updated_at": ts,
-                  "cash_account_id": cash_account_id,
-                  "cash_account_name": (cash_acc or {}).get("name")}})
-    await emit("commission.paid", "commission", commission_id,
-               {"amount": int(com.get("amount", 0)), "cash_account_id": cash_account_id},
-               org_id=org_id)
-    await notify_finance(org_id, "Komisi dibayar",
-                         f"Komisi Rp {com.get('amount', 0):,} telah dibayarkan.", "finance",
-                         "deal", com.get("deal_id"), extra_emails=[com.get("assigned_to")])
-    return await db.commissions.find_one({"id": commission_id, "org_id": org_id}, {"_id": 0})
-
-
 # ----------------------------- Revenue Recognition (PSAK 72, BAST) -----------------------------
 async def recognize_revenue(deal: dict, org_id=ORG_ID, cogs=None, actor="system") -> dict:
     """BAST: akui pendapatan (point-in-time), nolkan contract liability, unit -> sold.
@@ -970,6 +933,7 @@ async def recognize_revenue(deal: dict, org_id=ORG_ID, cogs=None, actor="system"
 
 # ----------------------------- Thin AP: lihat finance_ap.py -----------------------------
 from finance_ap import create_ap_bill, approve_ap_bill, pay_ap_bill, ap_retention_release_sweeper  # noqa: E402,F401
+from finance_commission import approve_commission, pay_commission  # noqa: E402,F401
 
 
 # ----------------------------- Aging + Summary -----------------------------

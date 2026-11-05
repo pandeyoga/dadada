@@ -24,11 +24,17 @@ import ApBillDetailSheet from "@/components/finance/ApBillDetailSheet";
 import { Switch } from "@/components/ui/switch";
 import { formatIDR, formatDateWIB } from "@/utils/formatters";
 import api from "@/services/apiClient";
+import { useAuth } from "@/context/AuthContext";
 import { FINANCE, P49 } from "@/constants/testIds";
 import ReferenceSelect from "@/components/patterns/ReferenceSelect";
 import CashAccountSelect from "@/components/cashBank/CashAccountSelect";
 
 export default function ApPanel() {
+  const { user } = useAuth();
+  // PK-07: pemisahan tugas dijaga di API; tombol dinonaktifkan di sini agar pesannya jelas sebelum diklik.
+  const exempt = user?.role === "super_admin";
+  const isMyBill = (b) => !exempt && !!user?.email && b.created_by === user.email;
+  const iApprovedIt = (b) => !exempt && !!user?.email && !!b.approved_by && b.approved_by === user.email && b.approved_by !== b.created_by;
   const [bills, setBills] = useState([]);
   const [aging, setAging] = useState(null);
   const [projects, setProjects] = useState([]);
@@ -122,13 +128,15 @@ export default function ApPanel() {
                         onClick={() => setDetailId(b.id)}><Eye className="h-3.5 w-3.5" /></Button>
                       {b.status === "pending_approval" ? (
                         <Button size="sm" variant="outline" data-testid={FINANCE.billApproveBtn}
-                          onClick={() => approve(b)} disabled={busyId === b.id}>
+                          title={isMyBill(b) ? "Pembuat tagihan tidak boleh menyetujui tagihannya sendiri" : undefined}
+                          onClick={() => approve(b)} disabled={busyId === b.id || isMyBill(b)}>
                           <CheckCircle2 className="mr-1 h-3.5 w-3.5" /> Setujui
                         </Button>
                       ) : null}
                       {["approved", "partial"].includes(b.status) ? (
                         <Button size="sm" data-testid={FINANCE.billPayBtn}
-                          onClick={() => setPayBill(b)} disabled={busyId === b.id}>
+                          title={iApprovedIt(b) ? "Yang menyetujui tagihan tidak boleh sekaligus membayarnya" : undefined}
+                          onClick={() => setPayBill(b)} disabled={busyId === b.id || iApprovedIt(b)}>
                           <Banknote className="mr-1 h-3.5 w-3.5" /> Bayar
                         </Button>
                       ) : null}
@@ -159,21 +167,25 @@ function AddBillDialog({ open, onOpenChange, projects, onDone }) {
   const [claimed, setClaimed] = useState("");
   const [retention, setRetention] = useState("5");
   const [dueDate, setDueDate] = useState("");
+  const [invoiceNo, setInvoiceNo] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (open) { setVendor(""); setProjectId("none"); setClaimed(""); setRetention("5"); setDueDate(""); setNote(""); }
+    if (open) { setVendor(""); setProjectId("none"); setClaimed(""); setRetention("5"); setDueDate(""); setInvoiceNo(""); setNote(""); }
   }, [open]);
 
   const submit = async () => {
     if (!vendor.trim()) { toast.error("Nama vendor wajib diisi."); return; }
     const amt = Number(claimed);
     if (!amt || amt <= 0) { toast.error("Nilai klaim harus lebih dari 0."); return; }
+    const ret = Number(retention) || 0;
+    if (ret < 0 || ret > 100) { toast.error("Retensi harus antara 0 dan 100 persen."); return; }
     setBusy(true);
     try {
       await api.post("/finance/ap/bills", {
         vendor: vendor.trim(),
+        vendor_invoice_no: invoiceNo.trim() || null,
         project_id: projectId === "none" ? null : projectId,
         claimed: amt,
         retention_pct: Number(retention) || 0,
@@ -217,9 +229,14 @@ function AddBillDialog({ open, onOpenChange, projects, onDone }) {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="ret">Retensi (%)</Label>
-              <Input id="ret" type="number" value={retention}
+              <Input id="ret" type="number" min={0} max={100} step="any" value={retention}
                 onChange={(e) => setRetention(e.target.value)} placeholder="5" />
             </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="inv-no">No. Faktur Vendor (opsional)</Label>
+            <Input id="inv-no" data-testid="ap-bill-invoice-no" value={invoiceNo}
+              onChange={(e) => setInvoiceNo(e.target.value)} placeholder="Mencegah faktur yang sama dicatat dua kali" />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="due">Jatuh Tempo</Label>
