@@ -302,6 +302,39 @@ async def delete_receipt(rid: str, reason: str = None,
     return {"data": out}
 
 
+class ReceiptVoidIn(BaseModel):
+    reason: str
+
+
+@router.post("/receipts/{rid}/void")
+async def void_receipt_endpoint(rid: str, payload: ReceiptVoidIn,
+                                user: dict = Depends(require_permission("finance", "approve"))):
+    """BATALKAN kuitansi secara resmi (audit IN-05/GL-10): alokasi termin dibalik, kewajiban kontrak
+    diturunkan, dan JURNAL PEMBALIK terbit — kuitansi & jurnal asli tetap ada sebagai jejak (beda dengan
+    'hapus paksa' yang menghapus fisik). Pemisahan tugas: yang mencatat penerimaan tidak boleh
+    membatalkannya sendiri (kecuali Direksi/Super Admin)."""
+    import bank_match
+    import force_delete as fd
+    from rbac import audit_log
+    org = user.get("org_id", ORG_ID)
+    rc = await db.receipts.find_one({"id": rid, "org_id": org}, {"_id": 0})
+    if not rc:
+        raise HTTPException(status_code=404, detail="Kuitansi tidak ditemukan.")
+    if rc.get("kind") == "booking_fee":
+        raise HTTPException(status_code=400, detail="Kuitansi booking fee dibatalkan lewat refund/pembatalan "
+                                                    "booking fee, bukan dari sini.")
+    if rc.get("actor") == user.get("email") and not fd.may_force(user):
+        raise HTTPException(status_code=400, detail="Pemisahan tugas: penerimaan yang Anda catat sendiri tidak "
+                                                    "boleh Anda batalkan. Minta rekan finance lain atau Direksi.")
+    try:
+        out = await bank_match.void_receipt(org, rid, user.get("email"), payload.reason)
+    except ValueError as e:
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
+    await audit_log(user, "void", "receipts", rid, {"reason": payload.reason.strip(), "receipt_no": rc.get("receipt_no"),
+                                                    "amount": rc.get("amount"), "deal_id": rc.get("deal_id")})
+    return {"data": out}
+
+
 @router.get("/receipts/{rid}/pdf")
 async def receipt_pdf(rid: str, user: dict = Depends(require_permission("finance", "view"))):
     """Kwitansi resmi (PDF ber-kop) untuk staf — bukti penerimaan booking fee/termin."""

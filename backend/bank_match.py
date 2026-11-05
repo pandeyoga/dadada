@@ -334,6 +334,13 @@ async def _match_locked(org: str, txn: dict, kind: str, target_id: str, actor: s
 
 
 async def void_receipt(org: str, receipt_id: str, actor: str, reason: str) -> dict:
+    """Pintu pembatalan kuitansi — diserialkan per kuitansi (dua pembatalan bersamaan dulu sama-sama
+    lolos cek `status == void` dan membalik uang DUA kali). Badan fungsinya di `_void_receipt_locked`."""
+    async with locked("receipt.void", receipt_id, what="Pembatalan kuitansi ini"):
+        return await _void_receipt_locked(org, receipt_id, actor, reason)
+
+
+async def _void_receipt_locked(org: str, receipt_id: str, actor: str, reason: str) -> dict:
     """Batalkan satu kuitansi penerimaan: alokasi dikembalikan + jurnal pembalik.
 
     Ini satu-satunya jalur pembatalan penerimaan di sistem, jadi ia harus jujur: item termin
@@ -343,11 +350,19 @@ async def void_receipt(org: str, receipt_id: str, actor: str, reason: str) -> di
     """
     if len((reason or "").strip()) < MIN_REASON:
         raise ValueError(f"Alasan pembatalan minimal {MIN_REASON} huruf.")
+    # Jurnal penerimaan lahir dari event (dispatcher tiap 8 dtk). Bila kuitansi dibatalkan sebelum
+    # jurnal aslinya terbit, jurnal pembalik terposting lebih dulu dan buku besar sempat selisih
+    # (tie-out merah). Kosongkan antrean event dulu agar jurnal asli ada sebelum dibalik.
+    from engine import dispatch_pending
+    await dispatch_pending()
     rec = await db.receipts.find_one({"id": receipt_id, "org_id": org}, {"_id": 0})
     if not rec:
         raise ValueError("Kuitansi tidak ditemukan.")
     if rec.get("status") == "void":
         raise ValueError("Kuitansi ini sudah dibatalkan.")
+    if rec.get("funding") == "deposit":
+        raise ValueError("Kuitansi ini hasil PEMAKAIAN titipan (tidak ada uang kas yang masuk) — jurnal balik "
+                         "biasa akan salah akun. Kembalikan titipannya dari layar Titipan.")
     if int(rec.get("deposit_amount") or 0) > 0:
         raise ValueError("Kuitansi ini melahirkan TITIPAN pelanggan — batalkan dari layar "
                          "Titipan agar saldo titipan tetap benar.")

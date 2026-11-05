@@ -174,7 +174,22 @@ async def delete_receipt(org: str, receipt: dict, actor: str) -> dict:
                 "$inc": {"balance": int(receipt.get("applied") or receipt.get("amount") or 0),
                          "applied_total": -int(receipt.get("applied") or receipt.get("amount") or 0)},
                 "$pull": {"entries": {"receipt_id": rid}}})
-    await _del("journal_entries", {"org_id": org, "$or": [{"source_id": rid}, {"source_event": {"$regex": re.escape(rid)}}]}, removed)
+    # Audit IN-05/GL-05: jurnal penerimaan ikut terhapus, jadi bagian "kewajiban kontrak" dari uang
+    # ini harus ikut diturunkan di subledger (dulu tidak → tie-out 2-1400 merah), dan bukti kas
+    # (BKM/BKK) milik jurnal yang dihapus tidak boleh tersisa yatim.
+    if kind != "booking_fee" and receipt.get("status") != "void":
+        applied = int(receipt.get("applied") or 0)
+        if applied > 0:
+            split = receipt.get("gl_split")
+            liab_part = int(split["liability"]) if split else applied
+            if liab_part:
+                await db.contract_liabilities.update_one(
+                    {"org_id": org, "deal_id": did}, {"$inc": {"balance": -liab_part}})
+    jq = {"org_id": org, "$or": [{"source_id": rid}, {"source_event": {"$regex": re.escape(rid)}}]}
+    jids = [j["id"] async for j in db.journal_entries.find(jq, {"_id": 0, "id": 1})]
+    if jids:
+        await _del("cash_vouchers", {"org_id": org, "journal_id": {"$in": jids}}, removed)
+    await _del("journal_entries", jq, removed)
     await _del("payment_intakes", {"org_id": org, "receipt_id": rid}, removed)
     await db.receipts.delete_one({"id": rid, "org_id": org})
     removed["receipts"] = 1

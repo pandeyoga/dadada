@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { HandCoins, FileCheck2, Trash2 } from "lucide-react";
+import { HandCoins, FileCheck2, Trash2, Undo2 } from "lucide-react";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from "@/components/ui/sheet";
@@ -44,6 +44,8 @@ export default function ArDetailSheet({ dealId, open, onOpenChange, onChanged })
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [deleteReceipt, setDeleteReceipt] = useState(null);
   const [deleteReason, setDeleteReason] = useState("");
+  const [voidTarget, setVoidTarget] = useState(null);   // pembatalan RESMI (jurnal pembalik, jejak tetap)
+  const [voidReason, setVoidReason] = useState("");
   const { user, can } = useAuth();
   const isFullAccess = ["owner", "super_admin"].includes(user?.role);
   const mayAttachProof = can("finance", "update");
@@ -56,6 +58,17 @@ export default function ArDetailSheet({ dealId, open, onOpenChange, onChanged })
       setDeleteReceipt(null); setDeleteReason(""); load(); onChanged && onChanged();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Gagal menghapus pembayaran.");
+    } finally { setBusy(false); }
+  };
+
+  const voidIt = async () => {
+    setBusy(true);
+    try {
+      await api.post(`/finance/ar/receipts/${voidTarget.id}/void`, { reason: voidReason.trim() });
+      toast.success("Pembayaran dibatalkan; alokasi termin dikembalikan dan jurnal pembalik terbit.");
+      setVoidTarget(null); setVoidReason(""); load(); onChanged && onChanged();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Gagal membatalkan pembayaran.");
     } finally { setBusy(false); }
   };
 
@@ -332,6 +345,16 @@ export default function ArDetailSheet({ dealId, open, onOpenChange, onChanged })
                         <ReceiptProofLinks receipt={rc} canAttach={mayAttachProof} onChanged={load} />
                       </div>
                       <p className="max-w-[45%] truncate text-[11px] text-muted-foreground">{rc.note || ""}</p>
+                      {rc.status === "void" ? (
+                        <span data-testid="ar-receipt-void-badge" className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700"
+                          title={rc.void_reason || ""}>DIBATALKAN</span>
+                      ) : can("finance", "approve") && rc.kind !== "booking_fee" && rc.funding !== "deposit"
+                        && !(Number(rc.deposit_amount || 0) > 0) ? (
+                        <Button data-testid="ar-receipt-void-btn" size="sm" variant="ghost" className="h-7 px-2 text-amber-700"
+                          onClick={() => setVoidTarget(rc)} aria-label="Batalkan pembayaran" title="Batalkan (jurnal pembalik, jejak tetap)">
+                          <Undo2 className="h-3.5 w-3.5" />
+                        </Button>
+                      ) : null}
                       {isFullAccess ? (
                         <Button data-testid="ar-receipt-delete-btn" size="sm" variant="ghost" className="h-7 px-2 text-rose-600"
                           onClick={() => setDeleteReceipt(rc)} aria-label="Hapus pembayaran">
@@ -345,6 +368,26 @@ export default function ArDetailSheet({ dealId, open, onOpenChange, onChanged })
             </div>
           </div>
         ) : null}
+
+        <Dialog open={!!voidTarget} onOpenChange={(v) => !v && setVoidTarget(null)}>
+          <DialogContent data-testid="ar-receipt-void-dialog" className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Batalkan pembayaran {voidTarget?.receipt_no || ""}?</DialogTitle>
+              <DialogDescription>
+                Pembayaran {formatIDR(voidTarget?.applied || 0)} dibatalkan: alokasi termin dikembalikan, kewajiban
+                kontrak diturunkan, dan jurnal pembalik terbit. Kuitansi &amp; jurnal asli tetap tersimpan sebagai jejak.
+                Penerimaan yang Anda catat sendiri tidak bisa Anda batalkan (pemisahan tugas). Wajib alasan (≥10 huruf).
+              </DialogDescription>
+            </DialogHeader>
+            <Textarea data-testid="ar-receipt-void-reason" rows={2} value={voidReason}
+              onChange={(e) => setVoidReason(e.target.value)} placeholder="Alasan pembatalan pembayaran" />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setVoidTarget(null)} disabled={busy}>Tutup</Button>
+              <Button data-testid="ar-receipt-void-confirm" variant="destructive" disabled={busy || voidReason.trim().length < 10}
+                onClick={voidIt}>{busy ? "Membatalkan…" : "Batalkan pembayaran"}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={!!deleteReceipt} onOpenChange={(v) => !v && setDeleteReceipt(null)}>
           <DialogContent data-testid="ar-receipt-delete-dialog" className="sm:max-w-md">
