@@ -42,9 +42,9 @@ Hasil utama menurut `docs/analysis/05_PAIN_POINTS_AND_BUSINESS_NEEDS.md`: (1) ti
 | | Sebelum | Sesudah (dengan bukti tes pada backend segar) |
 |---|---|---|
 | Kritis ronde 1 (13) | Pembayaran/penerimaan ganda, jurnal kembar, unit terjual tanpa bayar, pasca-BAST/denda salah akun, tutup tahun gagal | **13 dari 13 ditutup** |
-| Tinggi ronde 1 (43) | — | **26 tertutup penuh, 10 sebagian atau sedang dikerjakan (gelombang 2 akuntansi), 7 terbuka**: IN-14, GL-04, GL-07, GL-11, GL-12, KT-03 dan PK-09 (PK-09 sedang dikerjakan). Lima di antaranya butuh keputusan pemilik lebih dulu (IN-14, GL-04, GL-07, GL-12, KT-03) |
+| Tinggi ronde 1 (43) | — | **30 tertutup penuh, 7 sebagian, 6 terbuka**: IN-14, GL-04, GL-07, GL-11, GL-12, dan KT-03. Lima di antaranya butuh keputusan pemilik lebih dulu (IN-14, GL-04, GL-07, GL-12, KT-03). Rincian per ID di `06_STATUS_PERBAIKAN.md` |
 | Kritis ronde 2 | — | PG-01 (persediaan tak berjurnal) **terbuka**, butuh keputusan metode valuasi |
-| Tes regresi | Tidak ada untuk area ini | **174 tes lulus** di 11 berkas `backend/tests/p0/`; tes baru gagal di kode lama dan lulus di kode baru |
+| Tes regresi | Tidak ada untuk area ini | **204 tes lulus** di 12 berkas `backend/tests/p0/` (tiga suite diulang untuk membuktikan dapat diulang); tes baru gagal di kode lama dan lulus di kode baru |
 
 Cacat fondasi yang ditutup: dispatcher event tidak mengklaim event (jurnal kembar), indeks `source_event` tidak unik, pola baca-lalu-tulis tanpa penjagaan di hampir semua jalur uang, dua jalur legal (PPJB/AJB lama menjual unit tanpa gerbang), Inbox WA yang memanjang tanpa batas dan menghilangkan pesan terbaru, master OTP portal aktif diam-diam.
 
@@ -92,5 +92,5 @@ Cacat fondasi yang ditutup: dispatcher event tidak mengklaim event (jurnal kemba
 
 - Penilaian CRM/proyek dan skor yang saya beri berbasis bukti dari instance demo; **belum ada pengguna sungguhan**. Skor "kemudahan pakai" adalah perkiraan, bukan hasil uji kegunaan dengan sales/mandor.
 - Perbaikan diverifikasi dengan tes regresi buatan sendiri dan pada data uji; suite lama repo yang bergantung data seed lama sebagian tidak dapat dijalankan di lingkungan ini.
-- Angka seperti "26 dari 43 tinggi tertutup" dihitung dari laporan agen dan tes; gelombang 2 akuntansi masih berjalan saat dokumen ini ditulis, sehingga angka itu dapat membaik.
+- Angka seperti "30 dari 43 tinggi tertutup" dihitung dari laporan agen dan tes regresi buatan sendiri, bukan dari audit independen ulang; temuan Sedang/Rendah dan seluruh temuan ronde 2 (`07`, `08`) sebagian besar belum dikerjakan.
 - Tidak ada pengujian beban, keamanan penetrasi, atau integrasi live.
