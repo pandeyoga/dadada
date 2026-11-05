@@ -12,7 +12,9 @@ Cakupan (urut berkas):
   KT-11  jatuh tempo termin dihitung dari AKTIVASI kontrak
   KT-06  aktivasi ulang / regenerasi jadwal mempertahankan alokasi kuitansi
   KT-05  ganti jenis skema kontrak menyelaraskan deal + AR + KPR (atau ditolak)
-  KT-24  tahap legal paralel -> satu efek
+  KT-24  tahap legal paralel -> satu efek; tanda tangan & SPR tidak ganda
+  KT-18  batas unit aktif per lead atomik (paralel & lewat penawaran)
+  KT-20  lead lost/recycle tidak bisa memesan unit
 """
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -281,3 +283,63 @@ def test_kt24_spr_kedua_untuk_kontrak_sama_tidak_bisa_ditandatangani(cleanup):
     # hitungan daftar: kunci "final" tidak lagi selalu 0
     c, lst = call("manager", "GET", "/documents", params={"limit": 5})
     assert c == 200 and lst["counts"]["final"] >= 1 and lst["counts"]["signed"] >= 1, lst["counts"]
+
+
+# ============================================================================ KT-18
+def test_kt18_reservasi_paralel_satu_lead_dua_unit_hanya_satu_lolos(cleanup):
+    u1, u2 = available_units(2)
+    lead = new_lead(tag="Batas")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f1 = pool.submit(reserve, lead["id"], u1)
+        f2 = pool.submit(reserve, lead["id"], u2)
+        res = [f1.result(), f2.result()]
+    for c, b in res:
+        if c == 200:
+            cleanup.append(b["data"]["id"])
+    kode = sorted(c for c, _ in res)
+    assert kode == [200, 409], (kode, [str(b)[:150] for _, b in res])
+    deals = ok(call("manager", "GET", "/deals", params={"lead_id": lead["id"]}))
+    assert len([d for d in deals if d["status"] in ("reserved", "booked")]) == 1
+    # unit yang kalah kembali tersedia (tidak terkunci oleh permintaan yang ditolak)
+    kalah = u2 if res[0][0] == 200 else u1
+    assert call("manager", "GET", "/units", params={"q": kalah["code"], "limit": 5})[1]["data"][0]["status"] == "available"
+
+
+def test_kt18_konversi_penawaran_menghormati_batas_unit_aktif(cleanup):
+    u1, u2 = available_units(2)
+    lead = new_lead(tag="BatasQ")
+    cleanup.append(ok(reserve(lead["id"], u1))["id"])
+    q = ok(call("sales", "POST", "/quotations", {"lead_id": lead["id"], "unit_id": u2["id"],
+                                                  "scheme_id": scheme_id("cash_keras"),
+                                                  "booking_fee": 5_000_000}))
+    code, body = call("sales", "POST", f"/quotations/{q['id']}/convert", {})
+    assert code in (400, 409) and "batas" in str(body), (code, str(body)[:300])
+    assert call("manager", "GET", "/units", params={"q": u2["code"], "limit": 5})[1]["data"][0]["status"] == "available"
+
+
+def test_kt18_pengecualian_manajer_dengan_alasan_tetap_berlaku(cleanup):
+    u1, u2 = available_units(2)
+    lead = new_lead(tag="BatasOv")
+    cleanup.append(ok(reserve(lead["id"], u1))["id"])
+    kode_tanpa, _ = reserve(lead["id"], u2)
+    assert kode_tanpa == 409
+    code, body = reserve(lead["id"], u2, who="manager", limit_override_reason="Pembeli membeli dua unit sekaligus (uji P0)")
+    assert code == 200, (code, str(body)[:300])
+    cleanup.append(body["data"]["id"])
+
+
+# ============================================================================ KT-20
+def test_kt20_lead_lost_tidak_bisa_memesan_unit_dan_pulih_lewat_daur_ulang(cleanup):
+    unit = available_units(1)[0]
+    lead = new_lead(tag="Lost")
+    ok(call("sales", "POST", f"/leads/{lead['id']}/stage", {"stage": "lost", "note": "uji P0 lost"}))
+    code, body = reserve(lead["id"], unit)
+    assert code == 409 and "tidak bisa memesan" in str(body), (code, str(body)[:300])
+    assert call("manager", "GET", "/units", params={"q": unit["code"], "limit": 5})[1]["data"][0]["status"] == "available"
+    assert ok(call("manager", "GET", "/deals", params={"lead_id": lead["id"]})) == []
+    # lead dihidupkan lagi (daur ulang -> nurturing): boleh memesan, tahap ikut naik ke booking
+    ok(call("sales", "POST", f"/leads/{lead['id']}/stage", {"stage": "recycle", "note": "uji P0 kembali"}))
+    ok(call("sales", "POST", f"/leads/{lead['id']}/stage", {"stage": "nurturing"}))
+    deal = ok(reserve(lead["id"], unit))
+    cleanup.append(deal["id"])
+    assert ok(call("sales", "GET", f"/leads/{lead['id']}"))["stage"] == "booking"

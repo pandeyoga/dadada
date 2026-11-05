@@ -162,10 +162,16 @@ async def reserve_unit(payload: DealReserve,
         raise HTTPException(status_code=404, detail="Lead tidak ditemukan")
     if is_scoped_sales(user) and lead.get("assigned_to") != user.get("email"):
         raise HTTPException(status_code=403, detail="Akses ditolak: bukan lead Anda")
+    # KT-20: lead yang sudah ditutup (lost/recycle) tidak bisa memesan unit.
+    import reserve_guard as rg
+    if rg.closed_reason(lead):
+        raise HTTPException(status_code=409, detail=rg.closed_reason(lead))
     # `reservation.max_active_per_lead` + `reservation.override_roles` (Pusat Konfigurasi).
+    # Pemeriksaan AUTORITATIF ada di `sales_reserve.reserve` (di bawah kunci per-lead, KT-18);
+    # di sini hanya memberi pesan awal + menangani pengecualian peran/alasan.
     max_active = int(await cfg.get("reservation.max_active_per_lead", org_id=org) or 1)
-    active_cnt = await db.deals.count_documents(
-        {"org_id": org, "lead_id": lead["id"], "status": {"$in": ["reserved", "booked"]}})
+    active_cnt = await rg.active_count(org, lead["id"])
+    limit_override = False
     if active_cnt >= max_active:
         override_roles = list(await cfg.get("reservation.override_roles", org_id=org) or [])
         reason = (payload.limit_override_reason or "").strip()
@@ -176,6 +182,7 @@ async def reserve_unit(payload: DealReserve,
                 + " yang boleh melewati batas, dengan alasan (≥10 karakter)."))
         await audit_log(user, "override", "deals", None,
                         {"limit_override": True, "reason": reason, "active": active_cnt})
+        limit_override = True
     # Fase 69: reservasi langsung memakai MESIN HARGA yang sama dengan penawaran — rincian
     # (harga dasar, add-on, skema diskon/promo/kupon, termin) tersimpan pada deal.
     import quotation_engine as qe
@@ -292,7 +299,7 @@ async def reserve_unit(payload: DealReserve,
     try:
         deal = await sr.reserve(org, lead=lead, unit=unit, actor=user.get("email"),
                                 booking_fee=booking_fee_net, notes=payload.notes,
-                                deal_id=deal_id,
+                                deal_id=deal_id, limit_override=limit_override,
                                 extra={"price": int(calc["net_price"]),
                                        "discount": int(calc["discount_amount"] or 0),
                                        "addons": calc["addons"],
