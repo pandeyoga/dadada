@@ -375,6 +375,9 @@ async def decide_pricing(deal_id: str, payload: DealPricingDecision,
     fresh = await db.deals.find_one({"id": deal_id}, {"_id": 0})
     return {"data": serialize_doc(fresh),
             "message": f"Potongan {'disetujui' if payload.approve else 'ditolak'}."}
+
+
+@router.get("/deals/{deal_id}/delete-check")
 async def deal_delete_check(deal_id: str, user: dict = Depends(require_permission("deals", "view"))):
     import force_delete as fd
     d = await _get_deal_editable(deal_id, user)
