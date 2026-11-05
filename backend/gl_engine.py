@@ -275,6 +275,27 @@ async def ledger(org_id, account_code) -> dict:
 
 
 # ----------------------------- Event handlers (subledger -> GL) -----------------------------
+def credit_lines_for_collection(amount: int, split: dict = None, *, debit: bool = False) -> list:
+    """Baris lawan penerimaan pembeli menurut `finance_engine.gl_split` (audit GL-01/GL-02).
+
+    liability → 2-1400 Kewajiban Kontrak (uang muka sebelum BAST); ar + penalty → 1-1300 Piutang
+    (pelunasan piutang pasca-BAST dan piutang denda). Tanpa `split` (event lama yang masih antre /
+    jalur lama) perilaku dulu dipertahankan: seluruhnya 2-1400. `debit=True` untuk jurnal pembalik.
+    Selisih pembulatan, bila ada, tetap ke 2-1400 supaya jurnal selalu seimbang.
+    """
+    liab, ar = 0, 0
+    if split:
+        ar = int(split.get("ar") or 0) + int(split.get("penalty") or 0)
+        liab = int(split.get("liability") or 0)
+    liab += int(amount) - (liab + ar)
+    out = []
+    for code, v in (("2-1400", liab), ("1-1300", ar)):
+        if v > 0:
+            out.append({"account_code": code, "debit": v, "credit": 0} if debit
+                       else {"account_code": code, "debit": 0, "credit": v})
+    return out
+
+
 async def _gl_payment_received(ev):
     """Jurnal penerimaan pembeli — HARUS menunjuk KUITANSINYA, bukan deal-nya.
 
@@ -294,7 +315,7 @@ async def _gl_payment_received(ev):
     await post_journal(org, "Penerimaan pembayaran pembeli (uang muka)", [
         {"account_code": "1-1200", "debit": amt, "credit": 0,
          "cash_account_id": data.get("cash_account_id")},
-        {"account_code": "2-1400", "debit": 0, "credit": amt},
+        *credit_lines_for_collection(amt, data.get("split")),
     ], source_type="receipt", source_id=data.get("receipt_id") or ev["entity_id"],
         source_event=f"ev:{ev['id']}", source_deal_id=ev.get("entity_id"))
 
@@ -326,7 +347,7 @@ async def _gl_deposit_applied(ev):
         return
     await post_journal(org, "Titipan pelanggan dipakai untuk termin", [
         {"account_code": "2-1450", "debit": amt, "credit": 0},
-        {"account_code": "2-1400", "debit": 0, "credit": amt},
+        *credit_lines_for_collection(amt, (ev.get("data") or {}).get("split")),
     ], source_type="deposit", source_id=ev["entity_id"], source_event=f"ev:{ev['id']}")
 
 

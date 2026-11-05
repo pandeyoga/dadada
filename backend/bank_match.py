@@ -367,11 +367,15 @@ async def void_receipt(org: str, receipt_id: str, actor: str, reason: str) -> di
     paid, outstanding, status = await fin._recalc_invoice(inv, items, ts)  # noqa: SLF001
     applied = int(rec.get("applied") or rec.get("amount") or 0)
     if applied > 0:
-        await db.contract_liabilities.update_one(
-            {"org_id": org, "deal_id": rec["deal_id"]},
-            {"$inc": {"balance": -applied}, "$set": {"updated_at": ts}})
+        # Balikkan PERSIS pembagian saat diterima (GL-01/02): kuitansi lama tanpa gl_split = semua 2-1400.
+        split = rec.get("gl_split")
+        liab_part = int(split["liability"]) if split else applied
+        if liab_part:
+            await db.contract_liabilities.update_one(
+                {"org_id": org, "deal_id": rec["deal_id"]},
+                {"$inc": {"balance": -liab_part}, "$set": {"updated_at": ts}})
         await gl.post_journal(org, f"Pembatalan penerimaan — {reason.strip()[:80]}", [
-            {"account_code": GL_CONTRACT_LIABILITY, "debit": applied, "credit": 0},
+            *gl.credit_lines_for_collection(applied, split, debit=True),
             {"account_code": rec.get("cash_account_code") or GL_BANK, "debit": 0, "credit": applied}],
             source_type="receipt_void", source_id=receipt_id,
             source_event=f"receipt.void:{receipt_id}", posted_by=actor, auto=False)

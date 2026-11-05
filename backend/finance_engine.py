@@ -421,6 +421,27 @@ async def create_ar_for_deal(deal: dict, scheme_id=None, org_id=ORG_ID, replace=
     return inv
 
 
+async def gl_split(org_id: str, deal_id: str, items: list, allocations: list, applied: int) -> dict:
+    """Ke akun mana uang yang diterima ini dikreditkan (audit GL-01, GL-02).
+
+    * Bagian yang dialokasikan ke item DENDA (`is_penalty`) = pelunasan piutang denda (1-1300) —
+      denda sudah dibukukan Dr 1-1300 / Cr 4-1400 saat ditagihkan, jadi tidak boleh menggelembungkan
+      kewajiban kontrak (dulu pelunasan denda dikredit 2-1400 lalu ikut menjadi pendapatan unit
+      saat BAST → denda terhitung dua kali).
+    * Sisanya: SEBELUM BAST = uang muka penjualan (kewajiban kontrak 2-1400); SESUDAH BAST (pendapatan
+      sudah diakui, kewajiban kontrak sudah nol) = pelunasan piutang 1-1300. Dulu penerimaan pasca-BAST
+      tetap dikredit 2-1400 sehingga kewajiban kontrak dan piutang sama-sama menggelembung permanen.
+    Hasil: {"liability": x, "ar": y, "penalty": z}, x + y + z == applied.
+    """
+    penal_ids = {i["id"] for i in items if i.get("is_penalty")}
+    penalty = sum(int(a["amount"]) for a in allocations if a.get("item_id") in penal_ids)
+    rest = int(applied) - penalty
+    liab = await db.contract_liabilities.find_one({"org_id": org_id, "deal_id": deal_id},
+                                                  {"_id": 0, "recognized": 1})
+    recognized = bool((liab or {}).get("recognized"))
+    return {"liability": 0 if recognized else rest, "ar": rest if recognized else 0, "penalty": penalty}
+
+
 def _allocate(items: list, amount: int, targets: dict = None, skip_kpr_excluded: bool = False,
               payer: str = None, allow_bank_portion: bool = False) -> tuple:
     """Alokasi uang ke item termin. Mengubah `items` di tempat.
@@ -611,15 +632,19 @@ async def apply_receipt(deal_id, amount, method, note, actor, org_id=ORG_ID,
         "cash_account_code": cash_code,
         "proof_file_ids": [str(f) for f in (proof_file_ids or []) if f],
         "note": note, "allocations": allocations, "actor": actor, "created_at": ts}
+    split = await gl_split(org_id, deal_id, items, allocations, applied) if applied > 0 else None
+    if split:
+        receipt["gl_split"] = split
     await db.receipts.insert_one(dict(receipt))
     if applied > 0:
-        await db.contract_liabilities.update_one(
-            {"org_id": org_id, "deal_id": deal_id},
-            {"$inc": {"balance": applied}, "$set": {"updated_at": ts}}, upsert=True)
+        if split["liability"] > 0:
+            await db.contract_liabilities.update_one(
+                {"org_id": org_id, "deal_id": deal_id},
+                {"$inc": {"balance": split["liability"]}, "$set": {"updated_at": ts}}, upsert=True)
         # `receipt_id` WAJIB ikut: jurnal GL menunjuk kuitansinya (bukan deal), supaya satu
         # deal dengan beberapa penerimaan tetap bisa direkonstruksi & dibalik satu per satu.
         await emit("payment.received", "deal", deal_id,
-                   {"amount": applied, "receipt_id": receipt["id"],
+                   {"amount": applied, "receipt_id": receipt["id"], "split": split,
                     "cash_account_id": cash_account_id}, org_id=org_id)
     deposit = None
     if excess > 0:
@@ -687,12 +712,15 @@ async def _deposit_move(org_id, deal_id, inv, kind, amount, note, actor, receipt
     return dep
 
 
-async def _deposit_emit(org_id, dep: dict, kind: str, amount: int, deal_id: str, cash_account_id=None):
+async def _deposit_emit(org_id, dep: dict, kind: str, amount: int, deal_id: str, cash_account_id=None,
+                        split: dict = None):
     if kind == "apply_cost":
         return
+    data = {"amount": amount, "deal_id": deal_id, "cash_account_id": cash_account_id}
+    if split:
+        data["split"] = split  # GL-01/02: ke 2-1400 atau 1-1300 (lihat gl_split)
     await emit(f"deposit.{'received' if kind == 'in' else ('applied' if kind == 'apply' else 'refunded')}",
-               "deposit", dep["id"], {"amount": amount, "deal_id": deal_id,
-                                      "cash_account_id": cash_account_id}, org_id=org_id)
+               "deposit", dep["id"], data, org_id=org_id)
 
 
 async def _deposit_undo(org_id, deal_id, kind: str, amount: int, entry_id: str) -> None:
@@ -785,11 +813,14 @@ async def apply_deposit(deal_id, amount, actor, org_id=ORG_ID, note=None) -> dic
         "deposit_amount": 0, "funding": "deposit", "method": "deposit",
         "note": note or "Pemakaian titipan pelanggan", "allocations": allocations,
         "actor": actor, "created_at": ts}
+    split = await gl_split(org_id, deal_id, items, allocations, used)
+    receipt["gl_split"] = split
     await db.receipts.insert_one(dict(receipt))
-    await db.contract_liabilities.update_one(
-        {"org_id": org_id, "deal_id": deal_id},
-        {"$inc": {"balance": used}, "$set": {"updated_at": ts}}, upsert=True)
-    await _deposit_emit(org_id, deposit, "apply", used, deal_id)
+    if split["liability"] > 0:
+        await db.contract_liabilities.update_one(
+            {"org_id": org_id, "deal_id": deal_id},
+            {"$inc": {"balance": split["liability"]}, "$set": {"updated_at": ts}}, upsert=True)
+    await _deposit_emit(org_id, deposit, "apply", used, deal_id, split=split)
     await notify_finance(org_id, "Titipan dipakai",
                          f"Rp {used:,} titipan dipakai untuk termin unit "
                          f"{inv.get('unit_code') or '-'}.", "finance", "deal", deal_id)
@@ -898,8 +929,14 @@ async def recognize_revenue(deal: dict, org_id=ORG_ID, cogs=None, actor="system"
     existing = await db.revenue_recognitions.find_one({"org_id": org_id, "deal_id": deal_id}, {"_id": 0})
     if existing:
         return existing
-    inv = await db.ar_invoices.find_one({"org_id": org_id, "deal_id": deal_id}, {"_id": 0, "total": 1})
+    inv = await db.ar_invoices.find_one({"org_id": org_id, "deal_id": deal_id},
+                                        {"_id": 0, "total": 1, "items": 1})
     price = int((inv or {}).get("total") or deal.get("price") or 0)
+    # GL-02: denda keterlambatan sudah menjadi pendapatan 4-1400 saat ditagihkan; pendapatan unit
+    # (4-1100) hanya harga unit + add-on — item denda dikeluarkan supaya tidak terhitung dua kali.
+    penalty_total = sum(int(i.get("amount") or 0) for i in (inv or {}).get("items") or []
+                        if i.get("is_penalty") and not i.get("waived"))
+    price = max(0, price - penalty_total)
     import revrec_cogs as rc
     cinfo = {"cogs": int(cogs), "cogs_source": "manual", "rab_hpp": None} if cogs is not None \
         else await rc.unit_cogs(org_id, deal)
