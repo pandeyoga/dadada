@@ -17,6 +17,8 @@ import settings_store as cfg
 from core_utils import due_in, new_id, now_iso
 from db import db
 from engine import add_activity, emit
+from idempotency import cas
+from money_lock import locked
 
 logger = logging.getLogger("sipro.booking_fee")
 
@@ -116,11 +118,27 @@ async def pay(org: str, deal_id: str, *, amount: int, method: str, note: str, ac
     if amount > int(inv["outstanding"]):
         raise ValueError(f"Nominal Rp {amount:,} melebihi sisa tagihan booking fee "
                          f"Rp {int(inv['outstanding']):,}.".replace(",", "."))
+    deal_row = await db.deals.find_one({"id": deal_id, "org_id": org}, {"_id": 0, "status": 1}) or {}
+    if deal_row.get("status") in ("cancelled", "expired"):
+        # Audit IN-13: reservasi yang sudah batal/kedaluwarsa tidak menerima booking fee lagi.
+        raise ValueError("Reservasi ini sudah dibatalkan/kedaluwarsa — booking fee tidak bisa dibayar "
+                         "lagi. Bila uang pembeli sudah masuk, proses refund-nya dari rincian deal.")
     ts = now_iso()
+    paid = int(inv["paid"]) + amount
+    outstanding = int(inv["amount"]) - paid
+    status = "paid" if outstanding <= 0 else "partial"
+    rid = new_id()
+    # Audit IN-01: KLAIM tagihan dengan CAS terhadap keadaan yang tadi dibaca SEBELUM kuitansi,
+    # titipan, dan jurnal lahir. Dua pembayaran bersamaan yang sama-sama membaca `paid=0`
+    # sebelumnya sama-sama menulis `paid=amount` (kuitansi 2×, titipan 2×, tagihan 1×).
+    await cas("booking_fee_invoices", {"id": inv["id"]},
+              {"paid": inv.get("paid"), "status": inv["status"]},
+              {"$set": {"paid": paid, "outstanding": outstanding, "status": status, "updated_at": ts,
+                        "paid_at": ts if status == "paid" else None},
+               "$push": {"receipt_ids": rid}}, what="Tagihan booking fee ini")
     receipt = {
-        "id": new_id(), "org_id": org, "kind": "booking_fee",
-        "receipt_no": await seq.next_number("receipt", org, prefix="KWT",
-                                            context={"unit_id": inv.get("unit_id")}),
+        "id": rid, "org_id": org, "kind": "booking_fee",
+        "receipt_no": None,
         "deal_id": deal_id, "unit_id": inv.get("unit_id"), "unit_code": inv.get("unit_code"),
         "booking_fee_invoice_id": inv["id"], "invoice_no": inv["no"],
         "amount": amount, "applied": 0, "deposit_amount": amount, "funding": "cash",
@@ -129,19 +147,24 @@ async def pay(org: str, deal_id: str, *, amount: int, method: str, note: str, ac
         "allocations": [{"item_id": None, "label": f"Booking fee ({inv['no']})", "amount": amount}],
         "actor": actor, "created_at": ts,
     }
-    await db.receipts.insert_one(dict(receipt))
-    receipt.pop("_id", None)
     ctx = {"unit_id": inv.get("unit_id"), "unit_code": inv.get("unit_code"),
            "customer_name": inv.get("lead_name")}
-    deposit = await _deposit_move(org, deal_id, ctx, "in", amount,
-                                  f"Booking fee {inv['no']}", actor, receipt_id=receipt["id"])
-    paid = int(inv["paid"]) + amount
-    outstanding = int(inv["amount"]) - paid
-    status = "paid" if outstanding <= 0 else "partial"
-    await db.booking_fee_invoices.update_one({"id": inv["id"]}, {
-        "$set": {"paid": paid, "outstanding": outstanding, "status": status, "updated_at": ts,
-                 "paid_at": ts if status == "paid" else None},
-        "$push": {"receipt_ids": receipt["id"]}})
+    try:
+        receipt["receipt_no"] = await seq.next_number("receipt", org, prefix="KWT",
+                                                      context={"unit_id": inv.get("unit_id")})
+        await db.receipts.insert_one(dict(receipt))
+        receipt.pop("_id", None)
+        deposit = await _deposit_move(org, deal_id, ctx, "in", amount,
+                                      f"Booking fee {inv['no']}", actor, receipt_id=receipt["id"])
+    except BaseException:
+        # Klaim sudah terpasang tetapi kuitansi/titipan gagal lahir → lepas klaim supaya tagihan
+        # tidak tampak terbayar tanpa kuitansi.
+        await db.receipts.delete_one({"id": rid, "booking_fee_invoice_id": inv["id"]})
+        await db.booking_fee_invoices.update_one({"id": inv["id"], "paid": paid}, {
+            "$set": {"paid": int(inv["paid"]), "outstanding": int(inv["outstanding"]),
+                     "status": inv["status"], "paid_at": inv.get("paid_at")},
+            "$pull": {"receipt_ids": rid}})
+        raise
     await db.deals.update_one({"id": deal_id}, {"$set": {
         "booking_fee_status": "verified" if status == "paid" else "recorded",
         "booking_fee_paid_at": ts if status == "paid" else None, "updated_at": ts}})
@@ -240,7 +263,11 @@ async def submit_proof(org: str, *, customer: dict, deal: dict, amount: int, tra
 
 
 async def verify_proof(org: str, intake_id: str, actor: str, note: str = None) -> dict:
-    """Satu klik keuangan: bukti → kwitansi + titipan + status LUNAS (lewat `pay`)."""
+    """Satu klik keuangan: bukti → kwitansi + titipan + status LUNAS (lewat `pay`).
+
+    Audit IN-01: status bukti dicek DI BAWAH kunci yang sama dengan `payment_intake.verify`
+    (kunci per bukti, apa pun jenisnya), sehingga dua klik/tab tidak melahirkan dua kuitansi.
+    """
     from payment_intake import _tell_customer
     row = await db.payment_intakes.find_one({"id": intake_id, "org_id": org, "kind": "booking_fee"},
                                             {"_id": 0})
@@ -248,15 +275,20 @@ async def verify_proof(org: str, intake_id: str, actor: str, note: str = None) -
         raise ValueError("Bukti booking fee tidak ditemukan.")
     if row["state"] != "pending":
         raise ValueError("Bukti ini sudah diproses.")
-    inv = await get_invoice(org, row["deal_id"])
-    amount = min(int(row["amount"]), int(inv["outstanding"])) if inv else int(row["amount"])
-    out = await pay(org, row["deal_id"], amount=amount, method="transfer",
-                    note=note or f"Verifikasi bukti transfer pembeli ({row['transfer_date']})",
-                    actor=actor)
-    ts = now_iso()
-    await db.payment_intakes.update_one({"id": intake_id}, {"$set": {
-        "state": "verified", "state_label": "Terverifikasi", "receipt_id": out["receipt"]["id"],
-        "verified_by": actor, "verified_at": ts, "verify_note": note, "updated_at": ts}})
+    async with locked("intake.verify", intake_id, what="Verifikasi bukti booking fee ini"):
+        row = await db.payment_intakes.find_one({"id": intake_id, "org_id": org, "kind": "booking_fee"},
+                                                {"_id": 0})
+        if not row or row["state"] != "pending":
+            raise ValueError("Bukti ini sudah diproses.")
+        inv = await get_invoice(org, row["deal_id"])
+        amount = min(int(row["amount"]), int(inv["outstanding"])) if inv else int(row["amount"])
+        out = await pay(org, row["deal_id"], amount=amount, method="transfer",
+                        note=note or f"Verifikasi bukti transfer pembeli ({row['transfer_date']})",
+                        actor=actor)
+        ts = now_iso()
+        await db.payment_intakes.update_one({"id": intake_id}, {"$set": {
+            "state": "verified", "state_label": "Terverifikasi", "receipt_id": out["receipt"]["id"],
+            "verified_by": actor, "verified_at": ts, "verify_note": note, "updated_at": ts}})
     await _tell_customer(org, {**row, "customer_id": row.get("customer_id")},
                          (f"Bukti transfer booking fee Anda Rp {amount:,} sudah DIVERIFIKASI. "
                           f"Kwitansi {out['receipt']['receipt_no']} tersedia di Portal.")
@@ -284,49 +316,82 @@ async def refund(org: str, deal_id: str, *, amount: int, method: str, note: str,
         raise ValueError(f"Nominal Rp {amount:,} melebihi sisa yang bisa dikembalikan "
                          f"Rp {summ['refundable']:,}.".replace(",", "."))
     ts = now_iso()
-    rec = {"id": new_id(), "org_id": org, "kind": "booking_fee_refund",
-           "receipt_no": await seq.next_number("booking_fee_refund", org, prefix="RF-BF",
-                                               context={"unit_id": inv.get("unit_id")}),
-           "deal_id": deal_id, "unit_id": inv.get("unit_id"), "unit_code": inv.get("unit_code"),
-           "lead_name": inv.get("lead_name"), "booking_fee_invoice_id": inv["id"],
-           "invoice_no": inv["no"], "amount": amount, "method": method or "transfer",
-           "note": note, "forfeited": 0, "actor": actor, "created_at": ts}
-    if amount > 0:
-        ctx = {"unit_id": inv.get("unit_id"), "unit_code": inv.get("unit_code"),
-               "customer_name": inv.get("lead_name")}
-        await _deposit_move(org, deal_id, ctx, "refund", amount,
-                            f"Refund booking fee {inv['no']} ({rec['receipt_no']})", actor,
-                            receipt_id=rec["id"])
     forfeited = summ["refundable"] - amount if finalize else 0
-    rec["forfeited"] = forfeited
-    if forfeited > 0:
-        # Hangus = titipan berpindah menjadi pendapatan lain-lain (tidak ada kas bergerak).
-        import gl_engine as gl
-        entry = await gl.post_journal(
-            org, f"Booking fee hangus {inv['no']}", [
-                {"account_code": "2-1450", "debit": forfeited, "credit": 0,
-                 "memo": f"Titipan booking fee {inv.get('lead_name') or ''}"},
-                {"account_code": "4-1200", "debit": 0, "credit": forfeited,
-                 "memo": "Pendapatan lain-lain: booking fee hangus"},
-            ], source_type="booking_fee_forfeit", source_id=rec["id"],
-            source_event=f"bf:{inv['id']}:forfeit:{rec['id']}", posted_by=actor, auto=True,
-            source_deal_id=deal_id)
-        rec["forfeit_journal_id"] = entry["id"]
-        await db.customer_deposits.update_one({"org_id": org, "deal_id": deal_id},
-                                              {"$inc": {"balance": -forfeited}})
-    await db.receipts.insert_one(dict(rec))
-    rec.pop("_id", None)
+    rec_id = new_id()
     new_refunded = int(inv.get("refunded_total") or 0) + amount
     new_forfeited = int(inv.get("forfeited_total") or 0) + forfeited
     status = inv["status"]
     if new_refunded + new_forfeited >= int(inv["paid"]):
         status = "refunded" if new_refunded > 0 else "forfeited"
-    await db.booking_fee_invoices.update_one({"id": inv["id"]}, {
-        "$set": {"refunded_total": new_refunded, "forfeited_total": new_forfeited,
-                 "status": status, "updated_at": ts},
-        "$push": {"refunds": {"id": rec["id"], "receipt_no": rec["receipt_no"], "amount": amount,
-                              "forfeited": forfeited, "method": rec["method"], "at": ts,
-                              "actor": actor}}})
+    # Audit IN-04: satu refund = satu pembayaran. KLAIM tagihan dengan CAS terhadap keadaan yang
+    # tadi dibaca (total refund/hangus/status) SEBELUM kas keluar & bukti refund lahir — dua refund
+    # bersamaan dulu sama-sama menulis `refunded_total` dari nilai basi dan sama-sama mengeluarkan kas.
+    await cas("booking_fee_invoices", {"id": inv["id"]},
+              {"refunded_total": inv.get("refunded_total"), "forfeited_total": inv.get("forfeited_total"),
+               "status": inv["status"]},
+              {"$set": {"refunded_total": new_refunded, "forfeited_total": new_forfeited,
+                        "status": status, "updated_at": ts},
+               "$push": {"refunds": {"id": rec_id, "receipt_no": None, "amount": amount,
+                                     "forfeited": forfeited, "method": method or "transfer",
+                                     "at": ts, "actor": actor}}},
+              what="Tagihan booking fee ini")
+    rec = {"id": rec_id, "org_id": org, "kind": "booking_fee_refund",
+           "receipt_no": None,
+           "deal_id": deal_id, "unit_id": inv.get("unit_id"), "unit_code": inv.get("unit_code"),
+           "lead_name": inv.get("lead_name"), "booking_fee_invoice_id": inv["id"],
+           "invoice_no": inv["no"], "amount": amount, "method": method or "transfer",
+           "note": note, "forfeited": forfeited, "actor": actor, "created_at": ts}
+    forfeit_taken = refund_moved = False
+    try:
+        rec["receipt_no"] = await seq.next_number("booking_fee_refund", org, prefix="RF-BF",
+                                                  context={"unit_id": inv.get("unit_id")})
+        if forfeited > 0:
+            # Hangus = titipan berpindah menjadi pendapatan lain-lain (tidak ada kas bergerak).
+            res = await db.customer_deposits.update_one(
+                {"org_id": org, "deal_id": deal_id, "balance": {"$gte": forfeited}},
+                {"$inc": {"balance": -forfeited}})
+            if res.matched_count != 1:
+                raise ValueError("Saldo titipan tidak cukup untuk menandai sisa booking fee hangus — "
+                                 "titipan ini sudah dialihkan/dikembalikan. Muat ulang rincian deal.")
+            forfeit_taken = True
+        if amount > 0:
+            ctx = {"unit_id": inv.get("unit_id"), "unit_code": inv.get("unit_code"),
+                   "customer_name": inv.get("lead_name")}
+            # Saldo titipan dicek atomik (audit IN-02): titipan yang sudah dialihkan ke termin
+            # tidak bisa "dikembalikan" lagi — uang itu sudah menjadi pembayaran unit.
+            await _deposit_move(org, deal_id, ctx, "refund", amount,
+                                f"Refund booking fee {inv['no']} ({rec['receipt_no']})", actor,
+                                receipt_id=rec_id)
+        refund_moved = True
+        if forfeited > 0:
+            import gl_engine as gl
+            entry = await gl.post_journal(
+                org, f"Booking fee hangus {inv['no']}", [
+                    {"account_code": "2-1450", "debit": forfeited, "credit": 0,
+                     "memo": f"Titipan booking fee {inv.get('lead_name') or ''}"},
+                    {"account_code": "4-1200", "debit": 0, "credit": forfeited,
+                     "memo": "Pendapatan lain-lain: booking fee hangus"},
+                ], source_type="booking_fee_forfeit", source_id=rec["id"],
+                source_event=f"bf:{inv['id']}:forfeit:{rec['id']}", posted_by=actor, auto=True,
+                source_deal_id=deal_id)
+            rec["forfeit_journal_id"] = entry["id"]
+        await db.receipts.insert_one(dict(rec))
+        rec.pop("_id", None)
+        await db.booking_fee_invoices.update_one(
+            {"id": inv["id"], "refunds.id": rec_id}, {"$set": {"refunds.$.receipt_no": rec["receipt_no"]}})
+    except BaseException:
+        if not refund_moved:
+            # Kas belum keluar: lepas klaim (tagihan & titipan kembali seperti semula).
+            if forfeit_taken:
+                await db.customer_deposits.update_one({"org_id": org, "deal_id": deal_id},
+                                                      {"$inc": {"balance": forfeited}})
+            await db.booking_fee_invoices.update_one(
+                {"id": inv["id"], "refunds.id": rec_id}, {
+                    "$set": {"refunded_total": int(inv.get("refunded_total") or 0),
+                             "forfeited_total": int(inv.get("forfeited_total") or 0),
+                             "status": inv["status"]},
+                    "$pull": {"refunds": {"id": rec_id}}})
+        raise
     await db.deals.update_one({"id": deal_id}, {"$set": {
         "booking_fee_status": "refunded" if new_refunded > 0 else "forfeited", "updated_at": ts}})
     await add_activity(entity_type="lead", entity_id=inv.get("lead_id"), type="finance",

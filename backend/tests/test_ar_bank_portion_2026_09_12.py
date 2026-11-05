@@ -101,16 +101,16 @@ def test_explicit_bank_allocation_requires_opt_in(sa, kpr_deal):
 
 
 def test_kpr_method_pays_bank_portion_first(sa, kpr_deal):
+    """Audit IN-15 (perilaku SENGAJA berubah): cara bayar `kpr` TIDAK lagi diterima di kuitansi manual —
+    porsi bank hanya dilunasi lewat pencairan KPR (SP3K/akad/tahap/bukti bank). Alokasi porsi-bank-dulu
+    untuk pencairan tetap dijaga mesin (`apply_receipt(kpr_disbursement=True)`) dan diuji di
+    backend/tests/p0/test_p0_masuk.py::test_in01_pencairan_kpr_sekuensial_normal_dan_ulang_ditolak."""
     inv = _ar(sa, kpr_deal["deal_id"])
-    bank_ids = {i["id"] for i in inv["items"] if i.get("payer") == "bank"}
     r = _receipt(sa, {"deal_id": kpr_deal["deal_id"], "amount": 2000, "method": "kpr"})
-    assert r.status_code == 200, r.text
-    rc = r.json()["data"]["receipt"]
-    assert rc["allocations"] and all(a["item_id"] in bank_ids for a in rc["allocations"])
+    assert r.status_code == 400 and "Pencairan KPR" in r.text, r.text
     after = _ar(sa, kpr_deal["deal_id"])
-    assert after["bank_outstanding"] == inv["bank_outstanding"] - 2000
+    assert after["bank_outstanding"] == inv["bank_outstanding"]
     assert after["buyer_outstanding"] == inv["buyer_outstanding"]
-    _delete_receipt(sa, rc["id"])
 
 
 def test_scheme_terms_accept_payer(sa):

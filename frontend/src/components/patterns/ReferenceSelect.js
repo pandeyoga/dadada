@@ -19,11 +19,12 @@ const NEW_VALUE = "__new__";
  */
 export default function ReferenceSelect({
   group, value, onChange, placeholder = "Pilih…", allowEmpty = false,
-  emptyLabel = "Semua", disabled = false, testId, className,
+  emptyLabel = "Semua", disabled = false, testId, className, exclude = [],
 }) {
   const { options, groupMeta, addValue } = useReference();
   const meta = groupMeta(group);
-  const opts = options(group);
+  // `exclude`: nilai registry yang tidak boleh dipilih di layar ini (mis. "kpr" di kuitansi manual).
+  const opts = options(group).filter((o) => !exclude.includes(o.value));
   const [customMode, setCustomMode] = useState(false);
   const [custom, setCustom] = useState("");
   const [saving, setSaving] = useState(false);

@@ -53,6 +53,7 @@ from core_utils import new_id, now_iso
 from db import ORG_ID, ORG_NAME, db
 from engine import add_activity, emit
 from finance_engine import notify_finance
+from money_lock import locked
 
 logger = logging.getLogger("sipro.cancellation")
 
@@ -399,97 +400,103 @@ async def _generate_document(org: str, cancel: dict, hitung: dict, actor: str) -
 
 
 async def decide(org: str, cid: str, actor: str, approved: bool, note: str) -> dict:
-    """Keputusan Manajer Keuangan. Di sinilah uang berpindah keadaan (jurnal lahir)."""
-    cancel = await db.cancellations.find_one({"id": cid, "org_id": org}, {"_id": 0})
-    if not cancel:
-        raise ValueError("Pengajuan pembatalan tidak ditemukan.")
-    if cancel["state"] != "diajukan":
-        raise ValueError(f"Pengajuan ini sudah "
-                         f"{ref.label_of('cancel_state', cancel['state'])} — tidak bisa "
-                         "diputus dua kali.")
-    if cancel.get("requested_by") == actor:
-        # Empat mata: yang mengajukan tidak boleh memutuskan pengajuannya sendiri.
-        raise ValueError("Pengaju tidak boleh memutuskan pengajuannya sendiri "
-                         "(pemisahan tugas).")
-    ts = now_iso()
-    if not approved:
-        await db.cancellations.update_one({"id": cid}, {"$set": {
-            "state": "ditolak", "updated_at": ts,
-            "decision": {"approved": False, "by": actor, "at": ts, "note": note}}})
-        await add_activity(entity_type="lead", entity_id=cancel.get("lead_id"), type="system",
-                           body=f"Pembatalan {cancel['number']} DITOLAK: {note}",
-                           actor=actor, org_id=org)
-        await emit("cancellation.rejected", "cancellation", cid, {}, org_id=org)
-        return await db.cancellations.find_one({"id": cid}, {"_id": 0})
+    """Keputusan Manajer Keuangan. Di sinilah uang berpindah keadaan (jurnal lahir).
 
-    contract = await db.contracts.find_one({"id": cancel["contract_id"], "org_id": org},
-                                           {"_id": 0})
-    if not contract:
-        raise ValueError("Kontrak pengajuan ini tidak ditemukan.")
-    # Uang bisa bergerak antara pengajuan dan keputusan — hitung ULANG pada saat memutuskan.
-    hitung = await compute(org, contract)
-    journal_ids = await _post_decision_journal(org, cancel, hitung, actor)
-    ar = await _void_ar(org, cancel)
-    released = await _release_unit(org, cancel, actor)
-    if hitung["deposit_balance"] > 0:
-        # Titipan dipindahkan ke utang refund lewat jurnal di atas; saldo titipan ditutup
-        # TANPA memakai `_deposit_move` supaya tidak lahir jurnal kedua untuk uang yang sama.
-        await db.customer_deposits.update_one(
-            {"org_id": org, "deal_id": cancel["deal_id"]},
-            {"$inc": {"balance": -hitung["deposit_balance"]},
-             "$push": {"entries": {
-                 "id": new_id(), "type": "cancel_transfer",
-                 "amount": hitung["deposit_balance"],
-                 "note": f"Dipindahkan ke utang refund pembatalan {cancel['number']}",
-                 "actor": actor, "created_at": ts}},
-             "$set": {"updated_at": ts}})
-    if hitung["received_total"] > 0:
-        # Cermin subledger dari `Dr 2-1400` pada jurnal keputusan: kewajiban kontrak SELESAI.
-        # Tanpa baris ini buku besar dan subledger berbeda (tie-out MERAH) dan laporan
-        # kewajiban masih menagih uang yang sudah diselesaikan pembatalan.
-        await db.contract_liabilities.update_one(
-            {"org_id": org, "deal_id": cancel["deal_id"]},
-            {"$set": {"balance": 0, "cancelled": True, "cancellation_id": cid,
-                      "cleared_by_cancellation": hitung["received_total"],
-                      "updated_at": ts}})
-    await db.deals.update_one({"id": cancel["deal_id"]}, {"$set": {
-        "status": "cancelled", "cancelled_at": ts, "cancel_reason": cancel.get("reason"),
-        "cancellation_id": cid, "updated_at": ts,
-        **await clock.patch_for("deal", "cancelled", org_id=org, at=ts)}})
-    await db.contracts.update_one({"id": contract["id"]}, {"$set": {
-        "state": "cancelled", "cancelled_at": ts, "cancellation_id": cid,
-        "cancel_reason": cancel.get("reason"), "updated_at": ts}})
-    lead = await db.leads.find_one({"id": cancel.get("lead_id")}, {"_id": 0})
-    if lead and lead.get("stage") not in ("lost",):
-        await lc.record(lead, "lost", actor=actor,
-                        reason=f"Kontrak dibatalkan ({cancel['number']}): "
-                               f"{cancel.get('reason')}",
-                        evidence={"cancellation_id": cid}, source="cancellation")
-    doc = await _generate_document(org, cancel, hitung, actor)
-    settlement = {
-        **hitung,
-        "ar_invoice_id": ar["invoice"], "ar_terms_cancelled": ar["dibatalkan"],
-        "unit_released": released,
-    }
-    await db.cancellations.update_one({"id": cid}, {"$set": {
-        "state": "disetujui", "updated_at": ts,
-        "decision": {"approved": True, "by": actor, "at": ts, "note": note},
-        "settlement": settlement, "journal_ids": journal_ids,
-        "document_id": doc["id"], "document_number": doc["doc_number"]}})
-    await add_activity(entity_type="lead", entity_id=cancel.get("lead_id"), type="system",
-                       body=(f"Pembatalan {cancel['number']} DISETUJUI. Potongan "
-                             f"{_rp(hitung['cut_amount'])} ({hitung['cut_pct']}%), utang "
-                             f"refund {_rp(hitung['payable_total'])}. Unit "
-                             f"{cancel.get('unit_code')} kembali ke stok."),
-                       actor=actor, org_id=org)
-    await notify_finance(org, "Refund pembatalan menunggu pembayaran",
-                         (f"{cancel['number']} · {_rp(hitung['payable_total'])} kepada "
-                          f"{cancel.get('customer_name')}."),
-                         "finance", "cancellation", cid)
-    await emit("cancellation.approved", "cancellation", cid,
-               {"contract_id": contract["id"], "unit_id": cancel.get("unit_id"),
-                "payable_total": hitung["payable_total"]}, org_id=org)
-    return await db.cancellations.find_one({"id": cid}, {"_id": 0})
+    Audit IN-01/IN-04: dikerjakan di bawah KUNCI per pengajuan dan `state` dibaca di bawah kunci itu.
+    Dua keputusan bersamaan dulu sama-sama lolos cek "belum diputus" lalu sama-sama menggerakkan
+    subledger (titipan ditutup 2×, kewajiban kontrak, AR). Yang kedua mendapat HTTP 409.
+    """
+    async with locked("cancel.decide", cid, what="Keputusan pembatalan ini"):
+        cancel = await db.cancellations.find_one({"id": cid, "org_id": org}, {"_id": 0})
+        if not cancel:
+            raise ValueError("Pengajuan pembatalan tidak ditemukan.")
+        if cancel["state"] != "diajukan":
+            raise ValueError(f"Pengajuan ini sudah "
+                             f"{ref.label_of('cancel_state', cancel['state'])} — tidak bisa "
+                             "diputus dua kali.")
+        if cancel.get("requested_by") == actor:
+            # Empat mata: yang mengajukan tidak boleh memutuskan pengajuannya sendiri.
+            raise ValueError("Pengaju tidak boleh memutuskan pengajuannya sendiri "
+                             "(pemisahan tugas).")
+        ts = now_iso()
+        if not approved:
+            await db.cancellations.update_one({"id": cid}, {"$set": {
+                "state": "ditolak", "updated_at": ts,
+                "decision": {"approved": False, "by": actor, "at": ts, "note": note}}})
+            await add_activity(entity_type="lead", entity_id=cancel.get("lead_id"), type="system",
+                               body=f"Pembatalan {cancel['number']} DITOLAK: {note}",
+                               actor=actor, org_id=org)
+            await emit("cancellation.rejected", "cancellation", cid, {}, org_id=org)
+            return await db.cancellations.find_one({"id": cid}, {"_id": 0})
+
+        contract = await db.contracts.find_one({"id": cancel["contract_id"], "org_id": org},
+                                               {"_id": 0})
+        if not contract:
+            raise ValueError("Kontrak pengajuan ini tidak ditemukan.")
+        # Uang bisa bergerak antara pengajuan dan keputusan — hitung ULANG pada saat memutuskan.
+        hitung = await compute(org, contract)
+        journal_ids = await _post_decision_journal(org, cancel, hitung, actor)
+        ar = await _void_ar(org, cancel)
+        released = await _release_unit(org, cancel, actor)
+        if hitung["deposit_balance"] > 0:
+            # Titipan dipindahkan ke utang refund lewat jurnal di atas; saldo titipan ditutup
+            # TANPA memakai `_deposit_move` supaya tidak lahir jurnal kedua untuk uang yang sama.
+            await db.customer_deposits.update_one(
+                {"org_id": org, "deal_id": cancel["deal_id"]},
+                {"$inc": {"balance": -hitung["deposit_balance"]},
+                 "$push": {"entries": {
+                     "id": new_id(), "type": "cancel_transfer",
+                     "amount": hitung["deposit_balance"],
+                     "note": f"Dipindahkan ke utang refund pembatalan {cancel['number']}",
+                     "actor": actor, "created_at": ts}},
+                 "$set": {"updated_at": ts}})
+        if hitung["received_total"] > 0:
+            # Cermin subledger dari `Dr 2-1400` pada jurnal keputusan: kewajiban kontrak SELESAI.
+            # Tanpa baris ini buku besar dan subledger berbeda (tie-out MERAH) dan laporan
+            # kewajiban masih menagih uang yang sudah diselesaikan pembatalan.
+            await db.contract_liabilities.update_one(
+                {"org_id": org, "deal_id": cancel["deal_id"]},
+                {"$set": {"balance": 0, "cancelled": True, "cancellation_id": cid,
+                          "cleared_by_cancellation": hitung["received_total"],
+                          "updated_at": ts}})
+        await db.deals.update_one({"id": cancel["deal_id"]}, {"$set": {
+            "status": "cancelled", "cancelled_at": ts, "cancel_reason": cancel.get("reason"),
+            "cancellation_id": cid, "updated_at": ts,
+            **await clock.patch_for("deal", "cancelled", org_id=org, at=ts)}})
+        await db.contracts.update_one({"id": contract["id"]}, {"$set": {
+            "state": "cancelled", "cancelled_at": ts, "cancellation_id": cid,
+            "cancel_reason": cancel.get("reason"), "updated_at": ts}})
+        lead = await db.leads.find_one({"id": cancel.get("lead_id")}, {"_id": 0})
+        if lead and lead.get("stage") not in ("lost",):
+            await lc.record(lead, "lost", actor=actor,
+                            reason=f"Kontrak dibatalkan ({cancel['number']}): "
+                                   f"{cancel.get('reason')}",
+                            evidence={"cancellation_id": cid}, source="cancellation")
+        doc = await _generate_document(org, cancel, hitung, actor)
+        settlement = {
+            **hitung,
+            "ar_invoice_id": ar["invoice"], "ar_terms_cancelled": ar["dibatalkan"],
+            "unit_released": released,
+        }
+        await db.cancellations.update_one({"id": cid}, {"$set": {
+            "state": "disetujui", "updated_at": ts,
+            "decision": {"approved": True, "by": actor, "at": ts, "note": note},
+            "settlement": settlement, "journal_ids": journal_ids,
+            "document_id": doc["id"], "document_number": doc["doc_number"]}})
+        await add_activity(entity_type="lead", entity_id=cancel.get("lead_id"), type="system",
+                           body=(f"Pembatalan {cancel['number']} DISETUJUI. Potongan "
+                                 f"{_rp(hitung['cut_amount'])} ({hitung['cut_pct']}%), utang "
+                                 f"refund {_rp(hitung['payable_total'])}. Unit "
+                                 f"{cancel.get('unit_code')} kembali ke stok."),
+                           actor=actor, org_id=org)
+        await notify_finance(org, "Refund pembatalan menunggu pembayaran",
+                             (f"{cancel['number']} · {_rp(hitung['payable_total'])} kepada "
+                              f"{cancel.get('customer_name')}."),
+                             "finance", "cancellation", cid)
+        await emit("cancellation.approved", "cancellation", cid,
+                   {"contract_id": contract["id"], "unit_id": cancel.get("unit_id"),
+                    "payable_total": hitung["payable_total"]}, org_id=org)
+        return await db.cancellations.find_one({"id": cid}, {"_id": 0})
 
 
 # ============================================================ pembayaran refund
@@ -536,71 +543,77 @@ async def pay_refund(org: str, cid: str, actor: str, *, method: str, amount: int
                      client_ref: str = None, note: str = None, override: bool = False,
                      override_reason: str = None, may_override: bool = False,
                      cash_account_id: str = None) -> dict:
-    """Bayar refund (boleh bertahap). Idempoten lewat `client_ref`."""
-    cancel = await db.cancellations.find_one({"id": cid, "org_id": org}, {"_id": 0})
-    if not cancel:
-        raise ValueError("Pengajuan pembatalan tidak ditemukan.")
-    if client_ref:
-        for p in cancel.get("refund_payments") or []:
-            if p.get("client_ref") == client_ref:
-                # Kiriman ulang penanda yang sama BUKAN pembayaran kedua.
-                return {"cancellation": cancel, "payment": p, "replay": True}
-    hold = await refund_hold(org, cancel)
-    if hold and hold["code"] == "menunggu_penjualan_ulang":
-        if not override:
-            raise ValueError(hold["detail"])
-        if not may_override:
-            raise ValueError("Hanya Manajer Keuangan yang boleh mengabaikan penahanan "
-                             "refund ini.")
-        if len((override_reason or "").strip()) < 10:
-            raise ValueError("Alasan pengabaian wajib minimal 10 huruf — keputusan ini "
-                             "dibaca auditor.")
-    elif hold:
-        raise ValueError(hold["detail"])
+    """Bayar refund (boleh bertahap). Idempoten lewat `client_ref`.
 
-    payable = int((cancel.get("settlement") or {}).get("payable_total") or 0)
-    paid = int(cancel.get("refund_paid_total") or 0)
-    sisa = payable - paid
-    amount = int(amount or sisa)
-    if amount <= 0:
-        raise ValueError("Nominal refund harus lebih dari 0.")
-    if amount > sisa:
-        raise ValueError(f"Nominal melebihi sisa utang refund ({_rp(sisa)}). Refund tidak "
-                         "boleh dibayar dua kali.")
-    akun_kas = AKUN_KAS if method == "tunai" else AKUN_BANK
-    import cash_bank as _cb
-    akun_kas = await _cb.resolve_code(org, cash_account_id, akun_kas)
-    ts = now_iso()
-    pid = new_id()
-    entry = await gl.post_journal(
-        org, f"Pembayaran refund pembatalan {cancel['number']}", [
-            {"account_code": AKUN_UTANG_REFUND, "debit": amount, "credit": 0,
-             "memo": f"Utang refund kepada {cancel.get('customer_name')}"},
-            {"account_code": akun_kas, "debit": 0, "credit": amount,
-             "memo": ref.label_of("refund_method", method)},
-        ], source_type="cancellation_refund", source_id=pid,
-        source_event=f"cancel:{cid}:refund:{pid}", posted_by=actor, auto=True,
-        source_deal_id=cancel.get("deal_id"))
-    payment = {"id": pid, "amount": amount, "method": method,
-               "method_label": ref.label_of("refund_method", method),
-               "account_code": akun_kas, "note": note, "client_ref": client_ref,
-               "override": bool(override), "override_reason": override_reason or None,
-               "journal_id": entry["id"], "actor": actor, "at": ts}
-    total = paid + amount
-    state = "selesai" if total >= payable else "refund_sebagian"
-    await db.cancellations.update_one({"id": cid}, {
-        "$push": {"refund_payments": payment, "journal_ids": entry["id"]},
-        "$set": {"refund_paid_total": total, "state": state, "updated_at": ts}})
-    await add_activity(entity_type="lead", entity_id=cancel.get("lead_id"), type="system",
-                       body=(f"Refund pembatalan {cancel['number']} dibayar {_rp(amount)} "
-                             f"({ref.label_of('refund_method', method)})."
-                             + (" Penahanan 'menunggu penjualan ulang' diabaikan: "
-                                f"{override_reason}" if override else "")),
-                       actor=actor, org_id=org)
-    await emit("cancellation.refund_paid", "cancellation", cid,
-               {"amount": amount, "total": total}, org_id=org)
-    fresh = await db.cancellations.find_one({"id": cid}, {"_id": 0})
-    return {"cancellation": fresh, "payment": payment, "replay": False}
+    Audit IN-04: satu refund = satu pembayaran. Seluruh pembacaan `refund_paid_total` + penulisannya
+    berjalan di bawah KUNCI per pengajuan; dua pembayaran bersamaan dulu sama-sama membaca total
+    lama dan sama-sama mengeluarkan kas (600 jt keluar, sistem mencatat 300 jt).
+    """
+    async with locked("cancel.refund", cid, what="Pembayaran refund pembatalan ini"):
+        cancel = await db.cancellations.find_one({"id": cid, "org_id": org}, {"_id": 0})
+        if not cancel:
+            raise ValueError("Pengajuan pembatalan tidak ditemukan.")
+        if client_ref:
+            for p in cancel.get("refund_payments") or []:
+                if p.get("client_ref") == client_ref:
+                    # Kiriman ulang penanda yang sama BUKAN pembayaran kedua.
+                    return {"cancellation": cancel, "payment": p, "replay": True}
+        hold = await refund_hold(org, cancel)
+        if hold and hold["code"] == "menunggu_penjualan_ulang":
+            if not override:
+                raise ValueError(hold["detail"])
+            if not may_override:
+                raise ValueError("Hanya Manajer Keuangan yang boleh mengabaikan penahanan "
+                                 "refund ini.")
+            if len((override_reason or "").strip()) < 10:
+                raise ValueError("Alasan pengabaian wajib minimal 10 huruf — keputusan ini "
+                                 "dibaca auditor.")
+        elif hold:
+            raise ValueError(hold["detail"])
+
+        payable = int((cancel.get("settlement") or {}).get("payable_total") or 0)
+        paid = int(cancel.get("refund_paid_total") or 0)
+        sisa = payable - paid
+        amount = int(amount or sisa)
+        if amount <= 0:
+            raise ValueError("Nominal refund harus lebih dari 0.")
+        if amount > sisa:
+            raise ValueError(f"Nominal melebihi sisa utang refund ({_rp(sisa)}). Refund tidak "
+                             "boleh dibayar dua kali.")
+        akun_kas = AKUN_KAS if method == "tunai" else AKUN_BANK
+        import cash_bank as _cb
+        akun_kas = await _cb.resolve_code(org, cash_account_id, akun_kas)
+        ts = now_iso()
+        pid = new_id()
+        entry = await gl.post_journal(
+            org, f"Pembayaran refund pembatalan {cancel['number']}", [
+                {"account_code": AKUN_UTANG_REFUND, "debit": amount, "credit": 0,
+                 "memo": f"Utang refund kepada {cancel.get('customer_name')}"},
+                {"account_code": akun_kas, "debit": 0, "credit": amount,
+                 "memo": ref.label_of("refund_method", method)},
+            ], source_type="cancellation_refund", source_id=pid,
+            source_event=f"cancel:{cid}:refund:{pid}", posted_by=actor, auto=True,
+            source_deal_id=cancel.get("deal_id"))
+        payment = {"id": pid, "amount": amount, "method": method,
+                   "method_label": ref.label_of("refund_method", method),
+                   "account_code": akun_kas, "note": note, "client_ref": client_ref,
+                   "override": bool(override), "override_reason": override_reason or None,
+                   "journal_id": entry["id"], "actor": actor, "at": ts}
+        total = paid + amount
+        state = "selesai" if total >= payable else "refund_sebagian"
+        await db.cancellations.update_one({"id": cid}, {
+            "$push": {"refund_payments": payment, "journal_ids": entry["id"]},
+            "$set": {"refund_paid_total": total, "state": state, "updated_at": ts}})
+        await add_activity(entity_type="lead", entity_id=cancel.get("lead_id"), type="system",
+                           body=(f"Refund pembatalan {cancel['number']} dibayar {_rp(amount)} "
+                                 f"({ref.label_of('refund_method', method)})."
+                                 + (" Penahanan 'menunggu penjualan ulang' diabaikan: "
+                                    f"{override_reason}" if override else "")),
+                           actor=actor, org_id=org)
+        await emit("cancellation.refund_paid", "cancellation", cid,
+                   {"amount": amount, "total": total}, org_id=org)
+        fresh = await db.cancellations.find_one({"id": cid}, {"_id": 0})
+        return {"cancellation": fresh, "payment": payment, "replay": False}
 
 
 # ============================================================ pembacaan

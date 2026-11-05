@@ -31,6 +31,8 @@ export default function BookingFeePanel({ dealId, compact = false, onChanged }) 
   const { can } = useAuth();
   const { labelOf } = useReference();
   const mayPay = can("finance", "create");
+  // Verifikasi bukti & refund booking fee = keputusan kas → 'approve' (sama dengan backend, audit IN-12).
+  const mayApprove = can("finance", "approve");
   const [data, setData] = useState(null);
   const [payOpen, setPayOpen] = useState(false);
   const [form, setForm] = useState({ amount: "", method: "transfer", note: "" });
@@ -115,9 +117,9 @@ export default function BookingFeePanel({ dealId, compact = false, onChanged }) 
           <span className="text-xs text-muted-foreground">Pencatatan pembayaran oleh Keuangan.</span>
         ) : null}
       </div>
-      <BookingFeeProofs dealId={dealId} proofs={data.proofs} mayPay={mayPay}
+      <BookingFeeProofs dealId={dealId} proofs={data.proofs} mayPay={mayApprove}
         onChanged={() => { load(); onChanged?.(); }} />
-      <BookingFeeRefund dealId={dealId} refund={data.refund} mayPay={mayPay} openPdf={openPdf}
+      <BookingFeeRefund dealId={dealId} refund={data.refund} mayPay={mayApprove} openPdf={openPdf}
         onChanged={() => { load(); onChanged?.(); }} />
 
       <Dialog open={payOpen} onOpenChange={setPayOpen}>

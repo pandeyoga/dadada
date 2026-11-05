@@ -19,6 +19,7 @@ import sequences as seq
 from db import db, ORG_ID
 from core_utils import new_id, now_iso, now
 from engine import emit, create_notification, add_activity
+from idempotency import Conflict
 
 logger = logging.getLogger("sipro.finance")
 
@@ -487,13 +488,24 @@ def kpr_outstanding(inv: dict) -> int:
 
 
 async def _recalc_invoice(inv: dict, items: list, ts: str) -> tuple:
-    """Simpan ulang total AR + status unit dari hasil alokasi. Return (paid, outstanding, status)."""
+    """Simpan ulang total AR + status unit dari hasil alokasi. Return (paid, outstanding, status).
+
+    CAS (audit IN-01): `items` dihitung dari `inv` yang tadi DIBACA. Bila AR sudah berubah sejak
+    itu (penerimaan lain yang bersamaan), penulisan ini DITOLAK dengan `Conflict` — sebelum
+    kuitansi/jurnal apa pun lahir — alih-alih menimpa hasil pemenang dan membuat uang tercatat
+    dua kali sementara piutang hanya turun sekali. Versi = `updated_at` + `paid` dokumen yang dibaca.
+    """
     paid = sum(i.get("paid_amount", 0) for i in items)
     total = inv["total"]
     outstanding = total - paid
     status = "paid" if outstanding <= 0 else ("partial" if paid > 0 else "unpaid")
-    await db.ar_invoices.update_one({"id": inv["id"]}, {"$set": {
+    expect = {k: inv[k] for k in ("updated_at", "paid") if k in inv}
+    res = await db.ar_invoices.update_one({"id": inv["id"], **expect}, {"$set": {
         "items": items, "paid": paid, "outstanding": outstanding, "status": status, "updated_at": ts}})
+    if res.matched_count != 1:
+        raise Conflict("Tagihan (AR) deal ini baru saja berubah karena pembayaran/penyesuaian lain "
+                       "yang bersamaan. Tidak ada yang tercatat dari permintaan ini — muat ulang, "
+                       "periksa daftar pembayaran, lalu ulangi bila memang belum tercatat.")
     pay_status = "paid_off" if status == "paid" else ("partial" if paid > 0 else "booking_fee")
     await db.units.update_one({"id": inv.get("unit_id")},
                               {"$set": {"payment_status": pay_status, "updated_at": ts}})
@@ -510,9 +522,29 @@ async def _after_paid_off(inv: dict, deal_id: str, org_id: str):
                          "finance", "deal", deal_id, extra_emails=[inv.get("assigned_to")])
 
 
+async def _deal_closed_reason(org_id, deal_id, inv: dict = None) -> str:
+    """Alasan deal/kontrak TIDAK lagi boleh menerima pembayaran (batal/kedaluwarsa), atau None.
+
+    Audit IN-13: uang yang masuk ke deal batal menghidupkan AR `cancelled` kembali dan menandai
+    unit yang sudah tersedia sebagai "sebagian dibayar" — padahal tidak ada kontrak lagi.
+    """
+    deal = await db.deals.find_one({"id": deal_id, "org_id": org_id}, {"_id": 0, "status": 1}) or {}
+    contract = await db.contracts.find_one({"org_id": org_id, "deal_id": deal_id},
+                                           {"_id": 0, "state": 1}) or {}
+    if (deal.get("status") in ("cancelled", "expired") or contract.get("state") == "cancelled"
+            or (inv or {}).get("status") == "cancelled"):
+        return ("Deal/kontrak ini sudah DIBATALKAN"
+                + (" (reservasi kedaluwarsa)" if deal.get("status") == "expired" else "")
+                + " — pembayaran tidak bisa dicatat ke tagihannya. Bila uang pembeli memang sudah "
+                  "masuk, catat sebagai TITIPAN lalu kembalikan lewat refund; jangan dialokasikan "
+                  "ke termin.")
+    return None
+
+
 async def apply_receipt(deal_id, amount, method, note, actor, org_id=ORG_ID,
                         allow_overpay=False, cash_account_id=None, targets: dict = None,
-                        proof_file_ids: list = None, allow_bank_portion: bool = False) -> dict:
+                        proof_file_ids: list = None, allow_bank_portion: bool = False,
+                        kpr_disbursement: bool = False) -> dict:
     """Terima pembayaran -> alokasi ke item termin (pilihan kasir dulu, lalu jatuh tempo terlama) ->
     recalc outstanding -> naikkan contract_liability -> update unit.payment_status.
 
@@ -527,6 +559,15 @@ async def apply_receipt(deal_id, amount, method, note, actor, org_id=ORG_ID,
     inv = await db.ar_invoices.find_one({"org_id": org_id, "deal_id": deal_id}, {"_id": 0})
     if not inv:
         raise ValueError("Jadwal AR belum dibuat untuk deal ini.")
+    if str(method or "").lower() == "kpr" and not kpr_disbursement:
+        # Audit IN-15: cara bayar "kpr" melunasi PORSI BANK tanpa SP3K/akad/tahap/bukti bank.
+        raise ValueError("Cara bayar “Pencairan KPR” tidak bisa dipakai di kuitansi manual. Catat dana "
+                         "bank lewat tab KPR pada kontrak (tombol Cairkan) — di sana SP3K, akad, tahap "
+                         "pencairan, dan bukti bank diperiksa. Bila pembeli menyetor sendiri, pilih "
+                         "Transfer bank.")
+    closed = await _deal_closed_reason(org_id, deal_id, inv)
+    if closed:
+        raise ValueError(closed)
     amount = int(amount)
     items = inv["items"]
     is_kpr = str(method or "").lower() == "kpr"
@@ -600,12 +641,19 @@ async def apply_receipt(deal_id, amount, method, note, actor, org_id=ORG_ID,
 
 # ----------------------------- Fase 26 — Titipan pelanggan (customer deposits) -----------------------------
 async def _deposit_move(org_id, deal_id, inv, kind, amount, note, actor, receipt_id=None,
-                        cash_account_id=None, proof_file_ids=None) -> dict:
+                        cash_account_id=None, proof_file_ids=None, emit_event=True,
+                        entry_id=None) -> dict:
     """Catat satu mutasi titipan (in/apply/apply_cost/refund) + jurnal GL. Return dokumen titipan terkini.
-    `apply_cost` = titipan dialihkan ke komponen biaya all-in (jurnalnya dipos langsung pemanggil)."""
+    `apply_cost` = titipan dialihkan ke komponen biaya all-in (jurnalnya dipos langsung pemanggil).
+
+    Audit IN-02: mutasi KELUAR (apply/apply_cost/refund) hanya berhasil bila saldo masih cukup —
+    syarat `balance >= amount` ada di filter update itu sendiri (atomik), jadi dua proses yang
+    membaca saldo yang sama tidak bisa sama-sama menguranginya hingga negatif.
+    `emit_event=False` menunda event jurnal; pemanggil wajib memanggil `_deposit_emit` sendiri
+    setelah seluruh langkahnya berhasil (dipakai `apply_deposit`)."""
     amount = int(amount)
     ts = now_iso()
-    entry = {"id": new_id(), "type": kind, "amount": amount, "note": note,
+    entry = {"id": entry_id or new_id(), "type": kind, "amount": amount, "note": note,
              "actor": actor, "receipt_id": receipt_id, "cash_account_id": cash_account_id,
              "proof_file_ids": [str(f) for f in (proof_file_ids or []) if f],
              "created_at": ts}
@@ -614,20 +662,48 @@ async def _deposit_move(org_id, deal_id, inv, kind, amount, note, actor, receipt
            "received_total": amount if kind == "in" else 0,
            "applied_total": amount if kind in ("apply", "apply_cost") else 0,
            "refunded_total": amount if kind == "refund" else 0}
-    await db.customer_deposits.update_one(
-        {"org_id": org_id, "deal_id": deal_id},
+    filt = {"org_id": org_id, "deal_id": deal_id}
+    if kind != "in":
+        filt["balance"] = {"$gte": amount}
+    res = await db.customer_deposits.update_one(
+        filt,
         {"$inc": inc, "$push": {"entries": entry},
          "$set": {"unit_id": inv.get("unit_id"), "unit_code": inv.get("unit_code"),
                   "customer_name": inv.get("customer_name") or inv.get("lead_name"),
                   "updated_at": ts},
          "$setOnInsert": {"id": new_id(), "created_at": ts}},
-        upsert=True)
+        upsert=(kind == "in"))
+    if kind != "in" and res.matched_count == 0:
+        cur = await db.customer_deposits.find_one({"org_id": org_id, "deal_id": deal_id},
+                                                  {"_id": 0, "balance": 1})
+        bal = int((cur or {}).get("balance") or 0)
+        raise ValueError(
+            f"Saldo titipan tidak cukup: tersedia Rp {bal:,}, diminta Rp {amount:,}. Titipan mungkin "
+            "baru saja dipakai atau dikembalikan oleh proses lain — muat ulang lalu periksa saldonya."
+            .replace(",", "."))
     dep = await db.customer_deposits.find_one({"org_id": org_id, "deal_id": deal_id}, {"_id": 0})
-    if kind != "apply_cost":
-        await emit(f"deposit.{'received' if kind == 'in' else ('applied' if kind == 'apply' else 'refunded')}",
-                   "deposit", dep["id"], {"amount": amount, "deal_id": deal_id,
-                                          "cash_account_id": cash_account_id}, org_id=org_id)
+    if emit_event:
+        await _deposit_emit(org_id, dep, kind, amount, deal_id, cash_account_id)
     return dep
+
+
+async def _deposit_emit(org_id, dep: dict, kind: str, amount: int, deal_id: str, cash_account_id=None):
+    if kind == "apply_cost":
+        return
+    await emit(f"deposit.{'received' if kind == 'in' else ('applied' if kind == 'apply' else 'refunded')}",
+               "deposit", dep["id"], {"amount": amount, "deal_id": deal_id,
+                                      "cash_account_id": cash_account_id}, org_id=org_id)
+
+
+async def _deposit_undo(org_id, deal_id, kind: str, amount: int, entry_id: str) -> None:
+    """Batalkan mutasi KELUAR titipan yang belum sempat diumumkan (event ditunda) karena langkah
+    berikutnya gagal — saldo dikembalikan dan barisnya dicabut, tanpa jurnal apa pun."""
+    await db.customer_deposits.update_one(
+        {"org_id": org_id, "deal_id": deal_id},
+        {"$inc": {"balance": int(amount),
+                  "applied_total": -int(amount) if kind in ("apply", "apply_cost") else 0,
+                  "refunded_total": -int(amount) if kind == "refund" else 0},
+         "$pull": {"entries": {"id": entry_id}}})
 
 
 async def get_deposit(org_id, deal_id) -> dict:
@@ -665,6 +741,9 @@ async def apply_deposit(deal_id, amount, actor, org_id=ORG_ID, note=None) -> dic
     inv = await db.ar_invoices.find_one({"org_id": org_id, "deal_id": deal_id}, {"_id": 0})
     if not inv:
         raise ValueError("Jadwal AR belum dibuat untuk deal ini.")
+    closed = await _deal_closed_reason(org_id, deal_id, inv)
+    if closed:
+        raise ValueError(closed)
     dep = await db.customer_deposits.find_one({"org_id": org_id, "deal_id": deal_id}, {"_id": 0})
     balance = int((dep or {}).get("balance", 0))
     if balance <= 0:
@@ -683,25 +762,36 @@ async def apply_deposit(deal_id, amount, actor, org_id=ORG_ID, note=None) -> dic
     items = inv["items"]
     allocations, remaining = _allocate(items, amount, payer="buyer")
     ts = now_iso()
-    paid, outstanding_after, status = await _recalc_invoice(inv, items, ts)
+    used = amount - remaining
+    receipt_id, entry_id = new_id(), new_id()
+    # Audit IN-01/IN-02: (1) cadangkan titipan LEBIH DULU (saldo dicek atomik; gagal = tidak ada
+    # efek apa pun), (2) klaim AR dengan CAS, (3) baru kuitansi + kewajiban kontrak + jurnal.
+    # Bila langkah (2) kalah balapan, titipan dikembalikan dan tidak ada jurnal yang sempat lahir.
+    deposit = await _deposit_move(org_id, deal_id, inv, "apply", used,
+                                  note or "Dipakai untuk termin", actor, receipt_id=receipt_id,
+                                  emit_event=False, entry_id=entry_id)
+    try:
+        paid, outstanding_after, status = await _recalc_invoice(inv, items, ts)
+    except BaseException:
+        await _deposit_undo(org_id, deal_id, "apply", used, entry_id)
+        raise
     receipt = {
-        "id": new_id(), "org_id": org_id,
+        "id": receipt_id, "org_id": org_id,
         "receipt_no": await seq.next_number("receipt", org_id, prefix="KWT",
                                             context={"unit_id": inv.get("unit_id"),
                                                      "customer_id": inv.get("customer_id")}),
         "deal_id": deal_id, "unit_id": inv.get("unit_id"),
-        "unit_code": inv.get("unit_code"), "amount": 0, "applied": amount - remaining,
+        "unit_code": inv.get("unit_code"), "amount": 0, "applied": used,
         "deposit_amount": 0, "funding": "deposit", "method": "deposit",
         "note": note or "Pemakaian titipan pelanggan", "allocations": allocations,
         "actor": actor, "created_at": ts}
     await db.receipts.insert_one(dict(receipt))
     await db.contract_liabilities.update_one(
         {"org_id": org_id, "deal_id": deal_id},
-        {"$inc": {"balance": amount - remaining}, "$set": {"updated_at": ts}}, upsert=True)
-    deposit = await _deposit_move(org_id, deal_id, inv, "apply", amount - remaining,
-                                  note or "Dipakai untuk termin", actor, receipt_id=receipt["id"])
+        {"$inc": {"balance": used}, "$set": {"updated_at": ts}}, upsert=True)
+    await _deposit_emit(org_id, deposit, "apply", used, deal_id)
     await notify_finance(org_id, "Titipan dipakai",
-                         f"Rp {amount - remaining:,} titipan dipakai untuk termin unit "
+                         f"Rp {used:,} titipan dipakai untuk termin unit "
                          f"{inv.get('unit_code') or '-'}.", "finance", "deal", deal_id)
     receipt.pop("_id", None)
     if status == "paid":

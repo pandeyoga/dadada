@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from db import db, ORG_ID
 from core_utils import new_id, now_iso, serialize_doc, parse_pagination
 from rbac import require_permission
+from idempotency import Conflict
 from engine import add_activity, create_notification, emit
 import slik as slik_engine
 from models import FinancingCreate, FinancingUpdate, SlikUpdate, DisbursementCreate
@@ -161,6 +162,8 @@ async def disburse(fid: str, payload: DisbursementCreate,
             "cash_account_id": payload.cash_account_id}
     try:
         app = await kd.disburse(org, c, f, body, user)
+    except Conflict:
+        raise
     except LookupError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except PermissionError as e:

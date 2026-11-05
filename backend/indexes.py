@@ -160,6 +160,11 @@ UNIQUE_INDEXES = [
     # Master Produk KPR: satu nama produk per bank per org (pemeriksaan 409 di router
     # tidak cukup untuk dua permintaan simpan yang bersamaan).
     ("kpr_products", [("org_id", 1), ("bank_name", 1), ("name", 1)], "uq_kpr_product_bank_name"),
+    # Audit IN-01/IN-02: titipan & kewajiban kontrak ditulis dengan upsert per (org, deal). Tanpa
+    # index unik, dua upsert pertama yang bersamaan bisa melahirkan DUA dokumen untuk satu deal
+    # (saldo terbelah, salah satunya tak pernah terbaca).
+    ("customer_deposits", [("org_id", 1), ("deal_id", 1)], "uq_customer_deposit_deal"),
+    ("contract_liabilities", [("org_id", 1), ("deal_id", 1)], "uq_contract_liability_deal"),
 ]
 
 # Natural key yang boleh kosong (partial index: hanya baris yang punya nilai dijaga).

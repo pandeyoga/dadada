@@ -71,6 +71,8 @@ class BankMatchIn(BaseModel):
     kind: MatchKindReq
     target_id: Optional[str] = None
     note: Optional[str] = None
+    # Tegas: mutasi ini pembayaran TERPISAH walau ada kuitansi manual bernominal sama (audit IN-08).
+    allow_duplicate: bool = False
 
 
 class BankUnmatchIn(BaseModel):

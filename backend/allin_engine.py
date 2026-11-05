@@ -16,6 +16,8 @@ import sequences as seq
 from core_utils import new_id, now_iso
 from db import db
 from engine import add_activity
+from idempotency import cas
+from money_lock import locked
 
 logger = logging.getLogger("sipro.allin")
 
@@ -262,30 +264,43 @@ async def apply_booking_deposit(org: str, deal: dict, actor: str) -> dict:
     if amount <= 0:
         return None
     ts = now_iso()
-    rc = {"id": new_id(), "org_id": org, "contract_id": inv.get("contract_id"), "deal_id": inv.get("deal_id"),
-          "invoice_id": inv["id"], "invoice_no": inv["number"], "unit_code": inv.get("unit_code"),
-          "customer_name": inv.get("customer_name"), "kind": "cost", "component_code": BOOKING_CODE,
-          "receipt_no": await seq.next_number("cost_receipt", org, prefix="KWB",
-                                              context={"unit_id": inv.get("unit_id"),
-                                                       "customer_id": inv.get("customer_id")}),
-          "amount": amount, "method": "deposit", "funding": "booking_deposit",
-          "note": "Booking fee dialihkan ke komponen BOOKING (skema all-in)", "status": "posted",
-          "proof_file_ids": [], "actor": actor, "created_at": ts}
-    await db.cost_receipts.insert_one(dict(rc))
-    rc.pop("_id", None)
-    paid = int(inv["paid"]) + amount
-    await db.cost_invoices.update_one({"id": inv["id"]}, {"$set": {
-        "paid": paid, "outstanding": int(inv["total"]) - paid,
-        "status": "paid" if paid >= int(inv["total"]) else "partial", "updated_at": ts}})
-    await gl.post_journal(org, f"Booking fee dialihkan ke titipan biaya BOOKING — {rc['receipt_no']}", [
-        {"account_code": "2-1450", "debit": amount, "credit": 0},
-        {"account_code": comp.get("gl_liability") or GL_TITIPAN_BIAYA, "debit": 0, "credit": amount}],
-        source_type="cost_receipt", source_id=rc["id"], source_event=f"cost_receipt:{rc['id']}",
-        posted_by=actor, source_deal_id=inv.get("deal_id"))
+    rc_id, entry_id = new_id(), new_id()
     ctx = {"unit_id": deal.get("unit_id"), "unit_code": deal.get("unit_code"),
            "customer_name": deal.get("lead_name")}
-    await fe._deposit_move(org, deal["id"], ctx, "apply_cost", amount, rc["note"], actor,
-                           receipt_id=rc["id"])
+    note = "Booking fee dialihkan ke komponen BOOKING (skema all-in)"
+    # Audit IN-01/IN-02: titipan dicadangkan LEBIH DULU (saldo dicek atomik — tidak bisa negatif),
+    # lalu invoice biaya diklaim dengan CAS; bila langkah berikutnya gagal, cadangan dikembalikan.
+    await fe._deposit_move(org, deal["id"], ctx, "apply_cost", amount, note, actor,
+                           receipt_id=rc_id, entry_id=entry_id)
+    try:
+        paid = int(inv["paid"]) + amount
+        await cas("cost_invoices", {"id": inv["id"]}, {"paid": inv.get("paid"), "status": inv.get("status")},
+                  {"$set": {"paid": paid, "outstanding": int(inv["total"]) - paid,
+                            "status": "paid" if paid >= int(inv["total"]) else "partial", "updated_at": ts}},
+                  what="Invoice biaya ini")
+        rc = {"id": rc_id, "org_id": org, "contract_id": inv.get("contract_id"), "deal_id": inv.get("deal_id"),
+              "invoice_id": inv["id"], "invoice_no": inv["number"], "unit_code": inv.get("unit_code"),
+              "customer_name": inv.get("customer_name"), "kind": "cost", "component_code": BOOKING_CODE,
+              "receipt_no": await seq.next_number("cost_receipt", org, prefix="KWB",
+                                                  context={"unit_id": inv.get("unit_id"),
+                                                           "customer_id": inv.get("customer_id")}),
+              "amount": amount, "method": "deposit", "funding": "booking_deposit",
+              "note": note, "status": "posted",
+              "proof_file_ids": [], "actor": actor, "created_at": ts}
+        await db.cost_receipts.insert_one(dict(rc))
+        rc.pop("_id", None)
+        await gl.post_journal(org, f"Booking fee dialihkan ke titipan biaya BOOKING — {rc['receipt_no']}", [
+            {"account_code": "2-1450", "debit": amount, "credit": 0},
+            {"account_code": comp.get("gl_liability") or GL_TITIPAN_BIAYA, "debit": 0, "credit": amount}],
+            source_type="cost_receipt", source_id=rc["id"], source_event=f"cost_receipt:{rc['id']}",
+            posted_by=actor, source_deal_id=inv.get("deal_id"))
+    except BaseException:
+        await db.cost_receipts.delete_one({"id": rc_id})
+        await db.cost_invoices.update_one({"id": inv["id"], "paid": paid}, {"$set": {
+            "paid": int(inv["paid"]), "outstanding": int(inv["outstanding"]),
+            "status": inv.get("status"), "updated_at": ts}})
+        await fe._deposit_undo(org, deal["id"], "apply_cost", amount, entry_id)
+        raise
     await add_activity(entity_type="lead", entity_id=deal.get("lead_id"), type="finance", actor=actor,
                        org_id=org,
                        body=(f"Booking fee Rp {amount:,} dialihkan ke komponen BOOKING skema all-in "
@@ -349,7 +364,16 @@ async def ledger(org: str, contract: dict) -> dict:
 
 
 async def issue_cost_invoice(org: str, contract: dict, actor: str) -> dict:
-    """Terbitkan INVOICE BIAYA (seri sendiri, bukan AR unit) untuk komponen pass-through."""
+    """Terbitkan INVOICE BIAYA (seri sendiri, bukan AR unit) untuk komponen pass-through.
+
+    Dikunci per kontrak: dua penerbitan bersamaan dulu sama-sama lolos cek "sudah terbit" dan
+    melahirkan dua invoice biaya untuk komponen yang sama (piutang biaya berlipat)."""
+    async with locked("allin.issue", contract.get("id") or contract.get("deal_id"),
+                      what="Penerbitan invoice biaya kontrak ini"):
+        return await _issue_cost_invoice_locked(org, contract, actor)
+
+
+async def _issue_cost_invoice_locked(org: str, contract: dict, actor: str) -> dict:
     comps = _pass_through(contract)
     if not comps:
         raise ValueError("Tidak ada komponen biaya yang ditagih ke pembeli (semua ditanggung developer "
@@ -395,32 +419,55 @@ async def pay_cost_invoice(org: str, invoice_id: str, amount: int, method: str, 
     if amount > int(inv["outstanding"]):
         raise ValueError(f"Nominal Rp {amount:,} melebihi sisa invoice biaya Rp {inv['outstanding']:,}.".replace(",", "."))
     ts = now_iso()
-    rc = {"id": new_id(), "org_id": org, "contract_id": inv["contract_id"], "deal_id": inv.get("deal_id"),
-          "invoice_id": inv["id"], "invoice_no": inv["number"], "unit_code": inv.get("unit_code"),
-          "customer_name": inv.get("customer_name"), "kind": "cost",
-          "receipt_no": await seq.next_number("cost_receipt", org, prefix="KWB",
-                                              context={"unit_id": inv.get("unit_id"),
-                                                       "customer_id": inv.get("customer_id")}),
-          "amount": amount, "method": method or "transfer", "note": note, "status": "posted",
-          "proof_file_ids": [str(f) for f in (proof_file_ids or []) if f],
-          "actor": actor, "created_at": ts}
-    await db.cost_receipts.insert_one(dict(rc))
-    rc.pop("_id", None)
     paid = int(inv["paid"]) + amount
-    await db.cost_invoices.update_one({"id": inv["id"]}, {"$set": {
-        "paid": paid, "outstanding": int(inv["total"]) - paid,
-        "status": "paid" if paid >= int(inv["total"]) else "partial", "updated_at": ts}})
-    je = await gl.post_journal(org, f"Titipan biaya pembeli diterima — {rc['receipt_no']}", [
-        {"account_code": GL_BANK, "debit": amount, "credit": 0},
-        {"account_code": GL_TITIPAN_BIAYA, "debit": 0, "credit": amount}],
-        source_type="cost_receipt", source_id=rc["id"], source_event=f"cost_receipt:{rc['id']}",
-        posted_by=actor, source_deal_id=inv.get("deal_id"))
+    rid = new_id()
+    # Audit IN-01: KLAIM invoice dengan CAS terhadap `paid` yang tadi dibaca SEBELUM kuitansi &
+    # jurnal lahir. Dua pembayaran bersamaan dulu sama-sama menulis `paid = 0 + amount`: kuitansi
+    # 2× (lebih dari tagihan), invoice hanya mencatat 1×.
+    await cas("cost_invoices", {"id": inv["id"]}, {"paid": inv.get("paid"), "status": inv.get("status")},
+              {"$set": {"paid": paid, "outstanding": int(inv["total"]) - paid,
+                        "status": "paid" if paid >= int(inv["total"]) else "partial", "updated_at": ts}},
+              what="Invoice biaya ini")
+    try:
+        rc = {"id": rid, "org_id": org, "contract_id": inv["contract_id"], "deal_id": inv.get("deal_id"),
+              "invoice_id": inv["id"], "invoice_no": inv["number"], "unit_code": inv.get("unit_code"),
+              "customer_name": inv.get("customer_name"), "kind": "cost",
+              "receipt_no": await seq.next_number("cost_receipt", org, prefix="KWB",
+                                                  context={"unit_id": inv.get("unit_id"),
+                                                           "customer_id": inv.get("customer_id")}),
+              "amount": amount, "method": method or "transfer", "note": note, "status": "posted",
+              "proof_file_ids": [str(f) for f in (proof_file_ids or []) if f],
+              "actor": actor, "created_at": ts}
+        await db.cost_receipts.insert_one(dict(rc))
+        rc.pop("_id", None)
+        je = await gl.post_journal(org, f"Titipan biaya pembeli diterima — {rc['receipt_no']}", [
+            {"account_code": GL_BANK, "debit": amount, "credit": 0},
+            {"account_code": GL_TITIPAN_BIAYA, "debit": 0, "credit": amount}],
+            source_type="cost_receipt", source_id=rc["id"], source_event=f"cost_receipt:{rc['id']}",
+            posted_by=actor, source_deal_id=inv.get("deal_id"))
+    except BaseException:
+        await db.cost_receipts.delete_one({"id": rid})
+        await db.cost_invoices.update_one({"id": inv["id"], "paid": paid}, {"$set": {
+            "paid": int(inv["paid"]), "outstanding": int(inv["outstanding"]),
+            "status": inv.get("status"), "updated_at": ts}})
+        raise
     return {"receipt": rc, "journal_id": je.get("id")}
 
 
 async def disburse_titipan(org: str, contract: dict, component_code: str, amount: int,
                            payee: str, note: str, actor: str) -> dict:
-    """Salurkan titipan ke notaris/BPN → Titipan / Kas. Tidak boleh melebihi sisa titipan."""
+    """Salurkan titipan ke notaris/BPN → Titipan / Kas. Tidak boleh melebihi sisa titipan.
+
+    Audit IN-02: saldo titipan biaya DITURUNKAN dari buku (diterima − disalurkan), jadi pemeriksaan
+    "tidak melebihi saldo" harus berjalan di bawah KUNCI per kontrak — dua penyaluran bersamaan dulu
+    sama-sama melihat saldo penuh dan sama-sama menyalurkannya (saldo −Rp 70 jt, bank dikredit 2×)."""
+    async with locked("allin.titipan", contract.get("id") or contract.get("deal_id"),
+                      what="Penyaluran titipan biaya kontrak ini"):
+        return await _disburse_titipan_locked(org, contract, component_code, amount, payee, note, actor)
+
+
+async def _disburse_titipan_locked(org: str, contract: dict, component_code: str, amount: int,
+                                   payee: str, note: str, actor: str) -> dict:
     led = await ledger(org, contract)
     amount = int(amount or 0)
     if amount <= 0:

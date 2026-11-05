@@ -112,6 +112,9 @@ function PlafonReconcileNote({ rec }) {
 export default function KprPanel({ contract, onChanged }) {
   const { can, user } = useAuth();
   const mayUpdate = can("financing", "update");
+  // Mencatat PENCAIRAN (dana bank masuk + kuitansi + jurnal) = izin 'approve' — sama dengan backend
+  // di semua pintu pencairan (audit IN-11). Tanpa izin ini tombolnya tidak ditampilkan.
+  const mayDisburse = can("financing", "approve");
   const kpr = contract?.kpr || {};
   const app = kpr.application || {};
   const [stage, setStage] = useState(null);
@@ -247,7 +250,7 @@ export default function KprPanel({ contract, onChanged }) {
 
       <PlafonReconcileNote rec={app.plafon_reconcile} />
 
-      <KprDisbursementBox contract={contract} app={app} mayUpdate={mayUpdate}
+      <KprDisbursementBox contract={contract} app={app} mayUpdate={mayUpdate} mayDisburse={mayDisburse}
         onChanged={onChanged} onRecord={() => openStage("pencairan")} />
       <KprAmendmentHistory items={app.terms_amendments} />
       <KprScheduleBox contract={contract} nonce={`${app.tenor_months}-${app.interest_rate_pct}-${app.approved_plafon}-${(app.terms_amendments || []).length}`} />
@@ -267,7 +270,8 @@ export default function KprPanel({ contract, onChanged }) {
                 </span>
               ) : null}
             </p>
-            {mayUpdate && !s.done && kpr.next_stage === s.stage ? (
+            {mayUpdate && !s.done && kpr.next_stage === s.stage
+              && (s.stage !== "pencairan" || mayDisburse) ? (
               <Button data-testid={`${P53.kprBtn}-${s.stage}`} size="sm" variant="outline"
                 onClick={() => openStage(s.stage)}>Catat {s.label}</Button>
             ) : null}

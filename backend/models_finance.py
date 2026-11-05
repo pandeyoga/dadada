@@ -12,15 +12,18 @@ class DepositReceive(BaseModel):
     amount: int
     note: Optional[str] = None
     proof_file_ids: List[str] = Field(min_length=1)
+    client_ref: Optional[str] = Field(default=None, max_length=64)   # penanda sekali-pakai (anti ganda)
 
 
 class DepositApply(BaseModel):
     """Pakai titipan untuk termin. amount None = sebanyak mungkin (min saldo, sisa tagihan)."""
     amount: Optional[int] = None
     note: Optional[str] = None
+    client_ref: Optional[str] = Field(default=None, max_length=64)
 
 
 class DepositRefund(BaseModel):
     """Kembalikan titipan ke pelanggan. amount None = seluruh saldo."""
     amount: Optional[int] = None
     note: Optional[str] = None
+    client_ref: Optional[str] = Field(default=None, max_length=64)

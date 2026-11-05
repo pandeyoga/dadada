@@ -10,6 +10,7 @@ from db import db, ORG_ID
 from core_utils import serialize_doc, parse_pagination
 from rbac import audit_log, require_permission
 import finance_engine as fe
+from idempotency import Conflict, once
 from models import ArScheduleCreate, ReceiptCreate
 from models_finance import DepositApply, DepositReceive, DepositRefund
 
@@ -100,9 +101,14 @@ async def deposit_receive(deal_id: str, payload: DepositReceive,
                          user: dict = Depends(require_permission("finance", "create"))):
     """Terima titipan di muka (belum dialokasikan ke termin)."""
     try:
-        res = await fe.receive_deposit(deal_id, payload.amount, payload.note,
-                                      user.get("email"), user.get("org_id", ORG_ID),
-                                      proof_file_ids=payload.proof_file_ids)
+        # Klik ganda / dua tab / retry jaringan = satu penerimaan (audit IN-01).
+        async with once("ar.deposit_in", deal_id, payload.amount, user.get("email"),
+                        client_ref=payload.client_ref, what="Penerimaan titipan yang sama"):
+            res = await fe.receive_deposit(deal_id, payload.amount, payload.note,
+                                          user.get("email"), user.get("org_id", ORG_ID),
+                                          proof_file_ids=payload.proof_file_ids)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"data": serialize_doc(res)}
@@ -112,8 +118,12 @@ async def deposit_receive(deal_id: str, payload: DepositReceive,
 async def deposit_apply(deal_id: str, payload: DepositApply,
                         user: dict = Depends(require_permission("finance", "update"))):
     try:
-        res = await fe.apply_deposit(deal_id, payload.amount, user.get("email"),
-                                     user.get("org_id", ORG_ID), payload.note)
+        async with once("ar.deposit_apply", deal_id, payload.amount, user.get("email"),
+                        client_ref=payload.client_ref, what="Pemakaian titipan yang sama"):
+            res = await fe.apply_deposit(deal_id, payload.amount, user.get("email"),
+                                         user.get("org_id", ORG_ID), payload.note)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"data": serialize_doc(res)}
@@ -123,8 +133,12 @@ async def deposit_apply(deal_id: str, payload: DepositApply,
 async def deposit_refund(deal_id: str, payload: DepositRefund,
                          user: dict = Depends(require_permission("finance", "update"))):
     try:
-        res = await fe.refund_deposit(deal_id, payload.amount, payload.note,
-                                      user.get("email"), user.get("org_id", ORG_ID))
+        async with once("ar.deposit_refund", deal_id, payload.amount, user.get("email"),
+                        client_ref=payload.client_ref, what="Pengembalian titipan yang sama"):
+            res = await fe.refund_deposit(deal_id, payload.amount, payload.note,
+                                          user.get("email"), user.get("org_id", ORG_ID))
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"data": serialize_doc(res)}
@@ -193,14 +207,30 @@ async def create_receipt(payload: ReceiptCreate,
                          user: dict = Depends(require_permission("finance", "create"))):
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="Jumlah pembayaran harus lebih dari 0")
+    if str(payload.method or "").lower() == "kpr":
+        # Audit IN-15: pencairan bank punya gerbang sendiri (SP3K, akad, tahap, bukti bank).
+        raise HTTPException(status_code=400, detail=(
+            "Cara bayar “Pencairan KPR” tidak bisa dipakai di kuitansi manual. Catat dana bank "
+            "lewat tab KPR pada kontrak (tombol Cairkan); bila pembeli menyetor sendiri, pilih "
+            "Transfer bank."))
+    targets = {a.item_id: a.amount for a in (payload.allocations or [])} or None
     try:
-        res = await fe.apply_receipt(payload.deal_id, payload.amount, payload.method,
-                                     payload.note, user.get("email"), user.get("org_id", ORG_ID),
-                                     allow_overpay=payload.allow_overpay,
-                                     cash_account_id=payload.cash_account_id,
-                                     targets={a.item_id: a.amount for a in (payload.allocations or [])} or None,
-                                     proof_file_ids=payload.proof_file_ids,
-                                     allow_bank_portion=payload.allow_bank_portion)
+        # Klik ganda / dua tab / dua staf dengan isian yang sama = SATU kuitansi (audit IN-01).
+        # `client_ref` (opsional) membuat kiriman ulang yang sama tidak pernah menjadi kuitansi kedua.
+        async with once("ar.receipt", payload.deal_id, payload.amount, payload.method,
+                        payload.cash_account_id, payload.allow_overpay, payload.allow_bank_portion,
+                        sorted((targets or {}).items()), user.get("email"),
+                        client_ref=payload.client_ref,
+                        what="Pembayaran dengan nominal & tujuan yang sama untuk deal ini"):
+            res = await fe.apply_receipt(payload.deal_id, payload.amount, payload.method,
+                                         payload.note, user.get("email"), user.get("org_id", ORG_ID),
+                                         allow_overpay=payload.allow_overpay,
+                                         cash_account_id=payload.cash_account_id,
+                                         targets=targets,
+                                         proof_file_ids=payload.proof_file_ids,
+                                         allow_bank_portion=payload.allow_bank_portion)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"data": serialize_doc(res)}

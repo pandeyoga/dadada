@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, Landmark } from "lucide-react";
 import {
@@ -44,6 +44,12 @@ export default function ReceiptDialog({ open, onOpenChange, deal, onDone }) {
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState([]);
   const [alloc, setAlloc] = useState({});
+  // Penanda sekali-pakai per dialog yang dibuka: klik ganda / kirim ulang karena sinyal buruk
+  // membawa penanda SAMA, jadi backend menolak yang kedua (tidak ada kuitansi ganda, audit IN-01).
+  const clientRef = useRef(null);
+  useEffect(() => {
+    if (open) clientRef.current = `rc-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+  }, [open]);
 
   const payable = items.filter((it) => allowBank || !isBank(it));
   const bankItems = items.filter(isBank);
@@ -108,7 +114,7 @@ export default function ReceiptDialog({ open, onOpenChange, deal, onDone }) {
       const res = await api.post("/finance/ar/receipts", {
         deal_id: deal.deal_id, amount: amt, method, note: note || null,
         allow_overpay: allowOverpay, allow_bank_portion: allowBank, cash_account_id: cashAccountId || null,
-        proof_file_ids: proofFiles,
+        proof_file_ids: proofFiles, client_ref: clientRef.current,
         allocations: Object.entries(alloc).filter(([, v]) => Number(v) > 0).map(([item_id, v]) => ({ item_id, amount: Number(v) })),
       });
       const rec = res.data?.data?.receipt || {};
@@ -192,8 +198,9 @@ export default function ReceiptDialog({ open, onOpenChange, deal, onDone }) {
           ) : null}
           <div className="space-y-1.5">
             <Label>Metode</Label>
+            {/* "kpr" (pencairan bank) hanya dicatat dari tab KPR kontrak — lihat audit IN-15 */}
             <ReferenceSelect group="payment_method" value={method} onChange={setMethod}
-              testId="ar-receipt-method" />
+              exclude={["kpr"]} testId="ar-receipt-method" />
           </div>
           <CashAccountSelect value={cashAccountId} onChange={setCashAccountId}
             kind={method === "cash" || method === "tunai" ? "cash" : "bank"}

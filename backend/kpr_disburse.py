@@ -6,6 +6,7 @@ import finance_engine as fe
 from core_utils import new_id, now_iso
 from db import db
 from engine import add_activity
+from money_lock import locked
 
 CONDITIONS = ("akad", "serah_terima", "sertifikat")
 CANCEL_ROLES = ("finance_manager", "super_admin", "owner")  # = pemegang izin finance:manage
@@ -174,6 +175,26 @@ def _condition_met(contract: dict, app: dict, cond: str) -> bool:
 
 
 async def disburse(org: str, contract: dict, app: dict, payload: dict, user: dict) -> dict:
+    """Pintu TUNGGAL pencairan KPR (semua rute memanggil ini: /financing/{id}/disburse,
+    /contracts/{id}/kpr/disbursements, /contracts/{id}/kpr/stage/pencairan).
+
+    Audit IN-11: satu izin untuk semua pintu — `financing:approve`. Sebelumnya dua pintu hanya
+    meminta `financing:update` sehingga peran sales (pemegang komisi) bisa mencatat dana bank masuk.
+    Audit IN-01: dikerjakan di bawah KUNCI per pengajuan dan `app` DIBACA ULANG di bawah kunci itu —
+    dua permintaan bersamaan (dua tab/dua staf) tidak lagi sama-sama melihat tahap "terbuka" lalu
+    sama-sama menerbitkan kuitansi. Yang kedua mendapat HTTP 409 sebelum menyentuh AR.
+    """
+    from rbac import can
+    if not await can((user or {}).get("role"), "financing", "approve"):
+        raise PermissionError("Mencatat pencairan KPR (dana bank masuk) hanya untuk pemegang izin "
+                              "'approve' pada 'financing' (finance/manajer) — bukan sales. Minta "
+                              "Finance mencatat pencairan setelah dana bank masuk ke rekening.")
+    async with locked("kpr.disburse", app["id"], what="Pencairan KPR untuk pengajuan ini"):
+        fresh = await db.financing_apps.find_one({"id": app["id"]}, {"_id": 0})
+        return await _disburse_locked(org, contract, fresh or app, payload, user)
+
+
+async def _disburse_locked(org: str, contract: dict, app: dict, payload: dict, user: dict) -> dict:
     """Catat satu pencairan dari tahapan. Validasi: tagihan sudah terbit, ≤ outstanding, ≤ plafon,
     tahap tidak 2×, koreksi nominal dalam toleransi (finance saja)."""
     actor = user.get("email")
@@ -242,7 +263,8 @@ async def disburse(org: str, contract: dict, app: dict, payload: dict, user: dic
                                 f"{(tranche or {}).get('name') or ''} ({payload.get('date') or ts[:10]})".strip(),
                                 actor, org_id=org, allow_overpay=allow_deposit,
                                 cash_account_id=payload.get("cash_account_id"),
-                                proof_file_ids=[payload["file_id"]] if payload.get("file_id") else None)
+                                proof_file_ids=[payload["file_id"]] if payload.get("file_id") else None,
+                                kpr_disbursement=True)
     receipt = rc.get("receipt") or {}
     did = new_id()
     entry = {"id": did, "amount": amount, "date": payload.get("date") or ts[:10],
@@ -275,6 +297,15 @@ async def disburse(org: str, contract: dict, app: dict, payload: dict, user: dic
 
 
 async def cancel(org: str, contract: dict, app: dict, disbursement_id: str, reason: str, user: dict) -> dict:
+    """Batalkan satu pencairan. Kunci yang sama dengan `disburse` (per pengajuan) dan `app` dibaca ulang
+    di bawah kunci: dua pembatalan bersamaan tidak membalik uang dua kali (audit IN-01)."""
+    async with locked("kpr.disburse", app["id"], what="Pencairan KPR untuk pengajuan ini"):
+        fresh = await db.financing_apps.find_one({"id": app["id"]}, {"_id": 0})
+        return await _cancel_locked(org, contract, fresh or app, disbursement_id, reason, user)
+
+
+async def _cancel_locked(org: str, contract: dict, app: dict, disbursement_id: str, reason: str,
+                         user: dict) -> dict:
     if not await _may_correct(user.get("role")):
         raise PermissionError("Pembatalan pencairan hanya oleh finance_manager/superadmin.")
     if len((reason or "").strip()) < 10:

@@ -346,6 +346,11 @@ async def waive(org: str, deal_id: str, penalty_id: str, actor: str, *, reason: 
         raise ValueError("Denda yang dimaksud tidak ditemukan pada jadwal tagihan.")
     if row.get("waived"):
         return {"waived": row, "replay": True}
+    if row.get("created_by") and row.get("created_by") == actor:
+        # Audit IN-12 (pemisahan tugas): yang menagihkan denda tidak boleh meringankannya sendiri —
+        # janji ini sudah tertulis di docstring modul (aturan 5) tetapi tidak pernah ditegakkan.
+        raise ValueError("Pemisahan tugas: keringanan denda tidak boleh diberikan oleh orang yang "
+                         "menagihkan denda itu. Minta Manajer Keuangan lain yang memutuskan.")
     if int(row.get("paid_amount") or 0) > 0:
         raise ValueError("Denda ini sudah dibayar sebagian/penuh — keringanan tidak boleh "
                          "menghapus uang yang sudah diterima. Pakai pengembalian dana.")

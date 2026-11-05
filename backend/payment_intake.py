@@ -23,6 +23,7 @@ import finance_engine as fin
 from core_utils import new_id, now_iso
 from db import ORG_ID, db
 from engine import add_activity, emit
+from money_lock import locked
 from reference_p47 import INTAKE_LABEL
 
 logger = logging.getLogger("sipro.payment.intake")
@@ -124,20 +125,30 @@ async def _tell_customer(org: str, row: dict, text: str) -> None:
 async def verify(org: str = ORG_ID, intake_id: str = None, actor: str = "system", *,
                  bank_txn_id: str = None, note: str = None,
                  allow_overpay: bool = False) -> dict:
-    """Verifikasi finance — barulah tagihan berkurang (lewat jalur resmi apply_receipt)."""
+    """Verifikasi finance — barulah tagihan berkurang (lewat jalur resmi apply_receipt).
+
+    Audit IN-01: status `pending` dicek DI BAWAH kunci (`locked`), bukan sekadar sebelum menunggu
+    `apply_receipt` — dua verifikasi bersamaan (dua tab/dua staf/retry) sebelumnya sama-sama lolos
+    dan melahirkan dua kuitansi untuk satu bukti. Pelaksana kedua kini ditolak (HTTP 409) sebelum
+    menyentuh AR. Kunci yang sama dipakai `reject` dan `booking_fee.verify_proof`.
+    """
     row = await intake_or_error(org, intake_id)
     if row["state"] != "pending":
         raise ValueError(f"Bukti ini sudah {_label(row['state'])} — tidak bisa diverifikasi lagi.")
-    res = await fin.apply_receipt(
-        row["deal_id"], int(row["amount"]), "transfer",
-        note or f"Verifikasi bukti transfer pelanggan ({row['transfer_date']})",
-        actor, org_id=org, allow_overpay=allow_overpay,
-        proof_file_ids=list(row.get("file_ids") or []))
-    ts = now_iso()
-    await db.payment_intakes.update_one({"id": intake_id}, {"$set": {
-        "state": "verified", "state_label": _label("verified"),
-        "receipt_id": res["receipt"]["id"], "bank_txn_id": bank_txn_id,
-        "verified_by": actor, "verified_at": ts, "verify_note": note, "updated_at": ts}})
+    async with locked("intake.verify", intake_id, what="Verifikasi bukti transfer ini"):
+        row = await intake_or_error(org, intake_id)   # baca ulang: pemenang mungkin sudah selesai
+        if row["state"] != "pending":
+            raise ValueError(f"Bukti ini sudah {_label(row['state'])} — tidak bisa diverifikasi lagi.")
+        res = await fin.apply_receipt(
+            row["deal_id"], int(row["amount"]), "transfer",
+            note or f"Verifikasi bukti transfer pelanggan ({row['transfer_date']})",
+            actor, org_id=org, allow_overpay=allow_overpay,
+            proof_file_ids=list(row.get("file_ids") or []))
+        ts = now_iso()
+        await db.payment_intakes.update_one({"id": intake_id}, {"$set": {
+            "state": "verified", "state_label": _label("verified"),
+            "receipt_id": res["receipt"]["id"], "bank_txn_id": bank_txn_id,
+            "verified_by": actor, "verified_at": ts, "verify_note": note, "updated_at": ts}})
     await add_activity(entity_type="deal", entity_id=row["deal_id"], type="finance",
                        actor=actor, org_id=org,
                        body=(f"Bukti transfer Rp {int(row['amount']):,} DIVERIFIKASI — "
@@ -160,11 +171,16 @@ async def reject(org: str = ORG_ID, intake_id: str = None, actor: str = "system"
     row = await intake_or_error(org, intake_id)
     if row["state"] != "pending":
         raise ValueError(f"Bukti ini sudah {_label(row['state'])}.")
-    ts = now_iso()
-    await db.payment_intakes.update_one({"id": intake_id}, {"$set": {
-        "state": "rejected", "state_label": _label("rejected"),
-        "reject_reason": reason.strip(), "verified_by": actor, "verified_at": ts,
-        "updated_at": ts}})
+    # Kunci yang sama dengan `verify`: bukti yang SEDANG diverifikasi tidak bisa ditolak diam-diam.
+    async with locked("intake.verify", intake_id, what="Bukti transfer ini"):
+        row = await intake_or_error(org, intake_id)
+        if row["state"] != "pending":
+            raise ValueError(f"Bukti ini sudah {_label(row['state'])}.")
+        ts = now_iso()
+        await db.payment_intakes.update_one({"id": intake_id}, {"$set": {
+            "state": "rejected", "state_label": _label("rejected"),
+            "reject_reason": reason.strip(), "verified_by": actor, "verified_at": ts,
+            "updated_at": ts}})
     await add_activity(entity_type="deal", entity_id=row["deal_id"], type="finance",
                        actor=actor, org_id=org,
                        body=f"Bukti transfer DITOLAK — {reason.strip()}")

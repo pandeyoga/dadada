@@ -14,6 +14,7 @@ import cancellation_engine as cx
 import contracts_engine as ce
 from core_utils import parse_pagination, serialize_doc
 from db import ORG_ID, db
+from idempotency import Conflict, once
 from models_p56 import CancellationDecisionIn, CancellationRequestIn, RefundPayIn
 from rbac import audit_log, can, is_scoped_sales, require_permission
 
@@ -99,6 +100,8 @@ async def decide(cid: str, payload: CancellationDecisionIn,
     try:
         doc = await cx.decide(_org(user), cid, user.get("email"), payload.approved,
                               payload.note)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "approve" if payload.approved else "reject", "cancellation", cid,
@@ -112,13 +115,29 @@ async def pay_refund(cid: str, payload: RefundPayIn,
     """Bayar refund (boleh bertahap). Idempoten lewat `client_ref`."""
     may_override = await can(user.get("role"), "cancellation", "override")
     try:
-        out = await cx.pay_refund(_org(user), cid, user.get("email"),
-                                  method=payload.method, amount=payload.amount,
-                                  client_ref=payload.client_ref, note=payload.note,
-                                  override=payload.override,
-                                  override_reason=payload.override_reason,
-                                  may_override=may_override,
-                                  cash_account_id=payload.cash_account_id)
+        # Tanpa `client_ref`: permintaan identik (klik ganda/dua tab) dalam jendela singkat = SATU
+        # pembayaran (audit IN-04). Dengan `client_ref`: kirim ulang → `replay`, bukan pembayaran kedua.
+        if payload.client_ref:
+            out = await cx.pay_refund(_org(user), cid, user.get("email"),
+                                      method=payload.method, amount=payload.amount,
+                                      client_ref=payload.client_ref, note=payload.note,
+                                      override=payload.override,
+                                      override_reason=payload.override_reason,
+                                      may_override=may_override,
+                                      cash_account_id=payload.cash_account_id)
+        else:
+            async with once("cancel.refund_req", cid, payload.amount, payload.method,
+                            payload.cash_account_id, user.get("email"),
+                            what="Pembayaran refund dengan nominal yang sama"):
+                out = await cx.pay_refund(_org(user), cid, user.get("email"),
+                                          method=payload.method, amount=payload.amount,
+                                          client_ref=None, note=payload.note,
+                                          override=payload.override,
+                                          override_reason=payload.override_reason,
+                                          may_override=may_override,
+                                          cash_account_id=payload.cash_account_id)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not out.get("replay"):

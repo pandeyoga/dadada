@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Ban, Banknote, FileText, Scale } from "lucide-react";
 import { toast } from "sonner";
 
@@ -51,6 +51,15 @@ export default function CancellationPanel({ contract, onChanged }) {
   const [decideFor, setDecideFor] = useState(null);
   const [note, setNote] = useState("");
   const [refundFor, setRefundFor] = useState(null);
+  // Penanda refund dibuat SEKALI per dialog yang dibuka (bukan per klik): klik ganda / kirim ulang
+  // karena sinyal buruk membawa penanda yang SAMA, jadi backend menjawab "sudah tercatat" — tidak
+  // melahirkan pembayaran refund kedua (audit IN-04; dulu memakai Date.now() sehingga selalu beda).
+  const refundRef = useRef(null);
+  useEffect(() => {
+    refundRef.current = refundFor
+      ? `ui-${refundFor.id}-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`
+      : null;
+  }, [refundFor]);
   const [form, setForm] = useState({ method: "transfer", amount: "", note: "",
     override: false, override_reason: "" });
   const [busy, setBusy] = useState(false);
@@ -121,7 +130,7 @@ export default function CancellationPanel({ contract, onChanged }) {
         note: form.note.trim() || undefined,
         // Penanda sekali-pakai: tombol yang ditekan dua kali (atau jaringan yang mengirim
         // ulang) TIDAK boleh melahirkan pembayaran kedua.
-        client_ref: `ui-${refundFor.id}-${Date.now()}`,
+        client_ref: refundRef.current,
         override: form.override || undefined,
         override_reason: form.override ? form.override_reason.trim() : undefined,
       });

@@ -462,19 +462,25 @@ async def cancel_deal(deal_id: str, payload: DealCancel,
                       user: dict = Depends(require_permission("deals", "update"))):
     """Batalkan reservasi/booking SATU langkah (unit dilepas, tagihan ditutup, refund/hangus)."""
     import deal_cancel as dc
+    from idempotency import Conflict
     d = await _get_deal_editable(deal_id, user)
     org = user.get("org_id", ORG_ID)
     try:
         out = await dc.cancel(org, d, user, reason=payload.reason.strip(),
                               refund_mode=payload.refund_mode, refund_amount=payload.refund_amount,
                               method=payload.method, note=payload.note)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "cancel", "deals", deal_id,
                     {"reason": payload.reason.strip(), "refund_mode": out["refund_mode"],
-                     "unit_code": d.get("unit_code")})
+                     "refund_deferred": out.get("refund_deferred"), "unit_code": d.get("unit_code")})
     return {"data": serialize_doc(out["deal"]), "refund": serialize_doc(out["refund"]),
-            "message": "Reservasi dibatalkan — unit kembali tersedia."}
+            "message": ("Reservasi dibatalkan — unit kembali tersedia. Refund booking fee menunggu "
+                        "eksekusi Keuangan (kas keluar harus oleh pemegang izin Keuangan)."
+                        if out.get("refund_deferred") else
+                        "Reservasi dibatalkan — unit kembali tersedia.")}
 
 
 # ----------------------------- Legal chain (EPIC 1.4): PPJB -> AJB -> sold -----------------------------
