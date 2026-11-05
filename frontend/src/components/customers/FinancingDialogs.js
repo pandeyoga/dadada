@@ -62,8 +62,10 @@ export function AddFinancingDialog({ open, onOpenChange, customer, onDone }) {
       try {
         const res = await api.get("/deals");
         const all = res.data?.data || [];
-        const mine = customer?.lead_id ? all.filter((d) => d.lead_id === customer.lead_id) : [];
-        setDeals(mine.length ? mine : all);
+        // KT-23: hanya deal MILIK pembeli ini (dulu, bila tak ada, semua deal organisasi ditawarkan
+        // sehingga pengajuan KPR bisa tertaut ke deal orang lain).
+        const leadIds = new Set([customer?.lead_id, ...(customer?.lead_ids || [])].filter(Boolean));
+        setDeals(all.filter((d) => (customer?.id && d.customer_id === customer.id) || leadIds.has(d.lead_id)));
       } catch { setDeals([]); }
     })();
   }, [open, customer]);

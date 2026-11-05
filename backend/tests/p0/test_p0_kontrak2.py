@@ -17,6 +17,7 @@ Cakupan (urut berkas):
   KT-20  lead lost/recycle tidak bisa memesan unit
   KT-23  satu pengajuan KPR aktif per deal, tertaut kontrak, plafon tersinkron
   KT-22  validasi wajar komponen biaya kontrak
+  KT-21  pratinjau "Jadikan Pembeli" membedakan skema DIPILIH sales vs bawaan sistem
   KT-25  sweeper kedaluwarsa reservasi melepas unit/kupon/tugas/lead seperti pembatalan
          (butuh env DB_NAME = DB instans yang diuji; opsional P0_BACKEND_DIR = kode yang diuji)
 """
@@ -32,7 +33,8 @@ from datetime import datetime
 import pytest
 
 from test_p0_kontrak import (  # noqa: F401  (fixture `cleanup` ikut diimpor)
-    available_units, booked_deal, call, cleanup, new_lead, ok, reserve, scheme_id, upload_proof,
+    available_units, booked_deal, call, cleanup, new_lead, ok, pay_booking_fee_and_book, reserve,
+    scheme_id, upload_proof,
 )
 
 
@@ -474,3 +476,24 @@ def test_kt22_komponen_biaya_tidak_wajar_ditolak_yang_wajar_diterima(cleanup):
     assert out["costs"]["bphtb"] == 42_500_000 and out["costs"]["promo_discount"] == 10_000_000
     out = ok(call("finance", "POST", f"/contracts/{k['id']}/costs", {"bphtb": -1}))
     assert "bphtb" not in out["costs"] and out["costs"]["notary_fee"] == 15_000_000
+
+
+# ============================================================================ KT-21
+def test_kt21_skema_bawaan_tidak_dikunci_skema_pilihan_sales_dikunci(cleanup):
+    # (a) reservasi TANPA memilih skema -> skema bawaan sistem, boleh disesuaikan saat Jadikan Pembeli
+    lead_a = new_lead(tag="K21a")
+    deal_a = ok(reserve(lead_a["id"], available_units(1)[0], scheme=None))
+    cleanup.append(deal_a["id"])
+    pay_booking_fee_and_book(deal_a["id"])
+    pre = ok(call("sales", "GET", f"/deals/{deal_a['id']}/convert-preview"))
+    assert pre["deal_scheme"] and pre["deal_scheme_explicit"] is False, pre
+    out = ok(call("sales", "POST", f"/deals/{deal_a['id']}/convert", {"scheme": "cash_keras"}))
+    assert out["contract"]["scheme"] == "cash_keras"
+    inv, _ = ar_of(deal_a["id"])
+    assert int(inv["paid"]) == 5_000_000
+    # (b) skema DIPILIH sales saat reservasi -> terkunci
+    _, deal_b, _u = booked_deal(cleanup, tag="K21b", scheme="cash_bertahap")
+    pre = ok(call("sales", "GET", f"/deals/{deal_b['id']}/convert-preview"))
+    assert pre["deal_scheme"] == "cash_bertahap" and pre["deal_scheme_explicit"] is True
+    code, body = call("sales", "POST", f"/deals/{deal_b['id']}/convert", {"scheme": "kpr"})
+    assert code == 400 and "dipilih saat reservasi" in str(body), (code, str(body)[:300])
