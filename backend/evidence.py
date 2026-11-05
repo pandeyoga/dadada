@@ -30,6 +30,11 @@ async def _used_elsewhere(org: str, ids: list, *, exclude_fund_request: str = No
     row = await db.petty_expenses.find_one(q2, {"_id": 0, "no": 1, "file_ids": 1})
     if row:
         return row.get("no"), next(i for i in ids if i in (row.get("file_ids") or []))
+    # IN-17: berkas yang sudah menjadi bukti KUITANSI (termasuk yang sudah dibatalkan) tidak dipakai ulang.
+    row = await db.receipts.find_one({"org_id": org, "proof_file_ids": {"$in": ids}},
+                                     {"_id": 0, "receipt_no": 1, "proof_file_ids": 1})
+    if row:
+        return row.get("receipt_no"), next(i for i in ids if i in (row.get("proof_file_ids") or []))
     return None
 
 
@@ -68,3 +73,15 @@ async def validate(org: str, ids, *, actor: str, owner_types: tuple, owner_id: s
                          "dua transaksi.")
     return [{"id": r["id"], "filename": r.get("original_filename"), "content_type": r.get("content_type"),
              "size": r.get("size")} for r in (by_id[i] for i in ids)]
+
+
+async def validate_proof(org: str, ids, *, actor: str, deal_id: str = None) -> list:
+    """Bukti BAYAR pembeli yang dicatat staf (kuitansi manual, booking fee, titipan) — audit IN-17.
+
+    Dulu `proof_file_ids:["x"]` atau satu berkas nyata yang sama untuk tiga kuitansi pada tiga deal diterima,
+    sehingga "bukti bayar wajib" tampil terpenuhi di semua laporan padahal kosong/ganda. Berkas harus ada,
+    milik organisasi ini, diunggah pencatat sendiri, berjenis bukti bayar (`receipt_proof`/umum), terikat ke
+    deal ini (bila terikat), dan belum menjadi bukti kuitansi/pengajuan lain.
+    """
+    return await validate(org, ids, actor=actor, owner_types=("receipt_proof", "generic"),
+                          owner_id=deal_id, minimum=1, label="bukti bayar")

@@ -17,6 +17,7 @@ import cancellation_engine as cx
 import late_fee_engine as lf
 import p28_utils as p28
 import payment_intake as intake
+import proof_sniff
 import reference as ref
 import storage
 from core_utils import new_id, now_iso, serialize_doc, due_in, normalize_phone_e164
@@ -230,7 +231,7 @@ async def payments(pu: dict = Depends(get_portal_user)):
     result = []
     for d in deals:
         inv = await db.ar_invoices.find_one({"org_id": org, "deal_id": d["id"]}, {"_id": 0})
-        receipts = await db.receipts.find({"org_id": org, "deal_id": d["id"],
+        receipts = await db.receipts.find({"org_id": org, "deal_id": d["id"], "status": {"$ne": "void"},
                                            "kind": {"$nin": ["booking_fee", "booking_fee_refund"]}},
                                           {"_id": 0}).sort("created_at", -1).to_list(200)
         result.append({
@@ -275,6 +276,8 @@ async def upload_payment_proof(file: UploadFile = File(...), deal_id: str = Form
         raise HTTPException(status_code=400, detail=(
             "Bukti transfer harus berupa foto (JPG/PNG/WEBP/HEIC) atau PDF — "
             f"berkas Anda bertipe {ctype or 'tidak dikenali'}."))
+    if (bad := proof_sniff.problem(ctype, data)):  # IN-16: periksa ISI berkas, bukan hanya header
+        raise HTTPException(status_code=400, detail=bad)
     if len(data) > PROOF_MAX_BYTES:
         raise HTTPException(status_code=400, detail=(
             f"Ukuran berkas {len(data) // 1024 // 1024} MB melebihi batas 8 MB — "
@@ -721,7 +724,7 @@ async def _my_receipts(pu: dict) -> list:
     deal_ids = [d["id"] for d in await _deals(pu, cust)]
     if not deal_ids:
         return []
-    return await db.receipts.find({"org_id": org, "deal_id": {"$in": deal_ids}},
+    return await db.receipts.find({"org_id": org, "deal_id": {"$in": deal_ids}, "status": {"$ne": "void"}},
                                   {"_id": 0}).sort("created_at", -1).to_list(200)
 
 
