@@ -477,6 +477,8 @@ class CustomerCreate(BaseModel):
     heir_relation: Optional[str] = None
     lead_id: Optional[str] = None
     notes: Optional[str] = None
+    # KT-17: pembeli dengan HP/email yang sama dengan pembeli lain ditolak (409) kecuali ini True
+    allow_duplicate: bool = False
 
 
 class CustomerUpdate(BaseModel):

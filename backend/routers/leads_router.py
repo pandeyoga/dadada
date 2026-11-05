@@ -368,7 +368,39 @@ async def update_lead(lead_id: str, payload: LeadUpdate,
     if "name" in updates:
         await db.conversations.update_many({"org_id": org, "lead_id": lead_id},
                                            {"$set": {"contact_name": fresh.get("name")}})
+    await _sync_contact_downstream(org, lead, updates, lead_id)
     return {"data": serialize_doc(fresh), "denorm_synced": synced}
+
+
+async def _sync_contact_downstream(org: str, old_lead: dict, updates: dict, lead_id: str) -> None:
+    """KT-15: kontak lead yang diedit PASCA-KONVERSI ikut ke pembeli & percakapan WA.
+
+    Aturan aman: pembeli hanya ikut bila nilainya MASIH sama dengan nilai lama lead (tidak pernah
+    diedit sendiri). Telepon percakapan hanya diganti bila tidak menabrak percakapan lain pada
+    nomor baru (keunikan per kanal) — kalau menabrak, dibiarkan agar tidak merusak riwayat.
+    """
+    ts = updates.get("updated_at")
+    for f in ("name", "phone", "email"):
+        if f in updates and updates[f] != old_lead.get(f) and old_lead.get(f):
+            await db.customers.update_many(
+                {"org_id": org, f: old_lead.get(f), "$or": [{"lead_id": lead_id}, {"lead_ids": lead_id}]},
+                {"$set": {f: updates[f], "updated_at": ts}})
+            if f == "name":
+                for c in await db.customers.find(
+                        {"org_id": org, "name": updates[f], "$or": [{"lead_id": lead_id}, {"lead_ids": lead_id}]},
+                        {"_id": 0, "id": 1, "name": 1}).to_list(5):
+                    await cascade_master_change("customers", c["id"], c)
+    new_phone, old_phone = updates.get("phone"), old_lead.get("phone")
+    if new_phone and old_phone and new_phone != old_phone:
+        for conv in await db.conversations.find(
+                {"org_id": org, "lead_id": lead_id, "contact_phone": old_phone},
+                {"_id": 0, "id": 1, "channel": 1}).to_list(5):
+            clash = await db.conversations.find_one(
+                {"org_id": org, "channel": conv.get("channel"), "contact_phone": new_phone,
+                 "id": {"$ne": conv["id"]}}, {"_id": 1})
+            if not clash:
+                await db.conversations.update_one({"id": conv["id"]},
+                                                  {"$set": {"contact_phone": new_phone, "updated_at": ts}})
 
 
 @router.post("/leads/{lead_id}/first-contact")
@@ -443,9 +475,14 @@ async def assign_lead(lead_id: str, payload: LeadAssign,
     if not target:
         raise HTTPException(status_code=400, detail="Pengguna tujuan tidak ditemukan")
     ts = now_iso()
+    old_owner = lead.get("assigned_to")
     await db.leads.update_one({"id": lead_id}, {"$set": {"assigned_to": payload.assigned_to, "updated_at": ts}})
+    # KT-16: deal/kontrak/AR/booking fee/pembeli/percakapan turunan ikut pindah PIC (bila masih dipegang PIC lama).
+    import lead_cascade
+    moved = await lead_cascade.reassign_children(org, lead_id, old_owner, payload.assigned_to, ts)
+    extra = (" Ikut dipindahkan: " + ", ".join(f"{v} {k}" for k, v in moved.items()) + ".") if moved else ""
     await add_activity(entity_type="lead", entity_id=lead_id, type="system",
-                       body=f"Lead di-assign ke {target.get('name')}.", actor=user.get("email"), org_id=org)
+                       body=f"Lead di-assign ke {target.get('name')}.{extra}", actor=user.get("email"), org_id=org)
     fresh = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     return {"data": serialize_doc(fresh)}
 

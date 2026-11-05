@@ -302,9 +302,27 @@ async def _convert_locked(org: str, deal_id: str, actor: str, payload: dict) -> 
         deal = await _repoint_deal_scheme(org, deal, scheme, actor)
     ts = now_iso()
 
+    # --- identitas dari form: normalisasi + validasi (KT-17) sebelum dipakai mencari pembeli lama
+    import customer_identity
+    ident = {k: payload.get(k) for k in ("nik", "npwp", "spouse_nik", "monthly_income")
+             if payload.get(k) not in (None, "")}
+    ident = customer_identity.clean_identity(ident)  # ValueError → router → 400
+    payload = {**payload, **ident}
+
     # --- pembeli: tautkan yang sudah ada, atau buat baru dari data lead + lengkapan form
     cust = await db.customers.find_one({"org_id": org, "lead_id": lead.get("id")}, {"_id": 0}) \
         or await _dedup_customer(org, lead, payload.get("nik"))
+    if cust and cust.get("lead_id") != lead.get("id") and not payload.get("confirm_link_existing"):
+        # KT-17: NIK yang diketik menaut ke pembeli yang sudah ada atas nama LAIN — dulu ditautkan
+        # senyap sehingga dua orang berbeda bisa tergabung. Minta konfirmasi eksplisit.
+        import re as _re
+        norm = lambda t: _re.sub(r"[^a-z]", "", str(t or "").lower())  # noqa: E731
+        if norm(cust.get("name")) != norm(lead.get("name")):
+            from idempotency import Conflict
+            raise Conflict(
+                f"NIK ini sudah terdaftar atas nama '{cust.get('name')}', berbeda dengan lead "
+                f"'{lead.get('name')}'. Periksa kembali NIK. Bila memang orang yang sama, kirim "
+                "konfirmasi 'confirm_link_existing' (atau samakan nama lead terlebih dahulu).")
     diri = {k: payload.get(k) for k in ("nik", "npwp", "address", "occupation",
                                         "monthly_income", "spouse_name", "spouse_nik",
                                         "heir_name", "heir_relation")

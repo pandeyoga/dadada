@@ -7,6 +7,7 @@ abstraction (Emergent managed or mongo fallback).
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pymongo.errors import DuplicateKeyError
 
+import customer_identity
 import customer_scope as cs
 import listing as lst
 import stage_clock as clock
@@ -131,10 +132,21 @@ async def create_customer(payload: CustomerCreate,
                           user: dict = Depends(require_permission("customers", "create"))):
     org = user.get("org_id", ORG_ID)
     data = _clean(payload.model_dump())
+    allow_dup = bool(data.pop("allow_duplicate", False))
+    try:
+        data = customer_identity.clean_identity(data)  # KT-17: NIK 16 digit, NPWP 15/16, penghasilan >= 0
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if data.get("nik"):
         dup = await db.customers.find_one({"org_id": org, "nik": data["nik"]}, {"_id": 0})
         if dup:
             raise HTTPException(status_code=409, detail="NIK sudah terdaftar pada customer lain.")
+    if not allow_dup:
+        dup = await customer_identity.find_duplicate(org, phone=data.get("phone"), email=data.get("email"))
+        if dup:
+            raise HTTPException(status_code=409, detail=(
+                f"Sudah ada pembeli dengan {dup['by']} yang sama: {dup.get('name')}. Buka pembeli itu "
+                "dan perbarui datanya, atau pastikan ini orang yang berbeda."))
     ts = now_iso()
     doc = {"id": new_id(), "org_id": org, "kyc_files": [], "kyc_status": "pending",
            "created_by": user.get("email"), "created_at": ts, "updated_at": ts, **data}
@@ -322,8 +334,18 @@ async def update_customer(cid: str, payload: CustomerUpdate,
     org = user.get("org_id", ORG_ID)
     await _get(cid, org, user)
     data = _clean({k: v for k, v in payload.model_dump().items() if v is not None})
+    try:
+        data = customer_identity.clean_identity(data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if data.get("nik") and await db.customers.find_one(
+            {"org_id": org, "nik": data["nik"], "id": {"$ne": cid}}, {"_id": 1}):
+        raise HTTPException(status_code=409, detail="NIK sudah terdaftar pada customer lain.")
     data["updated_at"] = now_iso()
-    await db.customers.update_one({"id": cid, "org_id": org}, {"$set": data})
+    try:
+        await db.customers.update_one({"id": cid, "org_id": org}, {"$set": data})
+    except DuplicateKeyError:
+        raise HTTPException(status_code=409, detail="NIK sudah terdaftar pada customer lain.")
     fresh = await db.customers.find_one({"id": cid, "org_id": org}, {"_id": 0})
     await cascade_master_change("customers", cid, fresh)
     return {"data": serialize_doc(await _attach_files(fresh))}

@@ -42,6 +42,10 @@ DENORM_MAP: dict = {
         ("ar_invoices", "lead_id", "lead_name", "name"),
         ("appointments", "lead_id", "lead_name", "name"),
         ("surveys", "lead_id", "lead_name", "name"),
+        # KT-15: salinan nama lead yang dulu tidak ikut tersinkron saat kontak diedit setelah konversi.
+        ("deals", "lead_id", "lead_name", "name"),
+        ("units", "lead_id", "lead_name", "name"),
+        ("booking_fee_invoices", "lead_id", "lead_name", "name"),
     ],
     "subcontractors": [
         ("spk", "subcontractor_id", "subcontractor_name", "name"),
@@ -68,6 +72,9 @@ DENORM_MAP: dict = {
     "customers": [
         ("complaints", "customer_id", "customer_name", "name"),
         ("financing_apps", "customer_id", "customer_name", "name"),
+        # KT-15: nama pembeli di kontrak/deal ikut berubah (dulu GET /contracts?q=<nama baru> = 0 hasil).
+        ("contracts", "customer_id", "customer_name", "name"),
+        ("deals", "customer_id", "customer_name", "name"),
     ],
 }
 
