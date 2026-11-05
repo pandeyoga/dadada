@@ -29,6 +29,8 @@ tahap legal pembeli. Aturan yang dipegang:
 """
 import logging
 
+from pymongo.errors import DuplicateKeyError
+
 import finance_engine as fin
 import kpr_engine as kprmod
 import payment_scheme_engine as psx
@@ -366,9 +368,6 @@ async def ensure_contract(org: str, deal: dict, customer: dict, scheme: str,
     ts = now_iso()
     unit = await db.units.find_one({"id": deal.get("unit_id")}, {"_id": 0}) or {}
     project = await db.projects.find_one({"id": deal.get("project_id")}, {"_id": 0}) or {}
-    number = await seq.next_number("contract", org, prefix="KTR", context={
-        "project_id": deal.get("project_id"), "unit_id": deal.get("unit_id"),
-        "customer_id": deal.get("customer_id")})
     # Skema pembayaran yang dipilih sales saat reservasi IKUT ke kontrak: `resolve_for_contract`
     # membacanya lebih dulu, sehingga aktivasi kontrak menagih skema yang sama dengan booking.
     psched = (await db.payment_schemes.find_one({"id": deal["scheme_id"], "org_id": org}, {"_id": 0})
@@ -376,7 +375,7 @@ async def ensure_contract(org: str, deal: dict, customer: dict, scheme: str,
     if psched and (psched.get("kind") or psched.get("type")) != scheme:
         psched = {}
     doc = {
-        "id": new_id(), "org_id": org, "number": number,
+        "id": new_id(), "org_id": org, "number": None,   # nomor diambil SESUDAH klaim (di bawah)
         "deal_id": deal["id"], "lead_id": deal.get("lead_id"),
         "customer_id": customer["id"], "customer_name": customer.get("name"),
         "unit_id": deal.get("unit_id"), "unit_code": unit.get("code"),
@@ -390,8 +389,25 @@ async def ensure_contract(org: str, deal: dict, customer: dict, scheme: str,
         "quotation_id": deal.get("quotation_id"),
         "created_by": actor, "created_at": ts, "updated_at": ts,
     }
-    await db.contracts.insert_one(dict(doc))
-    doc.pop("_id", None)
+    # KLAIM dulu lewat index unik `uq_contract_deal`, nomor kemudian: permintaan yang kalah
+    # balapan tidak menghanguskan nomor (dulu nomor diambil sebelum insert, lalu insert gagal
+    # → lubang nomor kontrak), dan tidak mati dengan HTTP 500 — ia mengembalikan kontrak pemenang.
+    try:
+        await db.contracts.insert_one(dict(doc))
+    except DuplicateKeyError:
+        menang = await db.contracts.find_one({"org_id": org, "deal_id": deal["id"]}, {"_id": 0})
+        if menang:
+            return menang
+        raise
+    try:
+        number = await seq.next_number("contract", org, prefix="KTR", context={
+            "project_id": deal.get("project_id"), "unit_id": deal.get("unit_id"),
+            "customer_id": deal.get("customer_id")})
+        await db.contracts.update_one({"id": doc["id"]}, {"$set": {"number": number}})
+    except BaseException:
+        await db.contracts.delete_one({"id": doc["id"]})  # lepas klaim: tidak ada kontrak tanpa nomor
+        raise
+    doc["number"] = number
     if scheme == "kpr":
         await fin.tag_bank_items_for_deal(org, deal["id"])
     await db.deals.update_one({"id": deal["id"]}, {"$set": {

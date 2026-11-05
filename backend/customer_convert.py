@@ -30,11 +30,14 @@ tidak pernah dijalankan sistem.
    (baris baru menunjuk `file_id` yang SAMA, dengan jejak `inherited_from`).
 5. **Tahap lead menjadi `won`** — akhir domain lead (Dok 26 §1), bukan status karangan.
 """
+import asyncio
 import logging
+from contextlib import asynccontextmanager
 
 from pymongo.errors import DuplicateKeyError
 
 import contracts_engine as ce
+import idempotency as idem
 import kpr_engine as kprmod
 import lead_lifecycle as lc
 import reference as ref
@@ -217,9 +220,52 @@ async def _repoint_deal_scheme(org: str, deal: dict, kind: str, actor: str) -> d
     return deal
 
 
+# Kunci konversi per LEAD (audit KT-02). Satu lead = satu deal aktif = satu pembeli, jadi satu
+# kunci menutup dua balapan sekaligus: dua permintaan untuk deal yang sama (klik ganda, dua tab,
+# retry jaringan, pemicu otomatis + tombol manual) dan dua deal milik lead yang sama (pembeli ganda).
+# Kunci hidup di MongoDB (index unik `idempotency_keys`), bukan di memori proses, sehingga aman
+# untuk banyak worker. TTL hanya jaring pengaman bila proses mati di tengah konversi.
+CONVERT_LOCK_TTL = 90        # detik
+CONVERT_LOCK_WAIT = 45       # detik maksimum menunggu konversi lain yang sedang berjalan
+CONVERT_LOCK_POLL = 0.15
+
+
+@asynccontextmanager
+async def _convert_lock(org: str, lead_id: str, deal_id: str):
+    key = idem.make_key("lead.convert", org, lead_id or deal_id)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + CONVERT_LOCK_WAIT
+    while True:
+        try:
+            await idem.claim(key, CONVERT_LOCK_TTL, what="Konversi pembeli untuk lead ini")
+            break
+        except idem.Conflict:
+            if loop.time() >= deadline:
+                raise idem.Conflict("Konversi pembeli untuk lead ini masih diproses permintaan lain. "
+                                    "Tunggu sebentar lalu muat ulang — jangan klik ulang.")
+            await asyncio.sleep(CONVERT_LOCK_POLL)
+    try:
+        yield
+    finally:
+        await idem.release(key)
+
+
 async def convert(org: str, deal_id: str, actor: str, payload: dict = None) -> dict:
-    """Jadikan lead pembeli: pembeli + kontrak + (KPR) + warisan dokumen + tugas. Idempoten."""
-    payload = payload or {}
+    """Jadikan lead pembeli: pembeli + kontrak + (KPR) + warisan dokumen + tugas. Idempoten.
+
+    Tahan balapan: permintaan yang datang bersamaan untuk lead/deal yang sama DIANTRIKAN lewat
+    kunci per-lead; yang tertinggal menemukan kontrak yang sudah jadi dan mengembalikan kontrak &
+    pembeli yang SAMA (`created: False`) — bukan HTTP 500, bukan pembeli kembar, bukan nomor
+    kontrak yang hangus.
+    """
+    deal0 = await db.deals.find_one({"id": deal_id, "org_id": org}, {"_id": 0, "lead_id": 1})
+    if not deal0:
+        raise ValueError("Deal tidak ditemukan.")
+    async with _convert_lock(org, deal0.get("lead_id"), deal_id):
+        return await _convert_locked(org, deal_id, actor, payload or {})
+
+
+async def _convert_locked(org: str, deal_id: str, actor: str, payload: dict) -> dict:
     pre = await preview(org, deal_id)
     deal = await db.deals.find_one({"id": deal_id, "org_id": org}, {"_id": 0})
     lead = await db.leads.find_one({"id": deal.get("lead_id")}, {"_id": 0}) or {}
@@ -286,9 +332,12 @@ async def convert(org: str, deal_id: str, actor: str, payload: dict = None) -> d
         try:
             await db.customers.insert_one(dict(cust))
         except DuplicateKeyError:
-            # Lomba dua permintaan (klik ganda / dua tab): baris pembeli sudah dibuat
-            # permintaan lain. Tautkan yang ada — jangan mati dengan 500.
-            cust = await _dedup_customer(org, lead, payload.get("nik"))
+            # Lomba (kunci per-lead sudah menyerialkan; ini jaring kedua bila kunci kedaluwarsa
+            # atau NIK diketik sama oleh dua lead berbeda): baris pembeli sudah dibuat pihak lain.
+            # Tautkan yang ada — jangan mati dengan 500.
+            cust = await db.customers.find_one({"org_id": org, "lead_id": lead.get("id")},
+                                               {"_id": 0}) \
+                or await _dedup_customer(org, lead, payload.get("nik"))
             if not cust:
                 raise ValueError("Data pembeli bentrok dengan baris yang sudah ada "
                                  "(NIK/telepon). Periksa daftar Pembeli.")

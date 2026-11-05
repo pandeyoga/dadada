@@ -74,13 +74,22 @@ def ok(resp, expect=200):
 
 
 # ----------------------------------------------------------------------------- fixture data
+_lead_names: list = []
+
+
 @pytest.fixture
 def cleanup():
-    """Kumpulkan deal uji; akhir tes: hapus paksa (owner) supaya unit demo tersedia lagi."""
+    """Kumpulkan deal uji; akhir tes: hapus paksa (owner) supaya unit demo tersedia lagi,
+    lalu hapus pembeli hasil konversi uji (nama lead berawalan `P0KT`)."""
     deals: list = []
+    _lead_names.clear()
     yield deals
     for did in deals:
         call("owner", "DELETE", f"/deals/{did}", params={"reason": "bersihkan data uji P0 kontrak"})
+    for name in _lead_names:
+        code, body = call("owner", "GET", "/customers", params={"q": name, "limit": 20})
+        for c in (body.get("data") or []) if code == 200 else []:
+            call("owner", "DELETE", f"/customers/{c['id']}")
 
 
 def _phone() -> str:
@@ -107,6 +116,7 @@ def scheme_id(code: str) -> str:
 
 def new_lead(who="sales", tag="Lead") -> dict:
     name = f"P0KT {tag} {uuid.uuid4().hex[:6]}"
+    _lead_names.append(name)
     lead = ok(call(who, "POST", "/leads", {"name": name, "phone": _phone(), "source": "walk_in"}))
     call(who, "POST", f"/leads/{lead['id']}/first-contact")
     call(who, "POST", "/appointments", {"lead_id": lead["id"], "title": "P0KT survei",
