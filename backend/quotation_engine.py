@@ -590,12 +590,22 @@ async def convert(org: str, quotation_id: str, actor: str, note: str = None) -> 
              "pricing": pricing_snapshot(q)}
     if (q.get("costs") or {}).get("components") is not None:
         extra["costs"] = dict(q["costs"])  # skema all-in penawaran dibawa ke deal → kontrak
-    deal = await sr.reserve(org, lead=lead, unit=unit, actor=actor, notes=note,
-                            booking_fee=int(booking_fee or 0), extra=extra)
+    # KT-08: kuota kupon ditebus ATOMIK sebelum unit ditahan (id deal dibuat di sini) dan
+    # dikembalikan bila reservasi gagal — bukan sesudah deal ada (deal berdiskon tanpa kuota).
+    deal_id = new_id()
+    redeemed = False
     if q.get("coupon_code"):
         await pe.redeem_coupon(org, q["coupon_code"], unit=unit, lead=lead, ref_type="deal",
-                               ref_id=deal["id"], amount=int((q.get("coupon") or {})
-                                                             .get("amount") or 0), actor=actor)
+                               ref_id=deal_id, amount=int((q.get("coupon") or {})
+                                                          .get("amount") or 0), actor=actor)
+        redeemed = True
+    try:
+        deal = await sr.reserve(org, lead=lead, unit=unit, actor=actor, notes=note,
+                                booking_fee=int(booking_fee or 0), extra=extra, deal_id=deal_id)
+    except BaseException:
+        if redeemed:
+            await pe.release_coupon(org, ref_type="deal", ref_id=deal_id, actor=actor)
+        raise
     await db.quotations.update_one({"id": quotation_id}, {"$set": {
         "state": "converted", "state_label": _label("converted"),
         "converted_deal_id": deal["id"], "converted_at": ts, "updated_at": ts},

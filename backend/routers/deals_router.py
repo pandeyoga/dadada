@@ -275,9 +275,24 @@ async def reserve_unit(payload: DealReserve,
             approval = {"state": "pending", "reasons": calc["approval_reasons"], "reason": reason,
                         "requested_by": user.get("email"), "requested_at": ts,
                         "decided_by": None, "decided_at": None, "decision_reason": None}
+    # KT-08: kuota kupon dipakai SECARA ATOMIK lebih dulu (deal_id dibuat di sini), baru unit
+    # ditahan. Dulu kupon ditebus SESUDAH deal ada: dua reservasi serentak pada kupon kuota 1
+    # sama-sama berdiskon (deal kedua tertinggal dengan HTTP 500 dan unit terkunci).
+    deal_id = new_id()
+    redeemed = False
+    if calc.get("coupon_code"):
+        try:
+            await pe.redeem_coupon(org, calc["coupon_code"], unit=unit, lead=lead,
+                                   ref_type="deal", ref_id=deal_id,
+                                   amount=int((calc.get("coupon") or {}).get("amount") or 0),
+                                   actor=user.get("email"))
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        redeemed = True
     try:
         deal = await sr.reserve(org, lead=lead, unit=unit, actor=user.get("email"),
                                 booking_fee=booking_fee_net, notes=payload.notes,
+                                deal_id=deal_id,
                                 extra={"price": int(calc["net_price"]),
                                        "discount": int(calc["discount_amount"] or 0),
                                        "addons": calc["addons"],
@@ -288,8 +303,12 @@ async def reserve_unit(payload: DealReserve,
                                        "pricing": qe.pricing_snapshot(calc),
                                        "pricing_approval": approval,
                                        "costs": costs})
-    except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+    except BaseException as e:
+        if redeemed:  # reservasi gagal → kuota kupon dikembalikan (tebusan ditandai released)
+            await pe.release_coupon(org, ref_type="deal", ref_id=deal_id, actor=user.get("email"))
+        if isinstance(e, ValueError):
+            raise HTTPException(status_code=409, detail=str(e))
+        raise
     if approval and approval["state"] == "pending":
         await _notify_pricing_approvers(org, deal, calc)
         await audit_log(user, "request_approval", "deals", deal["id"],
@@ -297,11 +316,6 @@ async def reserve_unit(payload: DealReserve,
     elif approval:
         await audit_log(user, "approve", "deals", deal["id"],
                         {"self_approved": True, "reasons": calc["approval_reasons"]})
-    if calc.get("coupon_code"):
-        await pe.redeem_coupon(org, calc["coupon_code"], unit=unit, lead=lead,
-                               ref_type="deal", ref_id=deal["id"],
-                               amount=int((calc.get("coupon") or {}).get("amount") or 0),
-                               actor=user.get("email"))
     return {"data": serialize_doc(deal)}
 
 
