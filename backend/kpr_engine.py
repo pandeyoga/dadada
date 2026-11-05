@@ -80,6 +80,13 @@ async def ensure_kpr_app(org: str, contract: dict, actor: str, bank: str = None)
     app = await _kpr_app(org, contract)
     if app:
         return app
+    import kpr_link  # KT-23: cek-lalu-sisip di bawah satu kunci (dua tahap serentak = satu pengajuan)
+    async with kpr_link.create_lock(contract["deal_id"]):
+        app = await _kpr_app(org, contract)
+        return app if app else await _insert_kpr_app(org, contract, actor, bank)
+
+
+async def _insert_kpr_app(org: str, contract: dict, actor: str, bank: str = None) -> dict:
     ts = now_iso()
     bd = await _ce().build_breakdown(org, contract)
     doc = {

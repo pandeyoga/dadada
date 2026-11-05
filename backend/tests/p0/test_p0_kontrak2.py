@@ -15,6 +15,8 @@ Cakupan (urut berkas):
   KT-24  tahap legal paralel -> satu efek; tanda tangan & SPR tidak ganda
   KT-18  batas unit aktif per lead atomik (paralel & lewat penawaran)
   KT-20  lead lost/recycle tidak bisa memesan unit
+  KT-23  satu pengajuan KPR aktif per deal, tertaut kontrak, plafon tersinkron
+  KT-22  validasi wajar komponen biaya kontrak
   KT-25  sweeper kedaluwarsa reservasi melepas unit/kupon/tugas/lead seperti pembatalan
          (butuh env DB_NAME = DB instans yang diuji; opsional P0_BACKEND_DIR = kode yang diuji)
 """
@@ -413,3 +415,62 @@ def test_kt25_sweeper_kedaluwarsa_melepas_seperti_pembatalan(cleanup):
     cleanup.append(deal2["id"])
     _jalankan_sweeper()
     assert call("manager", "GET", "/units", params={"q": unit["code"], "limit": 5})[1]["data"][0]["status"] == "reserved"
+
+
+# ============================================================================ KT-23
+def _financing(deal_id, bank="BTN", plafon=400_000_000, who="finance"):
+    return call(who, "POST", "/financing", {"deal_id": deal_id, "bank_name": bank, "plafon": plafon,
+                                            "dp_amount": 0, "tenor_months": 180})
+
+
+def test_kt23_pengajuan_kpr_paralel_hanya_satu_per_deal(cleanup):
+    _, deal, _k = contract_of(cleanup, scheme="cash_bertahap", tag="K23a", activate=False)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        res = list(pool.map(lambda _: _financing(deal["id"]), range(3)))
+    kode = sorted(c for c, _ in res)
+    assert kode == [200, 409, 409], (kode, [str(b)[:150] for c, b in res if c != 200])
+    rows = ok(call("finance", "GET", "/financing", params={"deal_id": deal["id"]}))
+    assert len(rows) == 1, rows
+    code, body = _financing(deal["id"], bank="BNI")
+    assert code == 409 and "pengajuan KPR" in str(body), (code, str(body)[:300])
+
+
+def test_kt23_pengajuan_kontrak_kpr_dilengkapi_bukan_digandakan_dan_plafon_tersinkron(cleanup):
+    _, deal, k = contract_of(cleanup, scheme="kpr", tag="K23b", activate=False)
+    app0 = ok(call("finance", "GET", f"/contracts/{k['id']}/kpr"))["application"]
+    assert app0["contract_id"] == k["id"] and not app0.get("bank_name")
+    # plafon di komponen biaya kontrak -> pengajuan (belum disetujui bank)
+    ok(call("finance", "POST", f"/contracts/{k['id']}/costs", {"plafon_kredit": 500_000_000}))
+    app1 = ok(call("finance", "GET", f"/contracts/{k['id']}/kpr"))["application"]
+    assert app1["plafon"] == 500_000_000 and app1["requested_plafon"] == 500_000_000
+    # "Ajukan KPR" dari menu pembiayaan melengkapi pengajuan kontrak (tahap & tautan kontrak utuh)
+    code, body = _financing(deal["id"], bank="BTN", plafon=480_000_000)
+    assert code == 200, (code, str(body)[:300])
+    assert body["data"]["id"] == app0["id"]
+    view = ok(call("finance", "GET", f"/contracts/{k['id']}/kpr"))
+    assert view["application"]["id"] == app0["id"] and view["application"]["bank_name"] == "BTN"
+    assert view["application"]["contract_id"] == k["id"] and view["stage"] == "berkas_lengkap"
+    assert len(ok(call("finance", "GET", "/financing", params={"deal_id": deal["id"]}))) == 1
+    code, body = _financing(deal["id"], bank="BNI")
+    assert code == 409, (code, str(body)[:200])
+    # progres bank tetap bisa dimajukan (tampilan tidak tertimpa pengajuan baru)
+    ok(call("finance", "POST", f"/contracts/{k['id']}/kpr/stage/diajukan_ke_bank", {"bank": "BTN"}))
+
+
+# ============================================================================ KT-22
+def test_kt22_komponen_biaya_tidak_wajar_ditolak_yang_wajar_diterima(cleanup):
+    _, deal, k = contract_of(cleanup, scheme="cash_keras", tag="K22", activate=False)
+    harga = int(ok(call("manager", "GET", f"/contracts/{k['id']}"))["breakdown"]["gross_price"])
+    for body in ({"promo_discount": harga + 50_000_000}, {"dp_percent": 150},
+                 {"plafon_kredit": 99_999_999_999}, {"bphtb": -5}, {"notary_fee": harga * 3}):
+        code, resp = call("finance", "POST", f"/contracts/{k['id']}/costs", body)
+        assert code == 400, (body, code, str(resp)[:200])
+    kk = ok(call("manager", "GET", f"/contracts/{k['id']}"))
+    assert not kk["costs"].get("promo_discount") and not kk["costs"].get("dp_percent")
+    assert kk["breakdown"]["nett_price"] > 0
+    # angka wajar tetap diterima; -1 tetap berarti "kosongkan"
+    out = ok(call("finance", "POST", f"/contracts/{k['id']}/costs",
+                  {"bphtb": 42_500_000, "notary_fee": 15_000_000, "promo_discount": 10_000_000, "dp_percent": 30}))
+    assert out["costs"]["bphtb"] == 42_500_000 and out["costs"]["promo_discount"] == 10_000_000
+    out = ok(call("finance", "POST", f"/contracts/{k['id']}/costs", {"bphtb": -1}))
+    assert "bphtb" not in out["costs"] and out["costs"]["notary_fee"] == 15_000_000

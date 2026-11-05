@@ -579,22 +579,29 @@ async def set_costs(org: str, contract_id: str, payload: dict, actor: str) -> di
             payload.get(k) is not None for k in COST_FIELDS if k != "pph_seller"):
         raise LookupError("Skema biaya kontrak yang sudah terbit terkunci (snapshot) — ubah hanya lewat "
                           "AMANDEMEN skema all-in dengan alasan & persetujuan finance manager.")
-    costs = dict(c.get("costs") or {})
-    changed = []
+    import contract_costs_guard
+    await contract_costs_guard.validate(org, c, payload)  # KT-22: angka tidak wajar ditolak
+    # Per-bidang ($set/$unset), bukan menimpa seluruh dict `costs`: dua pengisian serentak pada
+    # bidang berbeda tidak saling menghapus.
+    sets, unsets, changed = {}, {}, []
     for k in (*COST_FIELDS, "promo_discount", "plafon_kredit", "dp_percent"):
         v = payload.get(k)
         if v is None:
             continue
         if isinstance(v, (int, float)) and v < 0:
-            costs.pop(k, None)
+            unsets[f"costs.{k}"] = ""
             changed.append(f"{k}=dikosongkan")
             continue
-        costs[k] = int(v) if k != "dp_percent" else float(v)
-        changed.append(f"{k}={costs[k]}")
+        sets[f"costs.{k}"] = int(v) if k != "dp_percent" else float(v)
+        changed.append(f"{k}={sets[f'costs.{k}']}")
     ts = now_iso()
-    await db.contracts.update_one({"id": contract_id}, {"$set": {
-        "costs": costs, "updated_at": ts, "costs_updated_by": actor,
-        "costs_updated_at": ts}})
+    sets.update({"updated_at": ts, "costs_updated_by": actor, "costs_updated_at": ts})
+    await db.contracts.update_one({"id": contract_id},
+                                  {"$set": sets, **({"$unset": unsets} if unsets else {})})
+    if "costs.plafon_kredit" in sets:  # KT-23: plafon kontrak ikut ke pengajuan KPR yang belum disetujui
+        import kpr_link
+        await kpr_link.sync_plafon(org, c["deal_id"], (c.get("costs") or {}).get("plafon_kredit"),
+                                   sets["costs.plafon_kredit"])
     if changed:
         await add_activity(entity_type="customer", entity_id=c.get("customer_id"),
                            type="system", actor=actor, org_id=org,
