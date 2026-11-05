@@ -217,6 +217,7 @@ class BillPayWithholding(BaseModel):
     note: str = None
     cash_account_id: str = None
     client_ref: str = None  # kunci idempotensi dari klien
+    value_date: str = None  # GL-15: tanggal bayar nyata (YYYY-MM-DD); kosong = sekarang
 
     @field_validator("kind")
     @classmethod

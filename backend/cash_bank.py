@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 
 import gl_engine as gl
 import sequences as seq
-from core_utils import new_id, now_iso
+from core_utils import new_id, now_iso, today_wib
 from db import ORG_ID, db
 
 logger = logging.getLogger("sipro.cashbank")
@@ -343,7 +343,7 @@ async def list_accounts(org: str, active_only: bool = False) -> list:
 
 async def position(org: str) -> dict:
     rows = await list_accounts(org)
-    today = now_iso()[:10]
+    today = today_wib()
     month = today[:7]
     codes = [r["gl_account_code"] for r in rows]
     flow = {c: {"in": 0, "out": 0} for c in codes}

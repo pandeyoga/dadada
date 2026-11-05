@@ -3,6 +3,8 @@
 Fase 49F menambah satu pintu: pembayaran yang MEMOTONG PPh (vendor terima neto, potongan
 menjadi utang pajak + bukti potong bernomor terbit otomatis).
 """
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -17,6 +19,22 @@ from idempotency import Conflict
 from sod import assert_separate
 
 router = APIRouter(prefix="/finance/ap", tags=["finance-ap"])
+
+
+class ApPayDated(ApPay):
+    """`ApPay` + tanggal bayar nyata (GL-15). Dipisah dari models.py yang sudah melewati batas ukuran."""
+    value_date: Optional[str] = None
+
+
+async def _value_date(org: str, value, cash_account_id: str = None):
+    """Validasi tanggal bayar (tidak masa depan / periode tertutup / rekening terkunci) → HTTP 400 bila tidak sah."""
+    import cash_bank as _cb
+    import value_date as vd
+    try:
+        code = await _cb.resolve_code(org, cash_account_id, "1-1200") if value else None
+        return await vd.check(org, value, cash_code=code)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/bills")
@@ -126,17 +144,18 @@ async def approve_bill(bill_id: str,
 
 
 @router.post("/bills/{bill_id}/pay")
-async def pay_bill(bill_id: str, payload: ApPay,
+async def pay_bill(bill_id: str, payload: ApPayDated,
                    user: dict = Depends(require_permission("finance", "approve"))):
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="Jumlah bayar harus lebih dari 0")
     org = user.get("org_id", ORG_ID)
+    value_date = await _value_date(org, payload.value_date, payload.cash_account_id)
     try:
         await _assert_payer_separate(user, bill_id, org)
         bill = await fe.pay_ap_bill(bill_id, payload.amount, payload.note,
                                     user.get("email"), org,
                                     cash_account_id=payload.cash_account_id,
-                                    client_ref=payload.client_ref)
+                                    client_ref=payload.client_ref, value_date=value_date)
     except Conflict:
         raise
     except ValueError as e:
@@ -170,6 +189,7 @@ async def pay_bill_with_withholding(bill_id: str, payload: BillPayWithholding,
             "Pakai pembayaran biasa bila memang tidak ada potongan PPh."))
     memo = (f"PPh {payload.kind} {payload.rate}% atas "
             f"{bill.get('vendor')} (dasar Rp {base:,})")
+    value_date = await _value_date(org, payload.value_date, payload.cash_account_id)
     try:
         await _assert_payer_separate(user, bill_id, org)
         updated, payment = await fe.pay_ap_bill(
@@ -177,7 +197,7 @@ async def pay_bill_with_withholding(bill_id: str, payload: BillPayWithholding,
             withhold={"kind": payload.kind, "base": base, "rate": payload.rate,
                       "amount": withheld, "memo": memo},
             return_payment=True, cash_account_id=payload.cash_account_id,
-            client_ref=payload.client_ref)
+            client_ref=payload.client_ref, value_date=value_date)
         doc = await wh.issue_for_bill_payment(
             org, user.get("email"), bill=bill, payment=payment, kind=payload.kind,
             base=base, rate=payload.rate, object_code=payload.object_code,

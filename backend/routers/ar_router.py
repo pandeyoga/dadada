@@ -1,6 +1,6 @@
 """AR (piutang pembeli): jadwal, receipts, aging, BAST->RevRec. Slice Finance."""
 from fastapi import APIRouter, Depends, HTTPException
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 import listing as lst
@@ -16,6 +16,11 @@ from models import ArScheduleCreate, ReceiptCreate
 from models_finance import DepositApply, DepositReceive, DepositRefund
 
 router = APIRouter(prefix="/finance/ar", tags=["finance-ar"])
+
+
+class ReceiptCreateDated(ReceiptCreate):
+    """`ReceiptCreate` + tanggal bayar nyata (GL-15 / IN-19), dipisah dari models.py yang sudah melewati batas ukuran."""
+    value_date: Optional[str] = None   # YYYY-MM-DD, tidak di masa depan, tidak di periode tertutup/terkunci
 
 
 AR_SORTS = {"unit_code": "unit_code", "lead_name": "lead_name", "status": "status",
@@ -205,7 +210,7 @@ async def create_schedule(deal_id: str, payload: ArScheduleCreate,
 
 
 @router.post("/receipts")
-async def create_receipt(payload: ReceiptCreate,
+async def create_receipt(payload: ReceiptCreateDated,
                          user: dict = Depends(require_permission("finance", "create"))):
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="Jumlah pembayaran harus lebih dari 0")
@@ -216,6 +221,16 @@ async def create_receipt(payload: ReceiptCreate,
             "lewat tab KPR pada kontrak (tombol Cairkan); bila pembeli menyetor sendiri, pilih "
             "Transfer bank."))
     targets = {a.item_id: a.amount for a in (payload.allocations or [])} or None
+    value_date = None
+    if payload.value_date:
+        import cash_bank as _cb
+        import value_date as vd
+        try:
+            code = await _cb.resolve_code(user.get("org_id", ORG_ID), payload.cash_account_id,
+                                          "1-1100" if str(payload.method) in ("cash", "tunai") else "1-1200")
+            value_date = await vd.check(user.get("org_id", ORG_ID), payload.value_date, cash_code=code)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
     try:
         # Klik ganda / dua tab / dua staf dengan isian yang sama = SATU kuitansi (audit IN-01).
         # `client_ref` (opsional) membuat kiriman ulang yang sama tidak pernah menjadi kuitansi kedua.
@@ -230,7 +245,8 @@ async def create_receipt(payload: ReceiptCreate,
                                          cash_account_id=payload.cash_account_id,
                                          targets=targets,
                                          proof_file_ids=payload.proof_file_ids,
-                                         allow_bank_portion=payload.allow_bank_portion)
+                                         allow_bank_portion=payload.allow_bank_portion,
+                                         value_date=value_date)
     except Conflict:
         raise
     except ValueError as e:

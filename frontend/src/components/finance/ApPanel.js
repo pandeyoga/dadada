@@ -28,6 +28,7 @@ import { useAuth } from "@/context/AuthContext";
 import { FINANCE, P49 } from "@/constants/testIds";
 import ReferenceSelect from "@/components/patterns/ReferenceSelect";
 import CashAccountSelect from "@/components/cashBank/CashAccountSelect";
+import PaymentDateField from "@/components/finance/PaymentDateField";
 
 export default function ApPanel() {
   const { user } = useAuth();
@@ -281,6 +282,7 @@ function PayBillDialog({ bill, open, onOpenChange, onDone }) {
   const [objectCode, setObjectCode] = useState("");
   const [rates, setRates] = useState(null);
   const [cashAccountId, setCashAccountId] = useState("");
+  const [valueDate, setValueDate] = useState("");   // GL-15: tanggal bayar nyata (opsional)
   // Fase 26: pembayaran tidak boleh melebihi sisa tagihan (dulu tanpa guard -> 2-1100 negatif).
   const sisa = Number(bill?.outstanding || 0);
   const over = Number(amount) > sisa;
@@ -293,7 +295,7 @@ function PayBillDialog({ bill, open, onOpenChange, onDone }) {
     if (!open) return;
     setAmount(bill?.outstanding ? String(bill.outstanding) : "");
     setBase(bill?.outstanding ? String(bill.outstanding) : "");
-    setNote(""); setWithhold(false); setObjectCode("");
+    setNote(""); setWithhold(false); setObjectCode(""); setValueDate("");
     setKind("pph4_2_konstruksi");
     // Tarif bawaan datang dari setelan pajak; bila peran ini tidak berhak melihat setelan
     // pajak, kolom tarif tetap bisa diisi manual (tidak memblokir pembayaran biasa).
@@ -332,11 +334,12 @@ function PayBillDialog({ bill, open, onOpenChange, onDone }) {
           object_code: objectCode.trim() || null,
           note: note || null,
           cash_account_id: cashAccountId || null,
+          value_date: valueDate || null,
         });
         toast.success(res.data?.data?.detail || "Pembayaran dengan potong PPh dicatat.");
       } else {
         await api.post(`/finance/ap/bills/${bill.id}/pay`, { amount: amt, note: note || null,
-          cash_account_id: cashAccountId || null });
+          cash_account_id: cashAccountId || null, value_date: valueDate || null });
         toast.success("Pembayaran AP dicatat.");
       }
       onOpenChange(false); onDone && onDone();
@@ -366,6 +369,8 @@ function PayBillDialog({ bill, open, onOpenChange, onDone }) {
           </div>
           <CashAccountSelect value={cashAccountId} onChange={setCashAccountId} kind="bank"
             label="Bayar dari rekening" testId="ap-pay-cash-account" />
+          <PaymentDateField value={valueDate} onChange={setValueDate} id="ap-pay-value-date"
+            testId="ap-pay-value-date" />
 
           <div className="space-y-3 rounded-xl border bg-secondary/40 p-3">
             <div className="flex items-start justify-between gap-3">

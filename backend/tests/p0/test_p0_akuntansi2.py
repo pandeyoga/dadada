@@ -278,3 +278,134 @@ def test_pk09_status_pajak_tidak_bisa_dimundurkan():
     assert r.status_code == 400 and "dimundurkan" in r.text, r.text[:200]
     cur = [x for x in ok(call(FINANCE, "GET", "/tax/records", params={"limit": 200}))["data"] if x["id"] == rec["id"]][0]
     assert cur["status"] == "reported"
+
+
+# ================================================================== GL-15 — tanggal & periode
+def _wib_now():
+    from datetime import datetime, timedelta, timezone
+    return datetime.now(timezone(timedelta(hours=7)))
+
+
+def _days_ago(n):
+    from datetime import timedelta
+    return (_wib_now() - timedelta(days=n)).strftime("%Y-%m-%d")
+
+
+def _period_info():
+    """(bulan_lalu, bulan_berjalan, tanggal_terakhir_bulan_lalu, bulan_depan) menurut WIB."""
+    from datetime import timedelta
+    now = _wib_now()
+    first = now.replace(day=1)
+    prev_last = first - timedelta(days=1)
+    nxt = (first + timedelta(days=32)).replace(day=1)
+    return (prev_last.strftime("%Y-%m"), now.strftime("%Y-%m"), prev_last.strftime("%Y-%m-%d"),
+            nxt.strftime("%Y-%m"))
+
+
+def _manual_journal(date):
+    return call(FINANCE, "POST", "/gl/journals", json={
+        "memo": "Uji GL-15 " + TAG, "date": date,
+        "lines": [{"account_code": "6-1300", "debit": 1000, "credit": 0},
+                  {"account_code": "4-1200", "debit": 0, "credit": 1000}]})
+
+
+def _pl_expense(date_from, date_to):
+    d = ok(call(FINANCE, "GET", "/gl/reports/income-statement", params={"date_from": date_from, "date_to": date_to}))
+    return int(d["data"]["total_expense"])
+
+
+def test_gl15_tanggal_bayar_nyata_kuitansi_dan_pembayaran_ap(world):
+    day = _days_ago(3)
+    d = world.new_deal()["deal_id"]
+    rid = ok(pay(d, 10_000_000, value_date=day))["data"]["receipt"]["id"]
+    assert ok(call(FINANCE, "GET", f"/finance/ar/{d}"))["receipts"][0]["value_date"] == day
+    je = _wait(lambda: [j for j in _journals(source_type="receipt", source_id=rid) if j["source_id"] == rid])
+    assert je and je[0]["date"].startswith(day), je and je[0]["date"]
+    # pembayaran AP
+    b = _bill(6_000_000)
+    ok(_pay_bill(b["id"], 6_000_000, value_date=day))
+    pj = [j for j in _detail(b["id"])["journals"] if j["source_type"] == "ap_bill" and "Pembayaran" in j["memo"]]
+    assert pj and pj[0]["date"].startswith(day)
+    # tanpa value_date = sekarang (perilaku lama)
+    b2 = _bill(1_000_000)
+    ok(_pay_bill(b2["id"], 1_000_000))
+    pj2 = [j for j in _detail(b2["id"])["journals"] if j["source_type"] == "ap_bill" and "Pembayaran" in j["memo"]]
+    assert pj2 and pj2[0]["date"][:10] in (_days_ago(0), _days_ago(1))
+    assert ok(call(FINANCE, "GET", "/finance/reconcile"))["data"]["ok"]
+
+
+def test_gl15_tanggal_bayar_ditolak_bila_masa_depan_atau_rusak(world):
+    d = world.new_deal()["deal_id"]
+    for bad in ("2099-01-01", "bukan-tanggal", _days_ago(-3)):
+        r = pay(d, 1_000_000, value_date=bad)
+        assert r.status_code == 400 and "anggal bayar" in r.text, (bad, r.status_code, r.text[:160])
+    assert len(ar(d)["receipts"]) == 0, "tidak ada kuitansi yang lahir dari permintaan ditolak"
+    b = _bill(2_000_000)
+    r = _pay_bill(b["id"], 2_000_000, value_date="2099-01-01")
+    assert r.status_code == 400 and _detail(b["id"])["bill"]["paid"] == 0
+
+
+def test_gl15_batas_zona_waktu_periode_tertutup_dan_tak_menutup_masa_depan(world):
+    prev, cur, last_day, nxt = _period_info()
+    r = call(SUPER, "POST", "/gl/periods/close", json={"period": prev, "override": True,
+                                                         "override_reason": "uji GL-15 batas zona waktu"})
+    if r.status_code != 200 and "sudah ditutup" not in r.text:
+        pytest.skip(f"tidak bisa menutup {prev} untuk uji: {r.text[:120]}")
+    try:
+        before = _pl_expense(f"{prev}-01", last_day)
+        # 20:00 UTC hari terakhir = 03:00 WIB tanggal 1 bulan berjalan → periode berjalan (terbuka), BUKAN bulan lalu
+        r = _manual_journal(f"{last_day}T20:00:00+00:00")
+        if _wib_now().strftime("%Y-%m-%d") == f"{cur}-01" and _wib_now().hour < 3:
+            pytest.skip("belum lewat 03:00 WIB tanggal 1 — jurnal itu masih di masa depan")
+        je = ok(r)["data"]
+        assert je["date"].startswith(f"{cur}-01"), je["date"]
+        assert _pl_expense(f"{prev}-01", last_day) == before, "Laba Rugi periode tertutup tidak boleh berubah"
+        # 10:00 UTC hari terakhir = 17:00 WIB hari terakhir → periode tertutup → ditolak
+        r = _manual_journal(f"{last_day}T10:00:00+00:00")
+        assert r.status_code == 400 and "tertutup" in r.text, r.text[:200]
+        # tanggal bayar nyata di periode tertutup ditolak
+        d = world.new_deal()["deal_id"]
+        r = pay(d, 1_000_000, value_date=f"{prev}-15")
+        assert r.status_code == 400 and "DITUTUP" in r.text, r.text[:200]
+        # periode yang belum berakhir tidak boleh ditutup (dulu sampai 2027-01-01 setelah Nov–Des ditutup lebih awal)
+        for p in (cur, nxt):
+            r = call(SUPER, "POST", "/gl/periods/close", json={"period": p, "override": True,
+                                                                 "override_reason": "uji GL-15 tutup dini"})
+            assert r.status_code == 400 and "belum berakhir" in r.text, (p, r.status_code, r.text[:160])
+    finally:
+        call(SUPER, "POST", "/gl/periods/reopen", json={"period": prev})
+        for p in (cur, nxt):    # kode lama menerima penutupan dini → bersihkan bila sempat tertutup
+            call(SUPER, "POST", "/gl/periods/reopen", json={"period": p})
+
+
+def test_gl15_posting_otomatis_digeser_ke_periode_terbuka_terdekat_bukan_masa_depan_jauh():
+    """Murni (tanpa server): bulan berjalan tertutup → hari pertama bulan DEPAN (bukan 2027-01-01);
+    bulan lalu tertutup tapi bulan berjalan terbuka → SEKARANG; manual selalu ditolak."""
+    import asyncio
+    import os
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    os.environ.setdefault("MONGO_URL", "mongodb://127.0.0.1:27017")
+    os.environ.setdefault("DB_NAME", "sipro_unit_dummy")
+    import gl_periods as glp
+    from core_utils import period_of
+    prev, cur, _last, nxt = _period_info()
+    months = [f"2026-{m:02d}" for m in range(1, 13)]
+    asli = glp.closed_periods
+
+    async def tutup_sampai_berjalan(_org):
+        return {m for m in months if m <= cur}
+
+    async def tutup_bulan_lalu(_org):
+        return {prev}
+    try:
+        glp.closed_periods = tutup_sampai_berjalan
+        d, dari = asyncio.run(glp.resolve_post_date("o", "2026-03-15", True))
+        assert dari == "2026-03" and period_of(d) == nxt, (d, nxt)
+        glp.closed_periods = tutup_bulan_lalu
+        d, dari = asyncio.run(glp.resolve_post_date("o", f"{prev}-10", True))
+        assert dari == prev and period_of(d) == cur and d[:10] <= _days_ago(0), d
+        with pytest.raises(ValueError):
+            asyncio.run(glp.resolve_post_date("o", f"{prev}-10", False))
+    finally:
+        glp.closed_periods = asli

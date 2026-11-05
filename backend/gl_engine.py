@@ -23,7 +23,7 @@ import sequences as seq
 import gl_periods
 import reference as ref
 from db import db, ORG_ID
-from core_utils import new_id, now_iso
+from core_utils import new_id, now_iso, period_of, to_wib_iso
 from reference_p48 import DEDUCTION_GL
 
 logger = logging.getLogger("sipro.gl")
@@ -167,7 +167,7 @@ async def post_journal(org_id, memo, lines, *, date=None, source_type=None, sour
     if date and not auto:
         from core_utils import parse_journal_date
         date = parse_journal_date(date)  # GL-06: tanggal rusak/masa depan ditolak untuk jurnal manual
-    d = date or ts
+    d = to_wib_iso(date or ts)  # GL-15: tanggal kanonik WIB, satu definisi periode untuk semua laporan
     # Tutup periode (P25): jurnal manual di periode tertutup ditolak; posting otomatis
     # digeser ke periode terbuka agar transaksi nyata tidak pernah hilang.
     d, shifted_from = (d, None) if allow_closed else await gl_periods.resolve_post_date(org_id, d, auto)
@@ -321,7 +321,8 @@ async def _gl_payment_received(ev):
          "cash_account_id": data.get("cash_account_id")},
         *credit_lines_for_collection(amt, data.get("split")),
     ], source_type="receipt", source_id=data.get("receipt_id") or ev["entity_id"],
-        source_event=f"ev:{ev['id']}", source_deal_id=ev.get("entity_id"))
+        source_event=f"ev:{ev['id']}", source_deal_id=ev.get("entity_id"),
+        date=data.get("value_date"))  # GL-15: tanggal bayar nyata (kosong = sekarang)
 
 
 # --- Fase 26: titipan pelanggan (kelebihan bayar) tidak boleh hilang dari pembukuan ---
@@ -420,7 +421,8 @@ async def _gl_ap_paid(ev):
         lines.append({"account_code": "2-1300", "debit": 0, "credit": withheld,
                       "memo": data.get("withheld_memo") or "Potongan PPh atas pembayaran"})
     await post_journal(org, "Pembayaran tagihan AP", lines,
-                       source_type="ap_bill", source_id=ev["entity_id"], source_event=f"ev:{ev['id']}")
+                       source_type="ap_bill", source_id=ev["entity_id"], source_event=f"ev:{ev['id']}",
+                       date=data.get("value_date"))  # GL-15: tanggal bayar nyata (kosong = sekarang)
 
 
 async def _gl_commission_approved(ev):
@@ -489,7 +491,7 @@ def _tax_memo_ctx(record) -> str:
     parts = [TAX_LABEL.get(record.get("type"), (record.get("type") or "Pajak").upper())]
     if record.get("unit_code"):
         parts.append(record["unit_code"])
-    p = str(record.get("created_at") or "")[:7]
+    p = period_of(record.get("created_at"))
     if p:
         parts.append(p)
     return " — ".join(parts)

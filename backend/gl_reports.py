@@ -15,8 +15,9 @@ berbasis PERIODE yang dibutuhkan developer properti (paritas ERP kompetitor):
 
 Semua angka berasal dari `journal_entries` (tidak ada estimasi/mock). Uang = IDR integer.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
+from core_utils import today_wib
 from db import db, ORG_ID
 from gl_engine import DEBIT_NORMAL
 
@@ -31,7 +32,7 @@ FINANCING_PREFIX = ("2-15", "2-17", "3-")
 
 # ----------------------------- util periode -----------------------------
 def today_str() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return today_wib()  # GL-15: "hari ini" menurut WIB, sama dengan tanggal kanonik jurnal
 
 
 def month_start(d: str = None) -> str:
