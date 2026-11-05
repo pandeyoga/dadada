@@ -57,8 +57,9 @@ async def list_documents(q: str = None, status: str = None, template_code: str =
                   .skip(skip).limit(limit).to_list(limit))
     await clock.attach(rows, "document", org_id=user.get("org_id", ORG_ID))
     counts = {}
-    for st in ("draft", "final", "signed"):
-        counts[st] = await db.documents.count_documents({**scope_query(user, {}), "status": st})
+    # KT-24: kunci "final" ≠ nilai status "finalized" (dulu selalu 0).
+    for key, st in (("draft", "draft"), ("final", "finalized"), ("signed", "signed")):
+        counts[key] = await db.documents.count_documents({**scope_query(user, {}), "status": st})
     return {"data": serialize_doc(rows), "total": total, "counts": counts}
 
 
@@ -160,19 +161,26 @@ async def finalize_document(doc_id: str, user: dict = Depends(require_permission
 async def sign_document(doc_id: str, payload: DocumentSign,
                         user: dict = Depends(require_permission("documents", "sign"))):
     d = await _get_doc_scoped(doc_id, user)
-    if d.get("status") not in ("finalized", "signed"):
-        raise HTTPException(status_code=400, detail="Dokumen harus difinalisasi sebelum ditandatangani.")
-    # SPR yang angkanya sudah tidak sama dengan tagihan Finance tidak boleh ditandatangani.
-    import spr_compare
-    alasan = await spr_compare.sign_block_reason(user.get("org_id", ORG_ID), d)
-    if alasan:
-        raise HTTPException(status_code=400, detail=alasan)
-    ts = now_iso()
-    sig = {"role": payload.role, "name": payload.name, "signed_at": ts}
-    first_signature = not d.get("first_signed_at")
-    await db.documents.update_one({"id": doc_id}, {
-        "$push": {"signatures": sig},
-        "$set": {"status": "signed", "first_signed_at": d.get("first_signed_at") or ts, "updated_at": ts}})
+    import sign_guard
+    # KT-24: tanda tangan diserialkan per kontrak/SPR; pemeriksaan & penulisan di dalam kunci yang sama.
+    async with sign_guard.lock(d):
+        d = await _get_doc_scoped(doc_id, user)  # baca ulang di dalam kunci
+        if d.get("status") not in ("finalized", "signed"):
+            raise HTTPException(status_code=400, detail="Dokumen harus difinalisasi sebelum ditandatangani.")
+        # SPR yang angkanya sudah tidak sama dengan tagihan Finance tidak boleh ditandatangani.
+        import spr_compare
+        alasan = await spr_compare.sign_block_reason(user.get("org_id", ORG_ID), d)
+        if alasan:
+            raise HTTPException(status_code=400, detail=alasan)
+        alasan = await sign_guard.duplicate_reason(d, payload.role, payload.name)
+        if alasan:
+            raise HTTPException(status_code=409, detail=alasan)
+        ts = now_iso()
+        sig = {"role": payload.role, "name": payload.name, "signed_at": ts}
+        first_signature = not d.get("first_signed_at")
+        await db.documents.update_one({"id": doc_id}, {
+            "$push": {"signatures": sig},
+            "$set": {"status": "signed", "first_signed_at": d.get("first_signed_at") or ts, "updated_at": ts}})
     await add_activity(entity_type="deal", entity_id=d.get("deal_id"), type="document",
                        body=f"Dokumen {d.get('doc_number')} ditandatangani oleh {payload.name} ({payload.role}).",
                        actor=user.get("email"), org_id=user.get("org_id", ORG_ID))

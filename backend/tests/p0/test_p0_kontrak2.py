@@ -247,3 +247,37 @@ def test_kt24_ppjb_paralel_satu_nomor_satu_riwayat(cleanup):
     assert code == 200, (code, str(body)[:200])
     ajb = [t for t in body["data"] if t.get("related_entity_id") == k["id"]]
     assert len(ajb) == 1, f"tugas 'Jadwalkan AJB' harus tepat satu: {ajb}"
+
+
+def _spr_final(contract_id, who="sales"):
+    doc = ok(call(who, "POST", f"/contracts/{contract_id}/documents", {}))
+    ok(call("manager", "POST", f"/documents/{doc['id']}/finalize"))
+    return doc
+
+
+def test_kt24_tanda_tangan_paralel_tidak_ganda(cleanup):
+    _, deal, k = contract_of(cleanup, scheme="cash_keras", tag="K24b")
+    doc = _spr_final(k["id"])
+    body = {"role": "buyer", "name": "Pembeli Uji P0KT"}
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        res = list(pool.map(lambda _: call("manager", "POST", f"/documents/{doc['id']}/sign", body),
+                            range(3)))
+    kode = sorted(c for c, _ in res)
+    assert kode == [200, 409, 409], (kode, [str(b)[:120] for c, b in res if c != 200])
+    d = ok(call("manager", "GET", f"/documents/{doc['id']}"))
+    assert len(d["signatures"]) == 1, d["signatures"]
+    # penanda tangan LAIN (developer) tetap bisa menandatangani dokumen yang sama
+    ok(call("manager", "POST", f"/documents/{doc['id']}/sign", {"role": "seller", "name": "Direksi P0KT"}))
+    assert len(ok(call("manager", "GET", f"/documents/{doc['id']}"))["signatures"]) == 2
+
+
+def test_kt24_spr_kedua_untuk_kontrak_sama_tidak_bisa_ditandatangani(cleanup):
+    _, deal, k = contract_of(cleanup, scheme="cash_keras", tag="K24c")
+    d1, d2 = _spr_final(k["id"]), _spr_final(k["id"])
+    ok(call("manager", "POST", f"/documents/{d1['id']}/sign", {"role": "buyer", "name": "Pembeli P0KT"}))
+    code, body = call("manager", "POST", f"/documents/{d2['id']}/sign", {"role": "buyer", "name": "Pembeli P0KT"})
+    assert code == 409 and "adendum" in str(body), (code, str(body)[:300])
+    assert ok(call("manager", "GET", f"/documents/{d2['id']}"))["status"] == "finalized"
+    # hitungan daftar: kunci "final" tidak lagi selalu 0
+    c, lst = call("manager", "GET", "/documents", params={"limit": 5})
+    assert c == 200 and lst["counts"]["final"] >= 1 and lst["counts"]["signed"] >= 1, lst["counts"]
