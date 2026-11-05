@@ -11,18 +11,16 @@ logger = logging.getLogger("sipro.engine")
 
 
 async def reservation_expiry_sweeper() -> int:
-    from engine import emit
+    """Reservasi lewat masa keep unit dilepas dengan rutin pelepasan YANG SAMA dengan pembatalan
+    (`deal_cancel.expire`, KT-25): unit bersih, kupon dilepas, tugas ditutup, lead mundur."""
+    import deal_cancel
     swept = 0
     cur = await db.deals.find({"status": {"$in": ["draft", "reserved"]}}).to_list(1000)
     for d in cur:
         ru = d.get("reserved_until")
         if ru and ru < now_iso():
-            await db.deals.update_one({"id": d["id"]}, {"$set": {"status": "expired", "updated_at": now_iso()}})
-            if d.get("unit_id"):
-                await db.units.update_one({"id": d["unit_id"]}, {"$set": {"status": "available", "updated_at": now_iso()}})
-            await emit("deal.expired", "deal", d["id"], {"unit_id": d.get("unit_id")}, org_id=d.get("org_id", ORG_ID))
-            await __import__("booking_fee").cancel(d.get("org_id", ORG_ID), d["id"], "scheduler")
-            swept += 1
+            if await deal_cancel.expire(d.get("org_id", ORG_ID), d):
+                swept += 1
     return swept
 
 

@@ -219,13 +219,25 @@ async def create_lead(payload: LeadCreate,
 async def import_leads(payload: LeadImport,
                        user: dict = Depends(require_permission("leads", "create"))):
     org = user.get("org_id", ORG_ID)
-    created = 0
+    created, skipped = 0, 0
+    seen = set()
     for item in payload.leads:
         ts = now_iso()
+        # KT-28: nomor dinormalisasi (E.164) dan nomor yang sudah ada / kembar di berkas dilewati,
+        # seperti POST /leads — dulu impor menyimpan nomor mentah sehingga satu nomor jadi dua lead.
+        try:
+            phone = normalize_phone_e164(item.phone)
+        except Exception:  # noqa: BLE001 — nomor tak sah: baris dilewati, bukan menggagalkan seluruh impor
+            skipped += 1
+            continue
+        if phone in seen or await db.leads.find_one({"org_id": org, "phone": phone}, {"_id": 1}):
+            skipped += 1
+            continue
+        seen.add(phone)
         assignee = item.assigned_to or (user.get("email") if is_scoped_sales(user)
                                         else await auto_assign_lead(org)) or user.get("email")
         lead = {
-            "id": new_id(), "org_id": org, "name": item.name, "phone": item.phone,
+            "id": new_id(), "org_id": org, "name": item.name, "phone": phone,
             "email": item.email, "source": item.source or "import", "campaign": item.campaign,
             "stage": "acquisition", "assigned_to": assignee,
             "interest_unit_type": item.interest_unit_type, "notes": item.notes,
@@ -237,7 +249,7 @@ async def import_leads(payload: LeadImport,
         await emit("lead.created", "lead", lead["id"], {"source": lead["source"]}, org_id=org)
         created += 1
     await dispatch_pending()
-    return {"data": {"created": created}}
+    return {"data": {"created": created, "skipped": skipped}}
 
 
 @router.get("/leads/import-template.xlsx")

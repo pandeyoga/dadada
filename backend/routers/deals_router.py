@@ -162,10 +162,16 @@ async def reserve_unit(payload: DealReserve,
         raise HTTPException(status_code=404, detail="Lead tidak ditemukan")
     if is_scoped_sales(user) and lead.get("assigned_to") != user.get("email"):
         raise HTTPException(status_code=403, detail="Akses ditolak: bukan lead Anda")
+    # KT-20: lead yang sudah ditutup (lost/recycle) tidak bisa memesan unit.
+    import reserve_guard as rg
+    if rg.closed_reason(lead):
+        raise HTTPException(status_code=409, detail=rg.closed_reason(lead))
     # `reservation.max_active_per_lead` + `reservation.override_roles` (Pusat Konfigurasi).
+    # Pemeriksaan AUTORITATIF ada di `sales_reserve.reserve` (di bawah kunci per-lead, KT-18);
+    # di sini hanya memberi pesan awal + menangani pengecualian peran/alasan.
     max_active = int(await cfg.get("reservation.max_active_per_lead", org_id=org) or 1)
-    active_cnt = await db.deals.count_documents(
-        {"org_id": org, "lead_id": lead["id"], "status": {"$in": ["reserved", "booked"]}})
+    active_cnt = await rg.active_count(org, lead["id"])
+    limit_override = False
     if active_cnt >= max_active:
         override_roles = list(await cfg.get("reservation.override_roles", org_id=org) or [])
         reason = (payload.limit_override_reason or "").strip()
@@ -176,6 +182,7 @@ async def reserve_unit(payload: DealReserve,
                 + " yang boleh melewati batas, dengan alasan (≥10 karakter)."))
         await audit_log(user, "override", "deals", None,
                         {"limit_override": True, "reason": reason, "active": active_cnt})
+        limit_override = True
     # Fase 69: reservasi langsung memakai MESIN HARGA yang sama dengan penawaran — rincian
     # (harga dasar, add-on, skema diskon/promo/kupon, termin) tersimpan pada deal.
     import quotation_engine as qe
@@ -292,7 +299,7 @@ async def reserve_unit(payload: DealReserve,
     try:
         deal = await sr.reserve(org, lead=lead, unit=unit, actor=user.get("email"),
                                 booking_fee=booking_fee_net, notes=payload.notes,
-                                deal_id=deal_id,
+                                deal_id=deal_id, limit_override=limit_override,
                                 extra={"price": int(calc["net_price"]),
                                        "discount": int(calc["discount_amount"] or 0),
                                        "addons": calc["addons"],
@@ -375,6 +382,9 @@ async def decide_pricing(deal_id: str, payload: DealPricingDecision,
     fresh = await db.deals.find_one({"id": deal_id}, {"_id": 0})
     return {"data": serialize_doc(fresh),
             "message": f"Potongan {'disetujui' if payload.approve else 'ditolak'}."}
+
+
+@router.get("/deals/{deal_id}/delete-check")
 async def deal_delete_check(deal_id: str, user: dict = Depends(require_permission("deals", "view"))):
     import force_delete as fd
     d = await _get_deal_editable(deal_id, user)
@@ -432,15 +442,26 @@ async def book_deal(deal_id: str, payload: DealAction,
     if blocked:
         raise HTTPException(status_code=400, detail=blocked)
     ts = now_iso()
-    await db.deals.update_one({"id": deal_id}, {"$set": {
+    # CAS: dua klik "Konfirmasi Booking" serentak hanya menghasilkan satu booking (satu event
+    # deal.booked, satu jadwal AR, satu komisi); yang kedua mendapat 409.
+    klaim = await db.deals.update_one({"id": deal_id, "status": "reserved"}, {"$set": {
         "status": "booked", "booked_at": ts, "updated_at": ts,
         **await clock.patch_for("deal", "booked", org_id=org, at=ts)}})
+    if klaim.matched_count != 1:
+        from idempotency import Conflict
+        raise Conflict("Reservasi ini baru saja dikonfirmasi/diubah oleh proses lain. Muat ulang halaman.")
     await db.units.update_one({"id": d["unit_id"]}, {"$set": {
         "status": "booked", "booked_by_deal": deal_id, "payment_status": "booking_fee", "updated_at": ts}})
     # Fase 31 (perbaikan cacat): ikatan unit → deal → lead → pembeli disimpan pada unit,
     # supaya progres pembangunan, portal pembeli, dan laporan tidak bergantung pencarian
     # berlapis yang mudah putus.
     await _bind_unit(org, d["unit_id"])
+    # KT-29: tugas "Konfirmasi booking fee" selesai dengan sendirinya begitu booking dikonfirmasi.
+    await db.tasks.update_many(
+        {"org_id": org, "related_entity_type": "deal", "related_entity_id": deal_id,
+         "source_event": f"deal.bookingfee:{deal_id}", "status": {"$in": ["open", "in_progress", "snoozed"]}},
+        {"$set": {"status": "done", "completed_at": ts, "completed_by": user.get("email"),
+                  "outcome": "Booking dikonfirmasi", "updated_at": ts}})
     await emit("deal.booked", "deal", deal_id, {"unit_id": d["unit_id"]}, org_id=org)
     await add_activity(entity_type="lead", entity_id=d["lead_id"], type="system",
                        body="Deal dikonfirmasi (booked).", actor=user.get("email"), org_id=org)

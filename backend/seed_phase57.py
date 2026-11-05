@@ -57,5 +57,11 @@ async def seed_phase57(org: str = ORG_ID) -> dict:
     n += r.modified_count
     if dibuat:
         logger.info("Seed Fase 57: skema pembayaran bawaan dibuat: %s", ", ".join(dibuat))
+    # KT-10: skema bawaan lama yang belum pernah disunting disegarkan agar tanggal/toleransi/
+    # peristiwa dari Pusat Konfigurasi benar-benar berlaku (kalimat di SPR = yang ditagihkan).
+    import builtin_schemes
+    disegarkan = await builtin_schemes.refresh_unedited(org)
+    if disegarkan:
+        logger.info("Seed Fase 57: skema bawaan disegarkan (KT-10): %s", ", ".join(disegarkan))
     return {"dibuat": dibuat, "dilewati": dilewati,
-            "warisan_dilengkapi": n}
+            "warisan_dilengkapi": n, "disegarkan": disegarkan}

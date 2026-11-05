@@ -49,7 +49,9 @@ export default function CostsDialog({ contract, open, onOpenChange, onSaved }) {
         // menekan tombol "Kosongkan" yang mengirim -1 secara sengaja.
         return;
       }
-      const n = Number(raw.replace(/[^\d-]/g, ""));
+      // Format Indonesia: titik = ribuan, koma = desimal ("1.500.000,50" -> 1500000). Tanda minus
+      // tidak dikirim (menghapus nilai hanya lewat tombol "Kosongkan").
+      const n = Number(raw.replace(/\./g, "").replace(/,\d*$/, "").replace(/[^\d]/g, ""));
       if (!Number.isNaN(n)) payload[f.key] = n;
     });
     if (!Object.keys(payload).length) {

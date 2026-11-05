@@ -20,6 +20,7 @@ from db import db, ORG_ID
 from core_utils import new_id, now_iso, now
 from engine import emit, create_notification, add_activity
 from idempotency import Conflict
+import ar_carry  # noqa: E402
 
 logger = logging.getLogger("sipro.finance")
 
@@ -104,7 +105,10 @@ def _due_date(base: datetime, t: dict) -> str:
         y, m = y + (m - 1) // 12, (m - 1) % 12 + 1
         hari = min(int(t.get("due_day") or 1), 28)
         return base.replace(year=y, month=m, day=hari).isoformat()
-    return (base + timedelta(days=int(t.get("due_offset_days", 0) or 0))).isoformat()
+    hari = t.get("due_offset_days", 0)
+    if mode == "event" and t.get("estimate_offset_days") not in (None, ""):
+        hari = t["estimate_offset_days"]  # KT-10: "maks N hari" (aturan) ≠ perkiraan tanggal
+    return (base + timedelta(days=int(hari or 0))).isoformat()
 
 
 def compute_scheme_items(scheme: dict, price: int, base_date_iso: str) -> list:
@@ -317,8 +321,8 @@ def addon_items(deal: dict, base_date_iso: str, due_days: int) -> list:
     return out
 
 
-async def create_ar_for_deal(deal: dict, scheme_id=None, org_id=ORG_ID, replace=False, actor="system") -> dict:
-    """Buat/replace jadwal AR untuk deal dari skema pembayaran. Idempotent kecuali replace."""
+async def create_ar_for_deal(deal: dict, scheme_id=None, org_id=ORG_ID, replace=False, actor="system", base_date=None) -> dict:
+    """Buat/replace jadwal AR deal dari skema pembayaran (idempotent kecuali replace); `base_date`: lihat KT-11."""
     deal_id = deal["id"]
     existing = await db.ar_invoices.find_one({"org_id": org_id, "deal_id": deal_id}, {"_id": 0})
     if existing and not replace:
@@ -331,7 +335,7 @@ async def create_ar_for_deal(deal: dict, scheme_id=None, org_id=ORG_ID, replace=
     if not scheme:
         raise ValueError("Belum ada skema pembayaran. Buat skema di Konfigurasi terlebih dahulu.")
     price = int(deal.get("price", 0))
-    base_date = deal.get("booked_at") or deal.get("reserved_at") or now_iso()
+    base_date = base_date or await ar_carry.default_base_date(org_id, deal)
     # Fase 88C: harga deal sudah bersih dari SEMUA potongan; termin disusun dari harga
     # sebelum potongan DP/booking fee, lalu potongan itu dikurangkan dari termin uang muka.
     comp = ((deal.get("pricing") or {}).get("by_target") or {})
@@ -352,13 +356,9 @@ async def create_ar_for_deal(deal: dict, scheme_id=None, org_id=ORG_ID, replace=
     # dialokasikan ulang ke termin baru (jatuh tempo terlama dulu). Sebelumnya AR dibuat
     # ulang dengan paid=0 sementara kuitansi & jurnal kasnya tetap ada — piutang membengkak
     # semu dan layar pelanggan berkata "belum bayar" pada uang yang sudah masuk.
-    carried_paid = int((existing or {}).get("paid") or 0)
-    if carried_paid > 0:
-        _, sisa = _allocate(items, carried_paid)
-        if sisa > 0:
-            raise ValueError(
-                f"Skema baru bernilai Rp {total:,}, lebih kecil dari pembayaran yang sudah diterima "
-                f"Rp {carried_paid:,}. Kembalikan kelebihan sebagai titipan/refund dulu.")
+    # KT-06: alokasi per kuitansi DIPERTAHANKAN (bukan diacak FIFO) — lihat ar_carry.
+    carried = await ar_carry.carry(org_id, deal_id, existing, items, _allocate) \
+        if int((existing or {}).get("paid") or 0) > 0 else {}
     paid_now = sum(i.get("paid_amount", 0) for i in items)
     ts = now_iso()
     unit = await db.units.find_one({"id": deal.get("unit_id")}, {"_id": 0, "code": 1}) or {}
@@ -378,7 +378,7 @@ async def create_ar_for_deal(deal: dict, scheme_id=None, org_id=ORG_ID, replace=
         "created_at": existing["created_at"] if existing else ts, "updated_at": ts,
     }
     if existing:
-        await db.ar_invoices.update_one({"id": inv["id"]}, {"$set": inv})
+        await ar_carry.replace_invoice(org_id, deal_id, inv, existing, carried)
     else:
         await db.ar_invoices.insert_one(dict(inv))
     # Contract liability (per deal) mulai 0.

@@ -54,7 +54,9 @@ async def requirements(lead: dict) -> dict:
     deals = await db.deals.find({"org_id": org, "lead_id": lid}, {"_id": 0, "status": 1,
                                                                  "legal_stage": 1,
                                                                  "scheme_id": 1}).to_list(20)
-    live = [d for d in deals if d.get("status") not in ("canceled", "expired", "failed")]
+    # KT-19: status batal yang sebenarnya `cancelled` (deal_cancel); ejaan `canceled` dulu salah,
+    # sehingga deal batal tetap dianggap "aktif" oleh gerbang tahap booking.
+    live = [d for d in deals if d.get("status") not in ("cancelled", "canceled", "expired", "failed")]
     akad = [d for d in deals if d.get("status") in ("completed", "sold")
             or d.get("legal_stage") in ("ajb", "bast")]
     disposition = lead.get("disposition")

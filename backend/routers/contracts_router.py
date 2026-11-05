@@ -91,15 +91,12 @@ async def list_contracts(customer_id: str = None, deal_id: str = None, scheme: s
                         skip: int = 0, limit: int = 50,
                         user: dict = Depends(require_permission("contracts", "view"))):
     skip, limit = parse_pagination(skip, limit)
+    scoped = is_scoped_sales(user)
     out = await ce.listing(_org(user), customer_id=customer_id, deal_id=deal_id,
                            scheme=scheme, state=state, legal_stage=legal_stage, q=q,
-                           skip=skip, limit=limit)
-    tersembunyi = 0
-    if is_scoped_sales(user):
-        milik = [r for r in out["data"] if r.get("assigned_to") == user.get("email")]
-        tersembunyi = len(out["data"]) - len(milik)
-        out["data"] = milik
-        out["total"] = len(milik)
+                           skip=skip, limit=limit,
+                           assigned_to=user.get("email") if scoped else None)
+    tersembunyi = (out["total_all"] - out["total"]) if scoped else 0
     resp = {"data": serialize_doc(out["data"]), "total": out["total"],
             "counts": out["counts"]}
     if tersembunyi and not out["data"]:
@@ -162,6 +159,8 @@ async def set_scheme(contract_id: str, payload: ContractSchemeIn,
     try:
         c = await ce.set_scheme(_org(user), contract_id, payload.scheme,
                                user.get("email"), payload.reason)
+    except Conflict:
+        raise  # 409 lewat penangan global (bentrok dengan permintaan lain)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "update", "contract", contract_id, {"scheme": payload.scheme})
@@ -175,6 +174,8 @@ async def activate_contract(contract_id: str,
     await _contract_scoped(contract_id, user)
     try:
         c = await ce.activate(_org(user), contract_id, user.get("email"))
+    except Conflict:
+        raise  # 409 lewat penangan global (bentrok dengan permintaan lain)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "update", "contract", contract_id, {"action": "activate"})
@@ -190,6 +191,8 @@ async def legal_advance(contract_id: str, stage: str, payload: LegalAdvanceIn,
         c = await ce.legal_advance(_org(user), contract_id, stage,
                                    payload.model_dump(exclude_none=True),
                                    user.get("email"))
+    except Conflict:
+        raise  # 409 lewat penangan global (bentrok dengan permintaan lain)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "update", "contract", contract_id, {"legal_stage": stage})

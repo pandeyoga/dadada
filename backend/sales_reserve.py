@@ -45,8 +45,13 @@ async def _bind_unit(org: str, unit_id: str) -> None:
 
 
 async def reserve(org: str, *, lead: dict, unit: dict, actor: str, booking_fee: int = 0,
-                  notes: str = None, extra: dict = None, deal_id: str = None) -> dict:
+                  notes: str = None, extra: dict = None, deal_id: str = None,
+                  limit_override: bool = False) -> dict:
     """Tahan unit + buat deal `reserved`. SATU-SATUNYA jalan membuat reservasi.
+
+    KT-18/KT-20: lead tertutup (lost/recycle) ditolak dan batas `reservation.max_active_per_lead`
+    ditegakkan DI SINI (jalur router maupun penawaran), di bawah kunci per-lead. `limit_override`
+    = pemanggil sudah memverifikasi pengecualian batas (peran + alasan) — lihat `reserve_guard`.
 
     `extra` dipakai pemanggil untuk menempelkan jejak tambahan (mis. `quotation_id`,
     `addons`, `discount`) TANPA mengubah bentuk dasar deal.
@@ -58,6 +63,14 @@ async def reserve(org: str, *, lead: dict, unit: dict, actor: str, booking_fee: 
     Mengembalikan dokumen deal. Melempar `ValueError` bila unit sudah tidak tersedia —
     pemanggil yang menerjemahkannya menjadi 409/400 sesuai lapisannya.
     """
+    import reserve_guard as rg
+    async with rg.slot(org, lead, allow_over=limit_override):
+        return await _reserve(org, lead=lead, unit=unit, actor=actor, booking_fee=booking_fee,
+                              notes=notes, extra=extra, deal_id=deal_id)
+
+
+async def _reserve(org: str, *, lead: dict, unit: dict, actor: str, booking_fee: int = 0,
+                   notes: str = None, extra: dict = None, deal_id: str = None) -> dict:
     ts = now_iso()
     deal_id = deal_id or new_id()
     hold_days = int(await cfg.get("reservation.hold_days", org_id=org) or BOOKING_HOLD_DAYS)

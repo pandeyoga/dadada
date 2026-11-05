@@ -149,6 +149,8 @@ async def preview(org: str, deal_id: str) -> dict:
         "suggested_scheme": await suggested_scheme(org, deal),
         # Jalur 1: skema yang dipilih sales saat reservasi MENGUNCI jenis kontrak & varian SPR.
         "deal_scheme": await deal_scheme_kind(org, deal),
+        # KT-21: skema yang hanya BAWAAN sistem (sales tidak memilih) boleh disesuaikan di dialog.
+        "deal_scheme_explicit": bool(deal.get("scheme_explicit")),
         "deal_scheme_name": (await db.payment_schemes.find_one(
             {"id": deal.get("scheme_id")}, {"_id": 0, "name": 1}) or {}).get("name")
         if deal.get("scheme_id") else None,

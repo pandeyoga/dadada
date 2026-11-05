@@ -51,6 +51,24 @@ async def create_financing(payload: FinancingCreate,
     """
     org = user.get("org_id", ORG_ID)
     deal, unit = await _deal_ctx(payload.deal_id, org)
+    # KT-23: SATU pengajuan KPR aktif per deal. Pengecekan + penyisipan di bawah satu kunci supaya
+    # dua klik/dua petugas tidak menghasilkan dua pengajuan (yang menimpa tampilan kontrak).
+    import kpr_link
+    async with kpr_link.create_lock(payload.deal_id):
+        ada = await kpr_link.active_app(org, payload.deal_id)
+        # Pengajuan kosong yang lahir otomatis bersama kontrak KPR (belum ada bank) DILENGKAPI,
+        # bukan digandakan: tombol "Ajukan KPR" tetap berfungsi untuk kontrak KPR yang baru jadi.
+        adopt = ada if ada and kpr_link.is_pristine(ada) else None
+        if ada and not adopt:
+            raise HTTPException(status_code=409, detail=(
+                f"Deal ini sudah punya pengajuan KPR yang berjalan ({ada.get('bank_name') or '-'}, "
+                f"tahap {ada.get('kpr_stage') or ada.get('status')}). Satu deal satu pengajuan aktif — "
+                "ubah pengajuan yang ada, atau tandai ditolak/batal dulu bila pembeli pindah bank."))
+        return await _create_financing_locked(payload, user, org, deal, adopt)
+
+
+async def _create_financing_locked(payload, user, org, deal, adopt=None):
+    import kpr_link
     pre = await slik_engine.prescreen_for_deal(deal)
     ts = now_iso()
     doc = {
@@ -66,8 +84,16 @@ async def create_financing(payload: FinancingCreate,
         "disbursements": [], "disbursed_total": 0,
         "assigned_to": deal.get("assigned_to"), "created_by": user.get("email"),
         "created_at": ts, "updated_at": ts,
+        **await kpr_link.contract_fields(org, payload.deal_id, user.get("email")),
     }
-    await db.financing_apps.insert_one(doc)
+    if adopt:  # lengkapi pengajuan otomatis kontrak; tahap & tautan kontraknya dipertahankan
+        for k in ("id", "created_at", "created_by", "customer_id", "kpr_stage", "stage_history",
+                  "contract_id"):
+            doc.pop(k, None)
+        await db.financing_apps.update_one({"id": adopt["id"]}, {"$set": doc})
+        doc = await db.financing_apps.find_one({"id": adopt["id"]}, {"_id": 0})
+    else:
+        await db.financing_apps.insert_one(doc)
     await add_activity(entity_type="deal", entity_id=payload.deal_id, type="financing",
                        body=f"Pengajuan KPR {payload.bank_name} plafon Rp {doc['plafon']:,} dibuat."
                             + (f" {doc['slik_note']}" if doc["slik_note"] else ""),

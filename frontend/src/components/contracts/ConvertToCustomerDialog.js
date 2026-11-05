@@ -122,7 +122,7 @@ export default function ConvertToCustomerDialog({ dealId, open, onOpenChange, on
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5 sm:col-span-2">
                 <Label>Skema pembayaran (menentukan varian SPR & urutan legal)</Label>
-                <Select value={form.scheme} disabled={!!pre?.deal_scheme}
+                <Select value={form.scheme} disabled={!!pre?.deal_scheme && !!pre?.deal_scheme_explicit}
                   onValueChange={(v) => setForm((f) => ({ ...f, scheme: v }))}>
                   <SelectTrigger data-testid={P53.convertScheme} className="bg-background">
                     <SelectValue placeholder="Pilih skema…" />
@@ -133,11 +133,18 @@ export default function ConvertToCustomerDialog({ dealId, open, onOpenChange, on
                     ))}
                   </SelectContent>
                 </Select>
-                {pre?.deal_scheme ? (
+                {pre?.deal_scheme && pre?.deal_scheme_explicit ? (
                   <p className="text-[11px] text-muted-foreground" data-testid="convert-scheme-locked">
                     Mengikuti skema pembayaran yang dipilih saat reservasi:{" "}
                     <strong>{pre.deal_scheme_name || pre.deal_scheme}</strong>. Termin tagihan dan
                     varian SPR dibangun dari skema ini — ubah skema deal bila memang berubah.
+                  </p>
+                ) : pre?.deal_scheme ? (
+                  <p className="text-[11px] text-muted-foreground" data-testid="convert-scheme-default">
+                    Reservasi ini tidak memilih skema, jadi memakai skema bawaan sistem:{" "}
+                    <strong>{pre.deal_scheme_name || pre.deal_scheme}</strong>. Sesuaikan dengan
+                    pembayaran pembeli yang sebenarnya (tunai / KPR) — jadwal tagihan disusun
+                    ulang mengikuti pilihan Anda.
                   </p>
                 ) : (
                   <p className="text-[11px] text-muted-foreground">
