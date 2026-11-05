@@ -3,7 +3,7 @@ unit/payment/progress/documents + complaint channel with SLA.
 
 Auth is via portal JWT (type='portal'); staff tokens are rejected. OTP is sent
 via the WhatsApp provider (simulation reveals the code in dev). A master OTP
-(PORTAL_MASTER_OTP, default '000000') is accepted for deterministic testing.
+(PORTAL_MASTER_OTP — hanya bila diisi eksplisit di env; tanpa env = dimatikan) is accepted for deterministic testing.
 """
 import io
 import os
@@ -139,9 +139,15 @@ async def verify_otp(payload: PortalOtpVerify):
     pu = await _find_portal_user(payload.identifier)
     if not pu:
         raise HTTPException(status_code=404, detail="Data pembeli tidak ditemukan.")
-    master = os.environ.get("PORTAL_MASTER_OTP", "000000")
+    # Audit IN-10: master OTP hanya berlaku bila SECARA EKSPLISIT diisi di lingkungan server.
+    # Dulu bawaannya "000000" (aktif diam-diam bila env lupa diisi) dan string kosong pun
+    # dianggap master sehingga kode kosong lolos. Sekarang kosong = master dimatikan, dan kode
+    # kosong tidak pernah diterima.
+    master = (os.environ.get("PORTAL_MASTER_OTP") or "").strip()
     code = (payload.code or "").strip()
-    if code != master:
+    if not code:
+        raise HTTPException(status_code=400, detail="Kode OTP wajib diisi.")
+    if not master or code != master:
         rec = await db.portal_otps.find_one({"portal_user_id": pu["id"]}, {"_id": 0})
         if not rec or rec.get("code") != code:
             raise HTTPException(status_code=400, detail="Kode OTP salah.")

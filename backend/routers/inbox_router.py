@@ -44,7 +44,10 @@ def _decorate(conv: dict) -> dict:
 
 
 async def _get_conv_scoped(conv_id: str, user: dict) -> dict:
-    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    # Audit WA-09: tanpa filter org_id, pemakai organisasi lain yang mengetahui id percakapan
+    # bisa membaca/menulisnya. Id dari organisasi lain diperlakukan sama dengan "tidak ada".
+    conv = await db.conversations.find_one(
+        {"id": conv_id, "org_id": user.get("org_id", ORG_ID)}, {"_id": 0})
     if not conv:
         raise HTTPException(status_code=404, detail="Percakapan tidak ditemukan")
     if is_scoped_sales(user) and conv.get("owner") != user.get("email"):
@@ -52,21 +55,42 @@ async def _get_conv_scoped(conv_id: str, user: dict) -> dict:
     return conv
 
 
+def _search_clause(q: str):
+    """Cari nama kontak / nomor HP. Nomor diketik lokal ("0812…") dicocokkan ke format +62."""
+    import re
+    q = (q or "").strip()
+    if not q:
+        return None
+    ors = [{"contact_name": {"$regex": re.escape(q), "$options": "i"}}]
+    digits = re.sub(r"\D", "", q)
+    if digits.startswith("0"):
+        digits = "62" + digits[1:]
+    if len(digits) >= 3:
+        ors.append({"contact_phone": {"$regex": re.escape(digits)}})
+    return {"$or": ors}
+
+
 @router.get("")
 async def list_conversations(skip: int = 0, limit: int = 50, filter: str = "all",
-                             status: str = "", channel: str = "",
+                             status: str = "", channel: str = "", q: str = "",
                              user: dict = Depends(require_permission("inbox", "view"))):
-    """filter: all | mine | unanswered (last message from customer)."""
+    """filter: all | mine | unanswered (pesan terakhir dari pelanggan) | unread (ada pesan belum dibaca).
+    `q`: cari nama/nomor HP (audit WA-02: dulu tidak ada pencarian sama sekali)."""
     skip, limit = parse_pagination(skip, limit)
     query = scope_query(user, {}, own_field="owner")
     if filter == "mine":
         query["owner"] = user.get("email")
     elif filter == "unanswered":
         query["last_direction"] = "in"
+    elif filter == "unread":
+        query["unread"] = {"$gt": 0}
     if status:
         query["status"] = status
     if channel:
         query["channel"] = channel
+    srch = _search_clause(q)
+    if srch:
+        query = {"$and": [query, srch]}
     total = await db.conversations.count_documents(query)
     rows = await db.conversations.find(query, {"_id": 0}).sort(
         "last_message_at", -1).skip(skip).limit(limit).to_list(limit)
@@ -79,15 +103,43 @@ async def inbox_stats(user: dict = Depends(require_permission("inbox", "view")))
     total = await db.conversations.count_documents(base)
     mine = await db.conversations.count_documents({**base, "owner": user.get("email")})
     unanswered = await db.conversations.count_documents({**base, "last_direction": "in"})
-    return {"data": {"all": total, "mine": mine, "unanswered": unanswered}}
+    unread = await db.conversations.count_documents({**base, "unread": {"$gt": 0}})
+    return {"data": {"all": total, "mine": mine, "unanswered": unanswered, "unread": unread}}
 
 
 @router.get("/{conv_id}")
-async def get_conversation(conv_id: str, user: dict = Depends(require_permission("inbox", "view"))):
+async def get_conversation(conv_id: str, before: str = "", limit: int = 200, mark_read: bool = True,
+                           user: dict = Depends(require_permission("inbox", "view"))):
+    """Pesan TERBARU `limit` buah (urut lama→baru). `before` = created_at pesan tertua yang sudah
+    dimuat (untuk "muat pesan sebelumnya"). `has_more` bila masih ada pesan lebih lama.
+
+    Audit WA-03: dulu `sort(created_at, 1).to_list(500)` memotong 500 pesan TERTUA, sehingga pada
+    percakapan panjang pesan terbaru (termasuk balasan yang baru dikirim) tidak pernah tampil.
+    Audit WA-07: `mark_read=false` dipakai UI saat memilih percakapan otomatis (belum dilihat user).
+    """
     conv = await _get_conv_scoped(conv_id, user)
-    msgs = await db.messages.find({"conversation_id": conv_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
-    await db.conversations.update_one({"id": conv_id}, {"$set": {"unread": 0}})
-    return {"data": {"conversation": _decorate(conv), "messages": serialize_doc(msgs)}}
+    limit = max(1, min(int(limit or 200), 500))
+    q = {"conversation_id": conv_id}
+    if before:
+        # Kursor majemuk "created_at|_id": created_at hanya presisi DETIK, jadi banyak pesan bisa
+        # berbagi detik yang sama; kursor created_at saja akan melewatkan sisa pesan di detik batas.
+        ts, _, oid = before.partition("|")
+        try:
+            from bson import ObjectId
+            q["$or"] = [{"created_at": {"$lt": ts}},
+                        {"created_at": ts, "_id": {"$lt": ObjectId(oid)}}] if oid else [{"created_at": {"$lt": ts}}]
+        except Exception:  # noqa: BLE001 — kursor rusak: perlakukan sebagai created_at saja
+            q["created_at"] = {"$lt": ts}
+    rows = await db.messages.find(q).sort([("created_at", -1), ("_id", -1)]).limit(limit + 1).to_list(limit + 1)
+    has_more = len(rows) > limit
+    rows = list(reversed(rows[:limit]))
+    cursor = f"{rows[0]['created_at']}|{rows[0]['_id']}" if rows and has_more else None
+    for r in rows:
+        r.pop("_id", None)
+    if mark_read and not before:
+        await db.conversations.update_one({"id": conv_id}, {"$set": {"unread": 0}})
+    return {"data": {"conversation": _decorate(conv), "messages": serialize_doc(rows),
+                     "has_more": has_more, "next_before": cursor}}
 
 
 @router.put("/{conv_id}/contact")
@@ -133,6 +185,16 @@ async def send_message(conv_id: str, payload: MessageCreate,
     org = user.get("org_id", ORG_ID)
     ts = now_iso()
     direction = "in" if payload.direction == "in" else "out"
+    if direction == "in":
+        # Audit WA-08: "pesan masuk" buatan staf adalah alat uji SIMULASI. Pada mode LIVE ia
+        # memalsukan ucapan pelanggan, membuka ulang jendela 24 jam WhatsApp (melewati aturan
+        # Meta), mengotori timeline lead, dan memicu otomasi `message.received` ke pelanggan nyata.
+        import wa_gateway as _gw
+        if (await _gw.get_config(org))["effective_mode"] == "live":
+            raise HTTPException(
+                status_code=403,
+                detail="Pesan masuk pelanggan tidak bisa dibuat manual saat mode LIVE. Fitur ini "
+                       "hanya untuk uji coba pada mode simulasi.")
 
     template = None
     if direction == "out" and (payload.template_id or payload.template_code):
