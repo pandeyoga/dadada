@@ -11,6 +11,7 @@ class BookingFeePayIn(BaseModel):
     method: ref.PaymentMethod = "transfer"
     note: Optional[str] = None
     proof_file_ids: List[str] = Field(min_length=1)
+    client_ref: Optional[str] = Field(default=None, max_length=64)   # penanda sekali-pakai (anti ganda)
 
 
 class BookingFeeRefundIn(BaseModel):
@@ -18,6 +19,7 @@ class BookingFeeRefundIn(BaseModel):
     method: ref.PaymentMethod = "transfer"
     note: Optional[str] = None
     finalize: bool = False
+    client_ref: Optional[str] = Field(default=None, max_length=64)
 
 
 class BookingFeeRejectIn(BaseModel):

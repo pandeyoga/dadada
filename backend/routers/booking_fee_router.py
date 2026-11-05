@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 import booking_fee as bf
 from core_utils import serialize_doc
 from db import ORG_ID, ORG_NAME, db
+from idempotency import Conflict, once
 from models_p69 import BookingFeePayIn, BookingFeeRefundIn, BookingFeeRejectIn
 from pdf_utils import build_document_pdf
 from rbac import audit_log, is_scoped_sales, require_permission
@@ -50,9 +51,14 @@ async def pay(deal_id: str, payload: BookingFeePayIn,
     org = _org(user)
     await _deal_visible(org, deal_id, user)
     try:
-        out = await bf.pay(org, deal_id, amount=payload.amount, method=payload.method,
-                           note=payload.note, actor=user.get("email"),
-                           proof_file_ids=payload.proof_file_ids)
+        # Klik ganda / dua tab / retry = satu pembayaran booking fee (audit IN-01).
+        async with once("bf.pay", deal_id, payload.amount, payload.method, user.get("email"),
+                        client_ref=payload.client_ref, what="Pembayaran booking fee yang sama"):
+            out = await bf.pay(org, deal_id, amount=payload.amount, method=payload.method,
+                               note=payload.note, actor=user.get("email"),
+                               proof_file_ids=payload.proof_file_ids)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "pay_booking_fee", "finance", deal_id,
@@ -64,12 +70,17 @@ async def pay(deal_id: str, payload: BookingFeePayIn,
 
 @router.post("/deals/{deal_id}/proofs/{intake_id}/verify")
 async def verify_proof(deal_id: str, intake_id: str, payload: dict = None,
-                       user: dict = Depends(require_permission("finance", "create"))):
-    """Satu klik: bukti transfer pembeli → kwitansi + LUNAS."""
+                       user: dict = Depends(require_permission("finance", "approve"))):
+    """Satu klik: bukti transfer pembeli → kwitansi + LUNAS.
+
+    Izin disamakan dengan verifikasi bukti termin (`finance:approve`, audit IN-12): yang mencatat
+    uang masuk dari klaim pelanggan adalah pemeriksa, bukan sekadar pencatat."""
     org = _org(user)
     await _deal_visible(org, deal_id, user)
     try:
         out = await bf.verify_proof(org, intake_id, user.get("email"), (payload or {}).get("note"))
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "verify_booking_fee_proof", "finance", deal_id, {"intake_id": intake_id})
@@ -91,13 +102,18 @@ async def reject_proof(deal_id: str, intake_id: str, payload: BookingFeeRejectIn
 
 @router.post("/deals/{deal_id}/refund")
 async def refund(deal_id: str, payload: BookingFeeRefundIn,
-                 user: dict = Depends(require_permission("finance", "create"))):
+                 user: dict = Depends(require_permission("finance", "approve"))):
+    """Refund booking fee = KAS KELUAR → pemegang `finance:approve` (audit IN-12)."""
     org = _org(user)
     await _deal_visible(org, deal_id, user)
     try:
-        out = await bf.refund(org, deal_id, amount=payload.amount, method=payload.method,
-                              note=payload.note, actor=user.get("email"),
-                              finalize=payload.finalize)
+        async with once("bf.refund", deal_id, payload.amount, payload.finalize, user.get("email"),
+                        client_ref=payload.client_ref, what="Refund booking fee yang sama"):
+            out = await bf.refund(org, deal_id, amount=payload.amount, method=payload.method,
+                                  note=payload.note, actor=user.get("email"),
+                                  finalize=payload.finalize)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "refund_booking_fee", "finance", deal_id,

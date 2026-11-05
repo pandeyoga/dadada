@@ -14,7 +14,8 @@ import stage_clock as clock
 from core_utils import now_iso
 from db import db
 from engine import add_activity, dispatch_pending, emit
-from finance_engine import get_deposit
+from finance_engine import get_deposit, notify_finance
+from idempotency import Conflict
 from rbac import can, has_role
 
 ADMIN_ROLES = ("sales_manager", "finance", "finance_manager", "owner", "super_admin")
@@ -104,10 +105,26 @@ async def cancel(org: str, deal: dict, user: dict, *, reason: str, refund_mode: 
                                  .replace(",", "."))
     actor = user.get("email")
     ts = now_iso()
-    await db.deals.update_one({"id": deal["id"]}, {"$set": {
-        "status": "cancelled", "cancelled_at": ts, "cancelled_by": actor, "cancel_reason": reason,
-        "cancel_refund_mode": refund_mode if refundable > 0 else None, "updated_at": ts,
-        **await clock.patch_for("deal", "cancelled", org_id=org, at=ts)}})
+    # Audit IN-12 (pemisahan tugas): refund booking fee = KAS KELUAR. Yang boleh mengeksekusinya
+    # hanya pemegang `finance:approve`. Admin lain (mis. sales_manager) tetap boleh membatalkan dan
+    # memilih perlakuan uangnya, tetapi refund-nya DITUNDA untuk dieksekusi Keuangan.
+    pays_cash = refundable > 0 and refund_mode in ("full", "partial")
+    defer_refund = pays_cash and not await can(user.get("role"), "finance", "approve")
+    # Audit IN-04: pembatalan DIKLAIM secara atomik lewat perubahan status itu sendiri. Dua permintaan
+    # bersamaan (dua tab/dua staf) yang sama-sama lolos preview dulu sama-sama menjalankan refund —
+    # booking fee keluar dua kali dan titipan menjadi negatif. Yang kalah mendapat 409 tanpa efek.
+    claimed = await db.deals.update_one(
+        {"id": deal["id"], "org_id": org, "status": {"$in": ["reserved", "booked"]}},
+        {"$set": {
+            "status": "cancelled", "cancelled_at": ts, "cancelled_by": actor, "cancel_reason": reason,
+            "cancel_refund_mode": refund_mode if refundable > 0 else None, "updated_at": ts,
+            **({"cancel_refund_request": {"mode": refund_mode, "amount": int(refund_amount or 0),
+                                          "method": method or "transfer", "requested_by": actor,
+                                          "requested_at": ts}} if defer_refund else {}),
+            **await clock.patch_for("deal", "cancelled", org_id=org, at=ts)}})
+    if claimed.matched_count != 1:
+        raise Conflict("Reservasi ini baru saja dibatalkan oleh pengguna lain. Tidak ada refund ganda "
+                       "yang dibuat — muat ulang halaman untuk melihat hasilnya.")
     await _release_unit(org, deal, actor, reason)
     await _void_ar(org, deal["id"], f"Reservasi dibatalkan: {reason}")
     if pv["contract"]:
@@ -117,7 +134,14 @@ async def cancel(org: str, deal: dict, user: dict, *, reason: str, refund_mode: 
     import pricing_engine as pe
     await pe.release_coupon(org, ref_type="deal", ref_id=deal["id"], actor=actor)
     refund = None
-    if refundable > 0:
+    if defer_refund:
+        await notify_finance(
+            org, "Refund booking fee menunggu eksekusi Keuangan",
+            (f"Reservasi unit {deal.get('unit_code') or '-'} dibatalkan oleh {actor} dengan "
+             f"{'refund penuh' if refund_mode == 'full' else 'refund sebagian'} booking fee "
+             f"Rp {refundable:,}. Proses refund dari rincian booking fee deal ini.").replace(",", "."),
+            "finance", "deal", deal["id"])
+    elif refundable > 0:
         amount = {"full": refundable, "partial": int(refund_amount or 0), "forfeit": 0}[refund_mode]
         out = await bf.refund(org, deal["id"], amount=amount, method=method or "transfer",
                               note=note or f"Pembatalan reservasi: {reason}", actor=actor,
@@ -149,4 +173,5 @@ async def cancel(org: str, deal: dict, user: dict, *, reason: str, refund_mode: 
                org_id=org)
     await dispatch_pending()
     fresh = await db.deals.find_one({"id": deal["id"]}, {"_id": 0})
-    return {"deal": fresh, "refund": refund, "refund_mode": refund_mode if refundable > 0 else None}
+    return {"deal": fresh, "refund": refund, "refund_mode": refund_mode if refundable > 0 else None,
+            "refund_deferred": bool(defer_refund)}
