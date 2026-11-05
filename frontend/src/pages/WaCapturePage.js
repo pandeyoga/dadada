@@ -40,6 +40,12 @@ export default function WaCapturePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filters, setFilters] = useState({ status: "new", q: "", dup: "" });
+  // Audit WA-10: dulu limit dikunci 200 tanpa paginasi (222 kontak menunggu, hanya 200 terjangkau).
+  const [page, setPage] = useState({ skip: 0, limit: 50 });
+  const changeFilters = useCallback((v) => {
+    setFilters(v);
+    setPage((p) => (p.skip ? { ...p, skip: 0 } : p));
+  }, []);
   const [captureFor, setCaptureFor] = useState(null);
   const [simOpen, setSimOpen] = useState(false);
   const [replyFor, setReplyFor] = useState(null);
@@ -49,12 +55,12 @@ export default function WaCapturePage() {
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
-      const res = await api.get("/wa/contacts", { params: { ...filters, limit: 200 } });
+      const res = await api.get("/wa/contacts", { params: { ...filters, limit: page.limit, skip: page.skip } });
       setData(res.data);
     } catch (e) {
       setError(e?.response?.data?.detail || "Gagal memuat kontak WhatsApp.");
     } finally { setLoading(false); }
-  }, [filters]);
+  }, [filters, page]);
   useEffect(() => { load(); }, [load, refreshKey]);
 
   const counts = useMemo(() => ({ ...(data?.counts || {}), dup_new: data?.dup_new || 0 }), [data]);
@@ -91,7 +97,7 @@ export default function WaCapturePage() {
       <div data-testid={P94.kpi} className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
         {KPIS.map((k) => (
           <button key={k.key} type="button"
-            onClick={() => { setTab("queue"); setFilters((f) => ({ ...f, status: k.key === "dup_new" ? "new" : k.key, dup: k.key === "dup_new" ? "lead" : "" })); }}
+            onClick={() => { setTab("queue"); changeFilters((f) => ({ ...f, status: k.key === "dup_new" ? "new" : k.key, dup: k.key === "dup_new" ? "lead" : "" })); }}
             className={cn("rounded-xl border bg-card p-3 text-left shadow-[var(--shadow-card)] transition-colors hover:bg-secondary",
               (filters.status === k.key && !filters.dup) || (k.key === "dup_new" && filters.dup === "lead") ? "border-primary" : "")}>
             <p className="text-xs text-muted-foreground">{k.label}</p>
@@ -107,13 +113,13 @@ export default function WaCapturePage() {
         </TabsList>
         <TabsContent value="queue">
           <WaContactsTable rows={data?.data || []} total={data?.total || 0} loading={loading} error={error}
-            filters={filters} onFilters={setFilters} onRefresh={load} canCreate={canCreate} canReply={canReply}
+            filters={filters} onFilters={changeFilters} page={page} onPage={setPage} onRefresh={load} canCreate={canCreate} canReply={canReply}
             onReply={setReplyFor} canEdit={can("leads", "update")} onEdit={setEditFor}
             onCapture={(rows) => setCaptureFor({ ids: rows.map((r) => r.id), rows, count: rows.length })}
             onOpenLead={(id) => navigate(`/leads/${id}`)} />
         </TabsContent>
         <TabsContent value="import">
-          <WaImportPanel onImported={() => { setRefreshKey((k) => k + 1); setTab("queue"); setFilters({ status: "new", q: "", dup: "" }); toast.success("Kontak masuk antrean. Periksa duplikat lalu jadikan lead."); }} />
+          <WaImportPanel onImported={() => { setRefreshKey((k) => k + 1); setTab("queue"); changeFilters({ status: "new", q: "", dup: "" }); toast.success("Kontak masuk antrean. Periksa duplikat lalu jadikan lead."); }} />
         </TabsContent>
       </Tabs>
 

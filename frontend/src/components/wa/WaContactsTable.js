@@ -43,7 +43,7 @@ export function DupBadge({ c }) {
   return <span data-testid={P94.dupBadge} className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">Nomor baru</span>;
 }
 
-export default function WaContactsTable({ rows, total, loading, error, filters, onFilters, onRefresh,
+export default function WaContactsTable({ rows, total, loading, error, filters, onFilters, page, onPage, onRefresh,
   canCreate, canReply, canEdit, onCapture, onOpenLead, onReply, onEdit }) {
   const act = async (path, ok) => {
     try { await api.post(path); toast.success(ok); onRefresh(); }
@@ -158,8 +158,13 @@ export default function WaContactsTable({ rows, total, loading, error, filters, 
   return (
     <DataTable testId={P94.table} testIds={{ row: P94.row, search: P94.search }}
       columns={columns} rows={rows} total={total} loading={loading} error={error}
-      query={{ q: filters.q, limit: 200, skip: 0 }}
-      onQueryChange={(q) => { if (q.q !== undefined && q.q !== filters.q) onFilters({ ...filters, q: q.q }); }}
+      query={{ q: filters.q, limit: page?.limit || 50, skip: page?.skip || 0 }}
+      onQueryChange={(q) => {
+        if (q.q !== undefined && q.q !== filters.q) onFilters({ ...filters, q: q.q });
+        if (onPage && (q.skip !== undefined || q.limit !== undefined)) {
+          onPage({ skip: q.skip ?? page?.skip ?? 0, limit: q.limit ?? page?.limit ?? 50 });
+        }
+      }}
       filters={filterBar} bulkActions={bulkActions} label="kontak"
       searchPlaceholder="Cari nama / nomor / pesan…" exportName="kontak-wa" onRefresh={onRefresh}
       emptyTitle={filters.status === "new" ? "Antrean kosong" : "Tidak ada kontak"}
