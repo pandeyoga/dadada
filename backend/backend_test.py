@@ -158,7 +158,8 @@ class GLTester:
             "date": None,
             "lines": [
                 {"account_code": "6-1300", "debit": 1000000, "credit": 0},
-                {"account_code": "1-1200", "debit": 0, "credit": 1000000}
+                # GL-21: induk kas 1-1200 tidak boleh diposting manual -> pakai akun non-kendali
+                {"account_code": "4-1200", "debit": 0, "credit": 1000000}
             ]
         }, expected_status=200)
         data = r.json()["data"]
@@ -174,7 +175,7 @@ class GLTester:
             "date": None,
             "lines": [
                 {"account_code": "6-1300", "debit": 1000000, "credit": 0},
-                {"account_code": "1-1200", "debit": 0, "credit": 500000}  # Unbalanced!
+                {"account_code": "4-1200", "debit": 0, "credit": 500000}  # Unbalanced!
             ]
         }, expected_status=400)
         detail = r.json()["detail"].lower()

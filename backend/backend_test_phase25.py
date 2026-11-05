@@ -249,7 +249,7 @@ class Phase25Tester:
             "memo": "Test journal in closed period",
             "lines": [
                 {"account_code": "6-1300", "debit": 1000000, "credit": 0},
-                {"account_code": "1-1200", "debit": 0, "credit": 1000000}
+                {"account_code": "4-1200", "debit": 0, "credit": 1000000}  # GL-21: bukan induk kas/akun kendali
             ]
         }
         try:

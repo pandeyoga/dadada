@@ -16,11 +16,10 @@ All GET endpoints keep query params optional (owner endpoint sweep must return 2
 from fastapi import APIRouter, Depends, HTTPException
 
 from db import db, ORG_ID
-from core_utils import new_id, now_iso, serialize_doc, parse_pagination
-from rbac import require_permission
+from core_utils import new_id, now_iso, parse_journal_date, serialize_doc, parse_pagination
+from rbac import audit_log, can, require_permission
 from models import AccountCreate, JournalCreate
 from models_master import AccountUpdate
-from rbac import audit_log
 import coa_rules
 import gl_engine as gl
 
@@ -35,6 +34,14 @@ async def list_accounts(type: str = None, user: dict = Depends(require_permissio
     rows = sorted(bal.values(), key=lambda x: x["code"])
     if type:
         rows = [r for r in rows if r["type"] == type]
+    # GL-13/GL-21: penanda untuk layar — nonaktif, induk kas, akun kendali (jurnal manual butuh izin + alasan).
+    flags = {a["code"]: a for a in await db.accounts.find({"org_id": org}, {"_id": 0, "code": 1, "is_active": 1,
+                                                                            "parent_code": 1}).to_list(1000)}
+    for r in rows:
+        r["is_active"] = (flags.get(r["code"]) or {}).get("is_active", True) is not False
+        r["parent_code"] = (flags.get(r["code"]) or {}).get("parent_code")
+        r["is_header"] = r["code"] in coa_rules.CASH_HEADERS
+        r["is_control"] = r["code"] in coa_rules.CONTROL_ACCOUNTS
     return {"data": rows, "total": len(rows)}
 
 
@@ -89,14 +96,55 @@ async def create_journal(payload: JournalCreate, user: dict = Depends(require_pe
     org = user.get("org_id", ORG_ID)
     if not payload.lines:
         raise HTTPException(status_code=400, detail="Jurnal harus memiliki minimal 1 baris.")
-    lines = [{"account_code": ln.account_code, "debit": int(ln.debit or 0),
+    lines = [{"account_code": ln.account_code.strip(), "debit": int(ln.debit or 0),
               "credit": int(ln.credit or 0), "memo": ln.memo} for ln in payload.lines]
+    memo = payload.memo
     try:
-        doc = await gl.post_journal(org, payload.memo, lines, date=payload.date,
+        if payload.date:   # tanggal diperiksa PERTAMA (GL-06): pesan galatnya tidak boleh tertutup aturan lain
+            parse_journal_date(payload.date)
+        memo = await _manual_journal_guard(user, payload, lines)
+        doc = await gl.post_journal(org, memo, lines, date=payload.date,
                                     source_type="manual", posted_by=user.get("email"), auto=False)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    if memo != payload.memo:
+        await audit_log(user, "control_post", "journal_entries", doc["id"],
+                        {"reason": (payload.control_reason or "").strip(), "entry_no": doc["entry_no"]})
     return {"data": serialize_doc(doc)}
+
+
+async def _manual_journal_guard(user: dict, payload, lines: list) -> str:
+    """Aturan jurnal MANUAL (audit GL-21) — kembalikan memo final. PermissionError → 403, ValueError → 400.
+
+    * memo wajib bermakna; satu baris tidak boleh debit DAN kredit sekaligus (dulu Dr 1000/Cr 1000 pada akun
+      yang sama menghasilkan baris netto nol yang tak bisa diaudit);
+    * induk kas (1-1100/1-1200) dulu dialihkan DIAM-DIAM ke rekening default → harus menyebut sub-akun rekening;
+    * akun kendali (piutang/utang/kewajiban kontrak/titipan/retensi/komisi/kas bon) dijaga tie-out terhadap
+      subledger: jurnal manual langsung ke sana hanya untuk peran berizin `gl:control_post` + alasan tertulis,
+      karena mengubah saldo tanpa dokumen sumber (pakai fitur resmi: penerimaan, void, pembayaran, dst.).
+    """
+    if len((payload.memo or "").strip()) < 3:
+        raise ValueError("Keterangan (memo) jurnal wajib diisi.")
+    if any(ln["debit"] and ln["credit"] for ln in lines):
+        raise ValueError("Satu baris jurnal tidak boleh berisi debit DAN kredit sekaligus — pisahkan menjadi dua baris.")
+    heads = sorted({ln["account_code"] for ln in lines} & set(coa_rules.CASH_HEADERS))
+    if heads:
+        raise ValueError(f"Akun induk {', '.join(heads)} tidak boleh diposting langsung — pilih sub-akun rekening/kas "
+                         "(mis. 1-1201 / 1-1101) agar saldo per rekening benar.")
+    control = sorted({ln["account_code"] for ln in lines} & set(coa_rules.CONTROL_ACCOUNTS))
+    if not control:
+        return payload.memo
+    names = ", ".join(f"{c} {coa_rules.CONTROL_ACCOUNTS[c]}" for c in control)
+    if not await can(user.get("role"), "gl", "control_post"):
+        raise PermissionError(f"Jurnal manual ke akun kendali ({names}) hanya untuk Manajer Keuangan/Direksi. "
+                              "Gunakan fitur resmi (penerimaan, pembatalan, pembayaran) atau minta persetujuan mereka.")
+    reason = (payload.control_reason or "").strip()
+    if len(reason) < 10:
+        raise ValueError(f"Alasan wajib diisi (minimal 10 huruf) untuk jurnal manual ke akun kendali ({names}) — "
+                         "isi 'control_reason'.")
+    return f"{payload.memo} · [akun kendali: {reason[:120]}]"
 
 
 @router.get("/journals/{jid}")
