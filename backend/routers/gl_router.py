@@ -21,6 +21,7 @@ from rbac import require_permission
 from models import AccountCreate, JournalCreate
 from models_master import AccountUpdate
 from rbac import audit_log
+import coa_rules
 import gl_engine as gl
 
 router = APIRouter(prefix="/gl", tags=["gl"])
@@ -43,10 +44,20 @@ async def create_account(payload: AccountCreate, user: dict = Depends(require_pe
     if payload.type not in gl.VALID_TYPES:
         raise HTTPException(status_code=400, detail=f"Tipe akun tidak valid. Pilih: {', '.join(gl.VALID_TYPES)}.")
     await gl.ensure_coa(org)
-    if await db.accounts.find_one({"org_id": org, "code": payload.code}):
+    # GL-13: format kode, kecocokan prefiks-tipe, dan larangan membuat sub-akun kas/bank manual.
+    try:
+        code = coa_rules.check_new_account(payload.code, payload.type, payload.parent_code)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if await db.accounts.find_one({"org_id": org, "code": code}):
         raise HTTPException(status_code=400, detail="Kode akun sudah dipakai.")
+    if payload.parent_code:
+        parent = await db.accounts.find_one({"org_id": org, "code": payload.parent_code}, {"_id": 0, "type": 1})
+        if not parent or parent.get("type") != payload.type:
+            raise HTTPException(status_code=400, detail=(
+                f"Akun induk {payload.parent_code} tidak ada atau tipenya berbeda dari akun baru."))
     ts = now_iso()
-    doc = {"id": new_id(), "org_id": org, "code": payload.code, "name": payload.name,
+    doc = {"id": new_id(), "org_id": org, "code": code, "name": payload.name,
            "type": payload.type, "parent_code": payload.parent_code, "is_active": True, "created_at": ts}
     await db.accounts.insert_one(dict(doc))
     doc.pop("_id", None)
@@ -157,6 +168,24 @@ async def update_account(code: str, payload: AccountUpdate,
             raise HTTPException(status_code=400, detail=(
                 f"Tipe akun {code} tidak boleh diubah: sudah dipakai {used} jurnal. "
                 "Buat akun baru bila klasifikasinya berbeda."))
+    # GL-13: akun yang dipakai jurnal otomatis / sub-akun rekening aktif tidak boleh dilepas dari posting.
+    system = code in coa_rules.system_codes() or code in coa_rules.CASH_HEADERS
+    if system and "type" in upd and upd["type"] != acc.get("type"):
+        raise HTTPException(status_code=400, detail=f"Tipe akun sistem {code} tidak boleh diubah.")
+    if upd.get("parent_code") in coa_rules.CASH_HEADERS and upd["parent_code"] != acc.get("parent_code"):
+        raise HTTPException(status_code=400, detail=(
+            "Sub-akun Kas/Bank dibuat otomatis lewat menu Kas & Bank, bukan dengan memindahkan akun ke induk kas."))
+    if upd.get("is_active") is False and acc.get("is_active") is not False:
+        if system:
+            raise HTTPException(status_code=400, detail=(
+                f"Akun {code} {acc.get('name')} dipakai jurnal otomatis sistem — tidak boleh dinonaktifkan "
+                "(transaksi berikutnya akan gagal diposting)."))
+        master = await db.bank_accounts.find_one(
+            {"org_id": org, "gl_account_code": code, "is_active": {"$ne": False}}, {"_id": 0, "name": 1})
+        if master:
+            raise HTTPException(status_code=400, detail=(
+                f"Akun {code} masih dipakai rekening/kas aktif '{master.get('name')}'. Nonaktifkan "
+                "rekeningnya dari menu Kas & Bank (saldonya harus nol), bukan dari Bagan Akun."))
     if upd.get("is_active") is False:
         bal = await db.journal_entries.count_documents({"org_id": org, "lines.account_code": code})
         upd["deactivated_at"] = now_iso()

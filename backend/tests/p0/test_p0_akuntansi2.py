@@ -95,3 +95,85 @@ def test_gl08_saldo_kas_posisi_sama_dengan_neraca():
     tb = _tb()
     gl_total = sum(tb.get(r["gl_account_code"], 0) for r in pos["accounts"] if r["is_active"])
     assert pos["total"] == gl_total
+
+
+# ================================================================== GL-09 — event pembukuan gagal
+def test_gl09_logika_percobaan_ulang_berjeda_lalu_gagal_permanen():
+    """Murni (tanpa server): gagal → dijadwalkan ulang berjeda; setelah MAX_ATTEMPTS → failed permanen."""
+    import os
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    import event_retry as er
+    first = er.failure_set({"retries": 0}, "Akun 2-1200 NONAKTIF")
+    assert first["status"] == "pending" and first["next_retry_at"], "percobaan pertama gagal -> jadwal ulang"
+    due = er.due_filter("2000-01-01T00:00:00+00:00")["$or"]
+    assert {"next_retry_at": None} in due and {"next_retry_at": {"$lte": "2000-01-01T00:00:00+00:00"}} in due
+    last = er.failure_set({"retries": er.MAX_ATTEMPTS - 1}, "x" * 900)
+    assert last["status"] == "failed" and last["next_retry_at"] is None and len(last["last_error"]) == 500
+    mid = [er.failure_set({"retries": n}, "x")["status"] for n in range(er.MAX_ATTEMPTS - 1)]
+    assert set(mid) == {"pending"}
+
+
+def test_gl09_health_dan_tieout_menampilkan_event_gagal():
+    import requests
+    from test_p0_masuk import API
+    h = requests.get(f"{API}/health", timeout=30).json()
+    assert "events_failed" in h and "events_retrying" in h, h
+    rc = ok(call(FINANCE, "GET", "/finance/reconcile"))["data"]
+    assert {"events_failed", "events_retrying", "failed_events", "can_retry_events"} <= set(rc), sorted(rc)
+    assert rc["can_retry_events"] is True
+
+
+def test_gl09_proses_ulang_butuh_izin_dan_event_yang_ada():
+    assert call("sales@sipro.co.id", "POST", "/finance/events/apa-saja/retry").status_code == 403
+    assert call("sales@sipro.co.id", "POST", "/finance/events/retry-failed").status_code == 403
+    r = call(FINLEAD, "POST", "/finance/events/tidak-ada-event/retry")
+    assert r.status_code == 400 and "tidak ditemukan" in r.text, r.text[:200]
+    lst = ok(call(FINANCE, "GET", "/finance/events/failed", params={"status": "all"}))
+    assert isinstance(lst["data"], list)
+    done = ok(call(FINLEAD, "POST", "/finance/events/retry-failed"))
+    assert done["total"] == len(done["data"]) and "still_failed" in done
+
+
+# ================================================================== GL-13 — CoA mengikat posting
+def _new_code(prefix="6"):
+    """Kode akun unik 4 digit (tes bisa diulang di database yang sama)."""
+    import random
+    existing = {a["code"] for a in ok(call(FINANCE, "GET", "/gl/accounts"))["data"]}
+    for _ in range(60):
+        code = f"{prefix}-{random.randint(2000, 9999)}"
+        if code not in existing:
+            return code
+    raise AssertionError("tidak menemukan kode akun kosong")
+
+
+def test_gl13_kode_akun_baru_divalidasi():
+    bad = [("ABC", "expense", None), ("2-1400 ", "liability", None), (" 6-1999", "expense", None),
+           ("4-9998", "asset", None), ("6-19", "expense", None), ("1-1299", "asset", "1-1200"),
+           ("1-1199", "asset", "1-1100")]
+    for code, typ, parent in bad:
+        r = call(FINANCE, "POST", "/gl/accounts", json={"code": code, "name": "Uji " + TAG, "type": typ,
+                                                         "parent_code": parent})
+        assert r.status_code == 400, f"{code!r}: {r.status_code} {r.text[:160]}"
+    code = _new_code("6")
+    d = ok(call(FINANCE, "POST", "/gl/accounts", json={"code": code, "name": "Beban Uji " + TAG, "type": "expense"}))
+    assert d["data"]["code"] == code
+
+
+def test_gl13_akun_nonaktif_tidak_menerima_posting_dan_akun_sistem_terkunci():
+    code = _new_code("6")
+    ok(call(FINANCE, "POST", "/gl/accounts", json={"code": code, "name": "Beban Uji " + TAG, "type": "expense"}))
+    lines = [{"account_code": code, "debit": 1000, "credit": 0}, {"account_code": "4-1200", "debit": 0, "credit": 1000}]
+    ok(call(FINANCE, "POST", "/gl/journals", json={"memo": "Uji akun aktif " + TAG, "lines": lines}))
+    ok(call(FINANCE, "PUT", f"/gl/accounts/{code}", json={"is_active": False}))
+    r = call(FINANCE, "POST", "/gl/journals", json={"memo": "Uji akun nonaktif " + TAG, "lines": lines})
+    assert r.status_code == 400 and "NONAKTIF" in r.text, r.text[:200]
+    # akun yang dipakai jurnal otomatis tidak boleh dimatikan (dulu penerimaan baru tetap memposting ke sana)
+    r = call(FINANCE, "PUT", "/gl/accounts/2-1400", json={"is_active": False})
+    assert r.status_code == 400, r.text[:200]
+    r = call(FINANCE, "PUT", "/gl/accounts/1-1300", json={"type": "revenue"})
+    assert r.status_code == 400, r.text[:200]
+    # sub-akun kas milik rekening aktif tidak boleh dimatikan dari Bagan Akun
+    a = ok(call(FINANCE, "POST", "/bank/accounts", json=_bank_body()))["data"]
+    r = call(FINANCE, "PUT", f"/gl/accounts/{a['gl_account_code']}", json={"is_active": False})
+    assert r.status_code == 400 and "rekening" in r.text, r.text[:200]

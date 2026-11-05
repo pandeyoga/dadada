@@ -146,6 +146,10 @@ async def post_journal(org_id, memo, lines, *, date=None, source_type=None, sour
         acct = acct_map.get(code)
         if not acct:
             raise ValueError(f"Akun {code} tidak ada dalam CoA.")
+        if acct.get("is_active") is False:
+            # GL-13: nonaktif = tidak boleh menerima jurnal baru (dulu posting tetap jalan diam-diam).
+            raise ValueError(f"Akun {code} {acct.get('name')} NONAKTIF — tidak bisa dibukukan. Aktifkan "
+                             "kembali akunnya di Bagan Akun atau pakai akun lain.")
         dr, cr = int(ln.get("debit", 0) or 0), int(ln.get("credit", 0) or 0)
         if dr < 0 or cr < 0:
             raise ValueError("Nilai debit/kredit tidak boleh negatif.")
