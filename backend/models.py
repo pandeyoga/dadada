@@ -434,6 +434,7 @@ class ReceiptCreate(BaseModel):
     allocations: Optional[List[ReceiptAllocation]] = None   # termin yang dipilih kasir (sisanya FIFO)
     proof_file_ids: List[str] = Field(min_length=1)   # bukti bayar WAJIB — tampil di semua laporan
     allow_bank_portion: bool = False   # pembeli melunasi sendiri PORSI BANK (bukan lewat pencairan KPR)
+    client_ref: Optional[str] = Field(default=None, max_length=64)   # penanda sekali-pakai anti kuitansi ganda
 
 
 class ApBillCreate(BaseModel):
