@@ -21,6 +21,7 @@ from core_utils import new_id, now_iso
 from db import db, ORG_ID
 from engine import add_activity
 from finance_engine import notify_finance
+from idempotency import once, reserved
 from p27_utils import cash_account, rp
 
 logger = logging.getLogger("sipro.marketingfee")
@@ -80,6 +81,13 @@ async def _refresh_agent_totals(agent_id: str, org_id: str):
 
 
 # ----------------------------- Pengajuan fee -----------------------------
+def _assert_deal_active(deal: dict) -> None:
+    """PK-12: fee/komisi tidak diproses untuk penjualan yang sudah dibatalkan."""
+    if (deal or {}).get("status") == "cancelled" or (deal or {}).get("cancellation_id"):
+        raise ValueError("Deal ini sudah DIBATALKAN — marketing fee/komisi tidak boleh diajukan, "
+                         "disetujui, atau dibayar untuk penjualan yang batal.")
+
+
 async def _get_fee(fee_id: str, org_id: str) -> dict:
     doc = await db.marketing_fees.find_one({"id": fee_id, "org_id": org_id}, {"_id": 0})
     if not doc:
@@ -97,6 +105,7 @@ async def create_fee(payload, actor: str, org_id=ORG_ID) -> dict:
     deal = await db.deals.find_one({"id": payload.deal_id, "org_id": org_id}, {"_id": 0})
     if not deal:
         raise ValueError("Deal tidak ditemukan.")
+    _assert_deal_active(deal)
     dup = await db.marketing_fees.find_one({
         "org_id": org_id, "agent_id": payload.agent_id, "deal_id": payload.deal_id,
         "trigger": payload.trigger, "status": {"$in": OPEN_STATUSES}}, {"_id": 0, "no": 1})
@@ -142,6 +151,7 @@ async def approve_fee(fee_id: str, actor: str, note=None, org_id=ORG_ID) -> dict
     fee = await _get_fee(fee_id, org_id)
     if fee["status"] != "submitted":
         raise ValueError("Hanya pengajuan berstatus 'Diajukan' yang dapat disetujui.")
+    _assert_deal_active(await db.deals.find_one({"id": fee.get("deal_id"), "org_id": org_id}, {"_id": 0}))
     gross = int(fee["amount_gross"])
     pph = int(fee.get("pph_amount", 0))
     net = int(fee["amount_net"])
@@ -152,13 +162,17 @@ async def approve_fee(fee_id: str, actor: str, note=None, org_id=ORG_ID) -> dict
         lines.append({"account_code": TAX_PAYABLE_ACC, "debit": 0, "credit": pph,
                       "memo": f"PPh dipotong {fee.get('pph_pct')}%"})
     ts = now_iso()
-    je = await gl.post_journal(
-        org_id, f"Akrual marketing fee {fee['no']} — {fee['agent_name']}", lines,
-        source_type="marketing_fee", source_id=fee_id,
-        source_event=f"mfee.approve:{fee_id}", posted_by=actor)
-    await db.marketing_fees.update_one({"id": fee_id}, {"$set": {
-        "status": "approved", "approved_by": actor, "approved_at": ts,
-        "approve_note": note, "updated_at": ts}, "$push": {"journal_ids": je["id"]}})
+    # PK-02: klaim atomik submitted → approved SEBELUM jurnal akrual.
+    async with reserved("marketing_fees", {"id": fee_id, "org_id": org_id}, {"status": "submitted"},
+                        {"$set": {"status": "approved", "approved_by": actor, "approved_at": ts,
+                                  "approve_note": note, "updated_at": ts}},
+                        undo={"$set": {"status": "submitted", "approved_by": None, "approved_at": None}},
+                        what="Pengajuan fee"):
+        je = await gl.post_journal(
+            org_id, f"Akrual marketing fee {fee['no']} — {fee['agent_name']}", lines,
+            source_type="marketing_fee", source_id=fee_id,
+            source_event=f"mfee.approve:{fee_id}", posted_by=actor)
+        await db.marketing_fees.update_one({"id": fee_id}, {"$push": {"journal_ids": je["id"]}})
     await _refresh_agent_totals(fee["agent_id"], org_id)
     await add_activity(entity_type="marketing_fee", entity_id=fee_id, type="system",
                        body=f"Marketing fee {fee['no']} disetujui. Utang {rp(net)} "
@@ -181,36 +195,55 @@ async def reject_fee(fee_id: str, actor: str, reason=None, org_id=ORG_ID) -> dic
     return await _get_fee(fee_id, org_id)
 
 
-async def pay_fee(fee_id: str, amount, source: str, note, actor: str, org_id=ORG_ID) -> dict:
-    fee = await _get_fee(fee_id, org_id)
+def _validate_fee_payment(fee: dict, amount) -> int:
     if fee["status"] != "approved":
         raise ValueError("Marketing fee harus disetujui terlebih dahulu sebelum dibayar.")
     net = int(fee["amount_net"])
-    paid = int(fee.get("paid_amount", 0))
-    remaining = net - paid
+    remaining = net - int(fee.get("paid_amount", 0))
     amt = int(amount) if amount else remaining
     if amt <= 0:
         raise ValueError("Nominal pembayaran harus lebih dari 0.")
     if amt > remaining:
         raise ValueError(f"Pembayaran {rp(amt)} melebihi sisa utang fee {rp(remaining)}.")
-    ts = now_iso()
-    payment_id = new_id()
-    je = await gl.post_journal(
-        org_id, f"Pembayaran marketing fee {fee['no']} — {fee['agent_name']}",
-        [{"account_code": FEE_PAYABLE_ACC, "debit": amt, "credit": 0},
-         {"account_code": cash_account(source), "debit": 0, "credit": amt}],
-        source_type="marketing_fee_payment", source_id=payment_id,
-        source_event=f"mfee.pay:{payment_id}", posted_by=actor)
-    new_paid = paid + amt
-    status = "paid" if new_paid >= net else "approved"
-    await db.marketing_fees.update_one({"id": fee_id}, {"$set": {
-        "paid_amount": new_paid, "status": status, "source": source,
-        "paid_at": ts if status == "paid" else fee.get("paid_at"),
-        "pay_note": note, "updated_at": ts}, "$push": {"journal_ids": je["id"]}})
-    await db.payments_out.insert_one({
-        "id": payment_id, "org_id": org_id, "bill_id": None, "marketing_fee_id": fee_id,
-        "vendor": fee["agent_name"], "amount": amt, "note": note or f"Marketing fee {fee['no']}",
-        "actor": actor, "journal_id": je["id"], "created_at": ts})
+    return amt
+
+
+async def pay_fee(fee_id: str, amount, source: str, note, actor: str, org_id=ORG_ID) -> dict:
+    fee = await _get_fee(fee_id, org_id)
+    amt = _validate_fee_payment(fee, amount)
+    _assert_deal_active(await db.deals.find_one({"id": fee.get("deal_id"), "org_id": org_id}, {"_id": 0}))
+    # PK-02: pembayaran fee bersamaan dulu sama-sama membaca `paid_amount` lama (fee Rp 9,75 jt
+    # keluar 2x). Kunci klik ganda + CAS atas (status, paid_amount) sebelum jurnal & payments_out.
+    async with once("mfee.pay", fee_id, amt, source, actor, what="Pembayaran fee ini"):
+        fee = await _get_fee(fee_id, org_id)
+        amt = _validate_fee_payment(fee, amount)
+        net = int(fee["amount_net"])
+        paid = int(fee.get("paid_amount", 0))
+        import cash_bank as _cb
+        cash_code = await _cb.resolve_code(org_id, None, cash_account(source))
+        await _cb.assert_funds(org_id, amt, code=cash_code, kind=f"pembayaran marketing fee {fee['no']}")
+        ts = now_iso()
+        payment_id = new_id()
+        new_paid = paid + amt
+        status = "paid" if new_paid >= net else "approved"
+        async with reserved(
+                "marketing_fees", {"id": fee_id, "org_id": org_id}, {"status": "approved", "paid_amount": paid},
+                {"$set": {"paid_amount": new_paid, "status": status, "source": source,
+                          "paid_at": ts if status == "paid" else fee.get("paid_at"),
+                          "pay_note": note, "updated_at": ts}},
+                undo={"$set": {"paid_amount": paid, "status": "approved",
+                               "paid_at": fee.get("paid_at")}}, what="Pengajuan fee"):
+            je = await gl.post_journal(
+                org_id, f"Pembayaran marketing fee {fee['no']} — {fee['agent_name']}",
+                [{"account_code": FEE_PAYABLE_ACC, "debit": amt, "credit": 0},
+                 {"account_code": cash_account(source), "debit": 0, "credit": amt}],
+                source_type="marketing_fee_payment", source_id=payment_id,
+                source_event=f"mfee.pay:{payment_id}", posted_by=actor)
+            await db.marketing_fees.update_one({"id": fee_id}, {"$push": {"journal_ids": je["id"]}})
+            await db.payments_out.insert_one({
+                "id": payment_id, "org_id": org_id, "bill_id": None, "marketing_fee_id": fee_id,
+                "vendor": fee["agent_name"], "amount": amt, "note": note or f"Marketing fee {fee['no']}",
+                "actor": actor, "journal_id": je["id"], "created_at": ts})
     await _refresh_agent_totals(fee["agent_id"], org_id)
     await add_activity(entity_type="marketing_fee", entity_id=fee_id, type="system",
                        body=f"Marketing fee {fee['no']} dibayar {rp(amt)} ke {fee['agent_name']}. "

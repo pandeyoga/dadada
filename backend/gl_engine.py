@@ -397,7 +397,11 @@ async def _gl_ap_paid(ev):
 
 async def _gl_commission_approved(ev):
     org = ev.get("org_id", ORG_ID)
-    com = await db.commissions.find_one({"org_id": org, "deal_id": ev["entity_id"]}, {"_id": 0})
+    # Komisi yang disetujui disebut eksplisit di event (satu deal bisa punya >1 komisi; mencari lewat
+    # deal_id saja bisa mengakrualkan komisi yang SALAH). Event lama tanpa `commission_id` tetap jalan.
+    cid = (ev.get("data") or {}).get("commission_id")
+    com = await db.commissions.find_one(
+        {"org_id": org, **({"id": cid} if cid else {"deal_id": ev["entity_id"]})}, {"_id": 0})
     if not com:
         return
     amt = int(com.get("amount", 0))

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import marketing_fee as mf
 from core_utils import parse_pagination, serialize_doc
 from db import db, ORG_ID
+from idempotency import Conflict
 from models_p27 import (AgentCreate, AgentUpdate, MarketingFeeCreate, MarketingFeePay,
                         NoteOnly)
 from rbac import audit_log, can, require_permission
@@ -62,7 +63,7 @@ async def create_agent(payload: AgentCreate,
     try:
         doc = await mf.create_agent(payload, user.get("email"), user.get("org_id", ORG_ID))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "create", "marketing_fee_agent", doc["id"])
     return {"data": serialize_doc(doc)}
 
@@ -74,7 +75,7 @@ async def update_agent(agent_id: str, payload: AgentUpdate,
         doc = await mf.update_agent(agent_id, payload, user.get("email"),
                                     user.get("org_id", ORG_ID))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "update", "marketing_fee_agent", agent_id)
     return {"data": serialize_doc(doc)}
 
@@ -161,7 +162,7 @@ async def create_fee(payload: MarketingFeeCreate,
     try:
         doc = await mf.create_fee(payload, user.get("email"), user.get("org_id", ORG_ID))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "create", "marketing_fee", doc["id"], {"gross": doc["amount_gross"]})
     return {"data": serialize_doc(doc)}
 
@@ -173,7 +174,7 @@ async def approve_fee(fee_id: str, payload: NoteOnly,
         doc = await mf.approve_fee(fee_id, user.get("email"), payload.note,
                                    user.get("org_id", ORG_ID))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "approve", "marketing_fee", fee_id, {"net": doc["amount_net"]})
     return {"data": serialize_doc(doc)}
 
@@ -185,7 +186,7 @@ async def reject_fee(fee_id: str, payload: NoteOnly,
         doc = await mf.reject_fee(fee_id, user.get("email"), payload.note,
                                   user.get("org_id", ORG_ID))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "reject", "marketing_fee", fee_id)
     return {"data": serialize_doc(doc)}
 
@@ -197,6 +198,6 @@ async def pay_fee(fee_id: str, payload: MarketingFeePay,
         doc = await mf.pay_fee(fee_id, payload.amount, payload.source, payload.note,
                                user.get("email"), user.get("org_id", ORG_ID))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
     await audit_log(user, "pay", "marketing_fee", fee_id, {"amount": doc.get("paid_amount")})
     return {"data": serialize_doc(doc)}
