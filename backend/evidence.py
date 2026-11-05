@@ -80,8 +80,8 @@ async def validate_proof(org: str, ids, *, actor: str, deal_id: str = None) -> l
 
     Dulu `proof_file_ids:["x"]` atau satu berkas nyata yang sama untuk tiga kuitansi pada tiga deal diterima,
     sehingga "bukti bayar wajib" tampil terpenuhi di semua laporan padahal kosong/ganda. Berkas harus ada,
-    milik organisasi ini, diunggah pencatat sendiri, berjenis bukti bayar (`receipt_proof`/umum), terikat ke
-    deal ini (bila terikat), dan belum menjadi bukti kuitansi/pengajuan lain.
+    milik organisasi ini, diunggah pencatat sendiri, tidak terikat ke dokumen LAIN (mis. KTP lead; berkas yang
+    terikat ke deal ini boleh), dan belum menjadi bukti kuitansi/pengajuan lain. Jenis berkas (`owner_type`)
+    sengaja tidak dibatasi: UI memakai `receipt_proof`, sedangkan alur lain mengunggah dengan jenis `deal`/umum.
     """
-    return await validate(org, ids, actor=actor, owner_types=("receipt_proof", "generic"),
-                          owner_id=deal_id, minimum=1, label="bukti bayar")
+    return await validate(org, ids, actor=actor, owner_types=(), owner_id=deal_id, minimum=1, label="bukti bayar")

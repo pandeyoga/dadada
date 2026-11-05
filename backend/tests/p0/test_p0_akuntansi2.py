@@ -378,6 +378,37 @@ def test_gl15_batas_zona_waktu_periode_tertutup_dan_tak_menutup_masa_depan(world
             call(SUPER, "POST", "/gl/periods/reopen", json={"period": p})
 
 
+def test_gl15_jurnal_penutup_tahun_tetap_bertanggal_31_des_dan_tutup_ulang_berjurnal():
+    """Kanonisasi tanggal ke WIB tidak boleh menggeser jurnal penutup (23:59 UTC 31 Des = 1 Jan WIB) ke tahun
+    berikutnya; tutup → buka → tutup lagi tetap menghasilkan jurnal penutup BARU (GL-03)."""
+    year = "2025"
+    ok(_manual_journal(f"{year}-06-15"))                       # ada aktivitas laba-rugi di tahun uji
+    rows = ok(call(SUPER, "GET", "/gl/periods", params={"limit": 60}))["data"]
+    to_close = [r["period"] for r in rows if r["period"].startswith(year) and r["status"] == "open" and r["journals"]]
+    closed_here = []
+    try:
+        for p in to_close:
+            ok(call(SUPER, "POST", "/gl/periods/close", json={"period": p, "override": True,
+                                                              "override_reason": "uji tutup tahun GL-15"}))
+            closed_here.append(p)
+        first = ok(call(SUPER, "POST", "/gl/year/close", json={"year": year}))["data"]
+        je = ok(call(SUPER, "GET", f"/gl/journals/{first['entry_id']}"))["data"]
+        assert je["date"][:10] == f"{year}-12-31", je["date"]
+        ok(call(SUPER, "POST", "/gl/year/reopen", json={"year": year, "reason": "uji buka kembali tahun buku"}))
+        # jurnal pembalik bertanggal 31 Des membuat Desember bertransaksi → tutup lagi sebelum tutup tahun ulang
+        for r in ok(call(SUPER, "GET", "/gl/periods", params={"limit": 60}))["data"]:
+            if r["period"].startswith(year) and r["status"] == "open" and r["journals"]:
+                ok(call(SUPER, "POST", "/gl/periods/close", json={"period": r["period"], "override": True,
+                                                                  "override_reason": "uji tutup tahun ulang"}))
+                closed_here.append(r["period"])
+        again = ok(call(SUPER, "POST", "/gl/year/close", json={"year": year}))["data"]
+        assert again["entry_no"] != first["entry_no"] and not again.get("idempotent"), (first["entry_no"], again)
+    finally:
+        call(SUPER, "POST", "/gl/year/reopen", json={"year": year, "reason": "bersihkan sesudah uji tahun buku"})
+        for p in closed_here:
+            call(SUPER, "POST", "/gl/periods/reopen", json={"period": p})
+
+
 def test_gl15_posting_otomatis_digeser_ke_periode_terbuka_terdekat_bukan_masa_depan_jauh():
     """Murni (tanpa server): bulan berjalan tertutup → hari pertama bulan DEPAN (bukan 2027-01-01);
     bulan lalu tertutup tapi bulan berjalan terbuka → SEKARANG; manual selalu ditolak."""

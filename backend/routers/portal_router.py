@@ -31,7 +31,6 @@ import warranty_engine as we
 from models import PortalOtpRequest, PortalOtpVerify, ComplaintCreate
 from models_p50 import PortalWarrantyClaim
 from models_p51 import PortalClaimAckIn
-
 from models_p47 import PaymentProofIn
 
 router = APIRouter(prefix="/portal", tags=["portal"])
@@ -259,9 +258,8 @@ async def upload_payment_proof(file: UploadFile = File(...), deal_id: str = Form
     """Unggah FOTO/PDF bukti transfer dari portal — satu-satunya jalan pelanggan melampirkan bukti.
 
     Kenapa endpoint sendiri: `/api/files/upload` menuntut izin STAF (`files:create`), sehingga
-    sebelum ini `POST /portal/payments/proof` mustahil dipenuhi pelanggan (bukti wajib minimal
-    satu berkas, tetapi tidak ada cara mengunggahnya) — fitur yang tidak bisa dicapai sama
-    dengan tidak ada. Pembatasan di sini sengaja lebih ketat daripada unggahan staf: hanya
+    sebelum ini `POST /portal/payments/proof` mustahil dipenuhi pelanggan (bukti wajib minimal satu berkas, tetapi
+    tidak ada cara mengunggahnya) — fitur yang tidak bisa dicapai sama dengan tidak ada. Pembatasan di sini sengaja lebih ketat daripada unggahan staf: hanya
     gambar/PDF, maksimal 8 MB, dan wajib menyebut transaksi MILIK pelanggan itu sendiri.
     """
     org = pu.get("org_id", ORG_ID)
@@ -276,8 +274,7 @@ async def upload_payment_proof(file: UploadFile = File(...), deal_id: str = Form
         raise HTTPException(status_code=400, detail=(
             "Bukti transfer harus berupa foto (JPG/PNG/WEBP/HEIC) atau PDF — "
             f"berkas Anda bertipe {ctype or 'tidak dikenali'}."))
-    if (bad := proof_sniff.problem(ctype, data)):  # IN-16: periksa ISI berkas, bukan hanya header
-        raise HTTPException(status_code=400, detail=bad)
+    if (bad := proof_sniff.problem(ctype, data)): raise HTTPException(status_code=400, detail=bad)  # IN-16: cek ISI berkas
     if len(data) > PROOF_MAX_BYTES:
         raise HTTPException(status_code=400, detail=(
             f"Ukuran berkas {len(data) // 1024 // 1024} MB melebihi batas 8 MB — "

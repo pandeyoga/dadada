@@ -490,9 +490,10 @@ async def year_close(org, year: str, actor: str, note: str = None) -> dict:
     prev_cycle = int((existing or {}).get("cycle") or (1 if existing else 0))
     cycle = prev_cycle + 1
     ev_key = f"year_close:{org}:{year}" if cycle == 1 else f"year_close:{org}:{year}:c{cycle}"
+    # Tanggal POLOS 31 Des: stempel '23:59:59+00:00' dulu menjadi 1 Jan tahun berikutnya setelah dikanonkan ke WIB (GL-15).
     entry = await gl.post_journal(
         org, f"Jurnal penutup tahun buku {year}" + (f" (penutupan ke-{cycle})" if cycle > 1 else ""), lines,
-        date=f"{year}-12-31T23:59:59+00:00", source_type=YEAR_CLOSING_SOURCE, source_id=year,
+        date=f"{year}-12-31", source_type=YEAR_CLOSING_SOURCE, source_id=year,
         source_event=ev_key, posted_by=actor, auto=True, allow_closed=True)
     ts = now_iso()
     doc = {
@@ -527,7 +528,7 @@ async def year_reopen(org, year: str, actor: str, reason: str) -> dict:
     cycle = int(doc.get("cycle") or 1)  # GL-03: pasangkan pembalik dengan siklus penutupnya
     rev = await gl.post_journal(
         org, f"Balik jurnal penutup tahun {year} — {reason}", mirror,
-        date=f"{year}-12-31T23:59:59+00:00", source_type=YEAR_CLOSING_SOURCE, source_id=year,
+        date=f"{year}-12-31", source_type=YEAR_CLOSING_SOURCE, source_id=year,
         source_event=(f"year_reopen:{org}:{year}" if cycle == 1 else f"year_reopen:{org}:{year}:c{cycle}"),
         posted_by=actor, auto=True, allow_closed=True)
     ts = now_iso()
