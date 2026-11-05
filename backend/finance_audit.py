@@ -56,8 +56,14 @@ async def reconcile(org: str) -> dict:
     failed = [c for c in checks if not c["ok"]]
     pending = await db.events.count_documents({"org_id": org, "status": {"$in": ["pending", "processing"]}})
     failed_ev = await db.events.count_documents({"org_id": org, "status": "failed"})
+    # GL-09: event yang menunggu percobaan ulang & rincian yang gagal permanen ikut dilaporkan
+    # supaya layar tahu (dulu hanya angka) dan orang berwenang bisa memprosesnya ulang.
+    import event_retry as er
+    retrying = await db.events.count_documents(
+        {"org_id": org, "status": "pending", "next_retry_at": {"$ne": None}})
     return {"ok": not failed and not failed_ev, "checks": checks, "failed": len(failed),
-            "events_pending": pending, "events_failed": failed_ev}
+            "events_pending": pending, "events_failed": failed_ev, "events_retrying": retrying,
+            "failed_events": await er.list_problems(org, "failed", 20) if failed_ev else []}
 
 
 async def hpp_per_unit(org: str, project_id: str) -> dict:

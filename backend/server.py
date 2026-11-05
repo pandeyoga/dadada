@@ -450,7 +450,10 @@ async def root():
 @api.get("/health")
 async def health():
     pending = await db.events.count_documents({"status": {"$in": ["pending", "processing"]}})
-    return {"status": "ok", "service": "sipro-backend", "events_pending": pending}
+    import event_retry
+    # GL-09: event pembukuan yang gagal permanen / sedang menunggu percobaan ulang kini terlihat di sini.
+    return {"status": "ok", "service": "sipro-backend", "events_pending": pending,
+            **await event_retry.health_counts()}
 
 
 api.include_router(auth_router)
