@@ -28,6 +28,7 @@ import settings_store as cfg
 from core_utils import new_id, now_iso
 from db import ORG_ID, db
 from engine import add_activity, emit
+from money_lock import locked
 from reference_p47 import (GL_BANK, GL_BANK_FEE, GL_CONTRACT_LIABILITY, GL_OTHER_INCOME,
                           MATCH_KIND_LABEL, UNMATCHABLE_KINDS)
 
@@ -197,8 +198,28 @@ async def suggest(org: str = ORG_ID, txn_id: str = None) -> dict:
                                                                if c["score"] >= 25] else None)}
 
 
+async def _manual_duplicate(org: str, txn: dict, deal_id: str) -> dict:
+    """Kuitansi MANUAL (belum tertaut ke mutasi bank mana pun) dengan nominal sama pada deal yang
+    sama, tanggalnya berdekatan dengan mutasi — tanda kuat bahwa uang yang sama akan tercatat DUA
+    kali (audit IN-08b: kuitansi manual 30 jt + pencocokan mutasi 30 jt = 60 jt di buku).
+    Return kuitansi pertama yang mencurigakan, atau None."""
+    _tol, win = await _tolerance(org)
+    rows = await db.receipts.find(
+        {"org_id": org, "deal_id": deal_id, "amount": int(txn["amount"]),
+         "status": {"$ne": "void"}, "method": {"$ne": "deposit"},
+         "kind": {"$exists": False}}, {"_id": 0}).to_list(50)
+    rows = [r for r in rows if (_days(txn["date"], str(r.get("created_at"))[:10]) or 0) <= max(win, 1)]
+    if not rows:
+        return None
+    ids = [r["id"] for r in rows]
+    linked = {(m.get("result") or {}).get("receipt_id") async for m in db.bank_matches.find(
+        {"org_id": org, "state": "matched", "result.receipt_id": {"$in": ids}},
+        {"_id": 0, "result": 1})}
+    return next((r for r in rows if r["id"] not in linked), None)
+
+
 async def _apply(org: str, txn: dict, kind: str, target_id: str, actor: str,
-                 note: str = None) -> dict:
+                 note: str = None, allow_duplicate: bool = False) -> dict:
     """Jalankan dampak pencocokan lewat JALUR RESMI masing-masing subledger."""
     amount = int(txn["amount"])
     memo = note or f"Rekonsiliasi bank {txn['date']} — {txn.get('description')}"
@@ -206,12 +227,34 @@ async def _apply(org: str, txn: dict, kind: str, target_id: str, actor: str,
     acc_id = (acc or {}).get("id")
     bank_code = (acc or {}).get("gl_account_code") or GL_BANK
     if kind == "ar_deal":
+        dup = None if allow_duplicate else await _manual_duplicate(org, txn, target_id)
+        if dup:
+            raise ValueError(
+                f"Sudah ada kuitansi manual {dup.get('receipt_no') or dup['id'][:8]} sebesar "
+                f"{_rp(amount)} pada deal ini (dicatat {str(dup.get('created_at'))[:10]}) yang belum "
+                "tertaut ke mutasi bank mana pun. Mencocokkan mutasi ini ke tagihan akan mencatat "
+                "uang yang sama DUA kali. Bila itu uang yang sama, tandai mutasi ini “diabaikan” "
+                f"dengan alasan “sudah dicatat kuitansi {dup.get('receipt_no') or ''}”; bila memang "
+                "pembayaran yang terpisah, ulangi dengan penanda allow_duplicate (admin).")
         res = await fin.apply_receipt(target_id, amount, "transfer", memo, actor, org_id=org,
                                       cash_account_id=acc_id)
         return {"receipt_id": res["receipt"]["id"], "deal_id": target_id,
                 "detail": f"Kuitansi {res['receipt']['id'][:8]} dibuat dari mutasi bank."}
     if kind == "payment_intake":
         import payment_intake as intake
+        # Audit IN-08: kuitansi lahir dari nominal BUKTI pelanggan, bukan nominal mutasi. Tanpa
+        # pemeriksaan ini mutasi Rp 9 jt bisa "dicocokkan" ke bukti Rp 1 jt: Rp 8 jt lenyap dari
+        # daftar belum-cocok padahal tidak pernah tercatat sebagai penerimaan.
+        row = await intake.intake_or_error(org, target_id)
+        tol, _w = await _tolerance(org)
+        if abs(int(row["amount"]) - amount) > tol:
+            raise ValueError(
+                f"Nominal mutasi bank {_rp(amount)} berbeda dengan nominal bukti pelanggan "
+                f"{_rp(row['amount'])}"
+                + (f" (toleransi {_rp(tol)})" if tol else "")
+                + ". Pencocokan ditolak supaya selisihnya tidak hilang dari daftar belum-cocok — "
+                  "cocokkan ke bukti yang nominalnya sama, atau pilih tagihan (AR) deal tujuan "
+                  "langsung agar seluruh nominal mutasi tercatat.")
         res = await intake.verify(org, target_id, actor, bank_txn_id=txn["id"], note=memo)
         return {"receipt_id": (res.get("receipt") or {}).get("id"),
                 "intake_id": target_id, "deal_id": res["intake"].get("deal_id"),
@@ -241,7 +284,8 @@ async def _apply(org: str, txn: dict, kind: str, target_id: str, actor: str,
 
 
 async def match(org: str = ORG_ID, txn_id: str = None, kind: str = None,
-                target_id: str = None, actor: str = "system", note: str = None) -> dict:
+                target_id: str = None, actor: str = "system", note: str = None,
+                allow_duplicate: bool = False) -> dict:
     """Cocokkan satu mutasi ke satu dokumen. Menolak bila mutasi sudah dipakai."""
     txn = await txn_or_error(org, txn_id)
     if txn.get("match_state") == "matched":
@@ -254,7 +298,21 @@ async def match(org: str = ORG_ID, txn_id: str = None, kind: str = None,
     if wants_in != (txn["direction"] == "in"):
         raise ValueError("Arah mutasi tidak cocok dengan jenis dokumen yang dipilih "
                          f"(mutasi ini {'uang masuk' if txn['direction'] == 'in' else 'uang keluar'}).")
-    out = await _apply(org, txn, kind, target_id, actor, note)
+    # Audit IN-01: satu mutasi = satu pencocokan. `match_state` dicek ulang DI BAWAH kunci per mutasi —
+    # dua pencocokan bersamaan sebelumnya sama-sama lolos cek di atas dan sama-sama menerbitkan
+    # kuitansi/jurnal untuk uang yang sama.
+    async with locked("bank.match", txn_id, what="Pencocokan mutasi bank ini"):
+        txn = await txn_or_error(org, txn_id)
+        if txn.get("match_state") == "matched":
+            raise ValueError("Mutasi ini sudah dicocokkan — batalkan dulu bila salah.")
+        if txn.get("match_state") == "ignored":
+            raise ValueError("Mutasi ini ditandai diabaikan — batalkan tanda itu lebih dulu.")
+        return await _match_locked(org, txn, kind, target_id, actor, note, allow_duplicate)
+
+
+async def _match_locked(org: str, txn: dict, kind: str, target_id: str, actor: str, note: str,
+                        allow_duplicate: bool = False) -> dict:
+    out = await _apply(org, txn, kind, target_id, actor, note, allow_duplicate)
     ts = now_iso()
     doc = {"id": new_id(), "org_id": org, "txn_id": txn["id"], "account_id": txn["account_id"],
            "kind": kind, "kind_label": MATCH_KIND_LABEL[kind], "target_id": target_id,
@@ -325,8 +383,14 @@ async def void_receipt(org: str, receipt_id: str, actor: str, reason: str) -> di
 
 
 async def unmatch(org: str = ORG_ID, txn_id: str = None, actor: str = "system",
-                  reason: str = None) -> dict:
-    """Batalkan pencocokan + balikkan dampaknya (beralasan, berjejak)."""
+                   reason: str = None) -> dict:
+    """Batalkan pencocokan + balikkan dampaknya (beralasan, berjejak). Kunci yang sama dengan
+    `match`: pembatalan ganda bersamaan tidak membalik uang dua kali (audit IN-01)."""
+    async with locked("bank.match", txn_id, what="Pembatalan pencocokan mutasi bank ini"):
+        return await _unmatch_locked(org, txn_id, actor, reason)
+
+
+async def _unmatch_locked(org: str, txn_id: str, actor: str, reason: str) -> dict:
     if len((reason or "").strip()) < MIN_REASON:
         raise ValueError(f"Alasan pembatalan minimal {MIN_REASON} huruf.")
     txn = await txn_or_error(org, txn_id)

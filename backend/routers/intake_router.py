@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import payment_intake as intake
 from core_utils import parse_pagination, serialize_doc
 from db import ORG_ID
+from idempotency import Conflict
 from models_p47 import IntakeRejectIn, IntakeVerifyIn
 from rbac import audit_log, require_permission
 
@@ -46,6 +47,8 @@ async def verify(intake_id: str, payload: IntakeVerifyIn,
         out = await intake.verify(_org(user), intake_id, user.get("email"),
                                   bank_txn_id=payload.bank_txn_id, note=payload.note,
                                   allow_overpay=payload.allow_overpay)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "verify", "payment_intakes", intake_id,
@@ -61,6 +64,8 @@ async def reject(intake_id: str, payload: IntakeRejectIn,
     """Tolak bukti + alasan yang DIBACA pelanggan di portal. Tagihan tidak berubah."""
     try:
         out = await intake.reject(_org(user), intake_id, user.get("email"), payload.reason)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "reject", "payment_intakes", intake_id, {"reason": payload.reason})

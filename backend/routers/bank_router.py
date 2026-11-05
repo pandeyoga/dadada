@@ -15,6 +15,7 @@ import bank_import as bimp
 import bank_match as bmatch
 from core_utils import new_id, now_iso, parse_pagination, serialize_doc
 from db import ORG_ID, db
+from idempotency import Conflict
 from models_p47 import BankAccountIn, BankIgnoreIn, BankImportIn, BankMatchIn, BankUnmatchIn
 from rbac import audit_log, require_permission
 from reference_p47 import DIRECTION_LABEL, MATCH_STATE_LABEL
@@ -158,7 +159,10 @@ async def do_match(txn_id: str, payload: BankMatchIn,
                    user: dict = Depends(require_permission("bank", "update"))):
     try:
         out = await bmatch.match(_org(user), txn_id, payload.kind, payload.target_id,
-                                 user.get("email"), payload.note)
+                                 user.get("email"), payload.note,
+                                 allow_duplicate=payload.allow_duplicate)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "bank.match", "bank_transactions", txn_id,
@@ -172,6 +176,8 @@ async def do_unmatch(txn_id: str, payload: BankUnmatchIn,
     """Batalkan pencocokan + balikkan dampaknya. Wajib beralasan."""
     try:
         out = await bmatch.unmatch(_org(user), txn_id, user.get("email"), payload.reason)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "bank.unmatch", "bank_transactions", txn_id,
