@@ -93,12 +93,15 @@ async def create_loan(payload, actor: str, org_id=ORG_ID) -> dict:
 
 
 async def activate_loan(loan_id: str, source: str, date, note, actor: str,
-                        org_id=ORG_ID) -> dict:
+                        org_id=ORG_ID, cash_account_id: str = None) -> dict:
     """Pencairan fasilitas: kas masuk (netto provisi), utang bank terbentuk, jadwal terbit."""
     loan = await _get(loan_id, org_id)
     if loan["status"] != "draft":
         raise ValueError("Hanya fasilitas berstatus 'Draf' yang dapat dicairkan.")
     date = clean_cash_date(date, "Tanggal pencairan")
+    if cash_account_id:   # GL-17: rekening/kas penerima dana (galat jelas bila tak sah/nonaktif)
+        import cash_bank as _cb
+        await _cb.resolve_code(org_id, cash_account_id)
     principal = int(loan["principal"])
     provision = int(loan.get("provision_fee", 0))
     net = principal - provision
@@ -109,7 +112,7 @@ async def activate_loan(loan_id: str, source: str, date, note, actor: str,
     if sum(r["principal"] for r in rows) != principal:
         raise ValueError("Kesalahan internal: jumlah pokok jadwal tidak sama dengan pokok pinjaman.")
     lines = [{"account_code": cash_account(source), "debit": net, "credit": 0,
-              "memo": "pencairan fasilitas"}]
+              "memo": "pencairan fasilitas", "cash_account_id": cash_account_id}]
     if provision:
         lines.append({"account_code": INTEREST_ACC, "debit": provision, "credit": 0,
                       "memo": "biaya provisi & administrasi"})
@@ -155,7 +158,7 @@ def _locate_installment(loan: dict, no: int, amount: int):
 
 
 async def pay_installment(loan_id: str, no: int, amount: int, source: str, date, note,
-                          actor: str, org_id=ORG_ID) -> dict:
+                          actor: str, org_id=ORG_ID, cash_account_id: str = None) -> dict:
     """Bayar angsuran: alokasi ke bunga dulu, sisanya pokok (mengurangi utang bank).
 
     PK-02: dua pembayaran angsuran bersamaan dulu sama-sama membaca jadwal yang sama dan keduanya
@@ -167,7 +170,7 @@ async def pay_installment(loan_id: str, no: int, amount: int, source: str, date,
     amount = int(amount)
     _locate_installment(loan, no, amount)
     date = clean_cash_date(date, "Tanggal pembayaran")
-    async with once("loan.pay", loan_id, int(no), amount, source, actor, what="Pembayaran angsuran ini"):
+    async with once("loan.pay", loan_id, int(no), amount, source, cash_account_id, actor, what="Pembayaran angsuran ini"):
         loan = await _get(loan_id, org_id)
         rows, idx, item, remaining = _locate_installment(loan, no, amount)
         rem_interest = int(item["interest"]) - int(item.get("paid_interest", 0))
@@ -182,7 +185,8 @@ async def pay_installment(loan_id: str, no: int, amount: int, source: str, date,
         if pay_interest:
             lines.append({"account_code": INTEREST_ACC, "debit": pay_interest, "credit": 0,
                           "memo": "bunga angsuran"})
-        lines.append({"account_code": cash_account(source), "debit": 0, "credit": amount})
+        lines.append({"account_code": cash_account(source), "debit": 0, "credit": amount,
+                      "cash_account_id": cash_account_id})
         item["paid_principal"] = int(item.get("paid_principal", 0)) + pay_principal
         item["paid_interest"] = int(item.get("paid_interest", 0)) + pay_interest
         item["paid_total"] = int(item.get("paid_total", 0)) + amount
@@ -194,7 +198,7 @@ async def pay_installment(loan_id: str, no: int, amount: int, source: str, date,
         outstanding = int(loan["principal"]) - paid_principal
         status = "paid_off" if all(r["status"] == "paid" for r in rows) else "active"
         import cash_bank as _cb
-        cash_code = await _cb.resolve_code(org_id, None, cash_account(source))
+        cash_code = await _cb.resolve_code(org_id, cash_account_id, cash_account(source))
         async with _cb.cash_lock(org_id, cash_code):
             await _cb.assert_funds(org_id, amount, code=cash_code,
                                    kind=f"angsuran ke-{no} pembiayaan {loan['no']}")

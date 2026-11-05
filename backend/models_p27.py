@@ -93,6 +93,7 @@ class DepreciationRun(BaseModel):
 class AssetDispose(BaseModel):
     proceeds: int = Field(default=0, ge=0)
     source: CashSource = "bank"
+    cash_account_id: Optional[str] = None   # GL-17: rekening/kas penerima (kosong = default menurut `source`)
     date: Optional[str] = None
     note: Optional[str] = None
 
@@ -116,6 +117,7 @@ class LoanActivate(BaseModel):
     source: CashSource = "bank"
     date: Optional[str] = None
     note: Optional[str] = None
+    cash_account_id: Optional[str] = None   # GL-17: rekening/kas tujuan (kosong = default menurut `source`)
 
 
 class InstallmentPay(BaseModel):
@@ -124,6 +126,7 @@ class InstallmentPay(BaseModel):
     source: CashSource = "bank"
     date: Optional[str] = None
     note: Optional[str] = None
+    cash_account_id: Optional[str] = None   # GL-17: rekening/kas sumber (kosong = default menurut `source`)
 
 
 # ----------------------------- Marketing fee -----------------------------
@@ -165,4 +168,5 @@ class MarketingFeeCreate(BaseModel):
 class MarketingFeePay(BaseModel):
     amount: Optional[int] = None
     source: CashSource = "bank"
+    cash_account_id: Optional[str] = None   # GL-17: rekening/kas sumber (kosong = default menurut `source`)
     note: Optional[str] = None

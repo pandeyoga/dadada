@@ -240,7 +240,7 @@ async def run_depreciation(period: str, actor: str, org_id=ORG_ID) -> dict:
 
 
 async def dispose_asset(asset_id: str, proceeds: int, source: str, date, note,
-                        actor: str, org_id=ORG_ID) -> dict:
+                        actor: str, org_id=ORG_ID, cash_account_id: str = None) -> dict:
     """Lepas/jual aset: hapus perolehan + akumulasi, akui laba/rugi pelepasan."""
     a = await _get(asset_id, org_id)
     if a["status"] == "disposed":
@@ -252,8 +252,11 @@ async def dispose_asset(asset_id: str, proceeds: int, source: str, date, note,
     gain = proceeds - book_value
     lines = []
     if proceeds:
+        if cash_account_id:   # GL-17: rekening/kas penerima hasil pelepasan (galat jelas bila tak sah)
+            import cash_bank as _cb
+            await _cb.resolve_code(org_id, cash_account_id)
         lines.append({"account_code": cash_account(source), "debit": proceeds, "credit": 0,
-                      "memo": "hasil pelepasan aset"})
+                      "memo": "hasil pelepasan aset", "cash_account_id": cash_account_id})
     if accum:
         lines.append({"account_code": ACCUM_ACC, "debit": accum, "credit": 0,
                       "memo": "hapus akumulasi penyusutan"})

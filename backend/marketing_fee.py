@@ -208,19 +208,20 @@ def _validate_fee_payment(fee: dict, amount) -> int:
     return amt
 
 
-async def pay_fee(fee_id: str, amount, source: str, note, actor: str, org_id=ORG_ID) -> dict:
+async def pay_fee(fee_id: str, amount, source: str, note, actor: str, org_id=ORG_ID,
+                  cash_account_id: str = None) -> dict:
     fee = await _get_fee(fee_id, org_id)
     amt = _validate_fee_payment(fee, amount)
     _assert_deal_active(await db.deals.find_one({"id": fee.get("deal_id"), "org_id": org_id}, {"_id": 0}))
     # PK-02: pembayaran fee bersamaan dulu sama-sama membaca `paid_amount` lama (fee Rp 9,75 jt
     # keluar 2x). Kunci klik ganda + CAS atas (status, paid_amount) sebelum jurnal & payments_out.
-    async with once("mfee.pay", fee_id, amt, source, actor, what="Pembayaran fee ini"):
+    async with once("mfee.pay", fee_id, amt, source, cash_account_id, actor, what="Pembayaran fee ini"):
         fee = await _get_fee(fee_id, org_id)
         amt = _validate_fee_payment(fee, amount)
         net = int(fee["amount_net"])
         paid = int(fee.get("paid_amount", 0))
         import cash_bank as _cb
-        cash_code = await _cb.resolve_code(org_id, None, cash_account(source))
+        cash_code = await _cb.resolve_code(org_id, cash_account_id, cash_account(source))   # GL-17
         await _cb.assert_funds(org_id, amt, code=cash_code, kind=f"pembayaran marketing fee {fee['no']}")
         ts = now_iso()
         payment_id = new_id()
@@ -236,7 +237,7 @@ async def pay_fee(fee_id: str, amount, source: str, note, actor: str, org_id=ORG
             je = await gl.post_journal(
                 org_id, f"Pembayaran marketing fee {fee['no']} — {fee['agent_name']}",
                 [{"account_code": FEE_PAYABLE_ACC, "debit": amt, "credit": 0},
-                 {"account_code": cash_account(source), "debit": 0, "credit": amt}],
+                 {"account_code": cash_account(source), "debit": 0, "credit": amt, "cash_account_id": cash_account_id}],
                 source_type="marketing_fee_payment", source_id=payment_id,
                 source_event=f"mfee.pay:{payment_id}", posted_by=actor)
             await db.marketing_fees.update_one({"id": fee_id}, {"$push": {"journal_ids": je["id"]}})

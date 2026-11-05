@@ -570,6 +570,26 @@ def test_gl17_titipan_terima_dan_kembali_memakai_rekening_pilihan(world):
     assert r.status_code == 400
 
 
+def test_gl17_angsuran_pinjaman_dari_rekening_pilihan():
+    import random
+    rek = _new_bank(20_000_000)
+    act = [x for x in ok(call(FINANCE, "GET", "/corp-financing/loans"))["data"] if x["status"] == "active"]
+    if not act:
+        pytest.skip("tidak ada pinjaman aktif untuk diuji")
+    lid = act[0]["id"]
+    sched = ok(call(FINANCE, "GET", f"/corp-financing/loans/{lid}"))["data"]["schedule"]
+    item = next((r for r in sched if r["status"] != "paid" and r["amount_due"] > 2_000_000), None)
+    if not item:
+        pytest.skip("tidak ada angsuran terbuka yang cukup besar")
+    amt = 1_000 + random.randint(1, 800)
+    bad = call(FINANCE, "POST", f"/corp-financing/loans/{lid}/pay",
+               json={"installment_no": item["no"], "amount": amt, "source": "bank", "cash_account_id": "tidak-ada"})
+    assert bad.status_code == 400, bad.text[:200]
+    ok(call(FINANCE, "POST", f"/corp-financing/loans/{lid}/pay",
+            json={"installment_no": item["no"], "amount": amt, "source": "bank", "cash_account_id": rek["id"]}))
+    assert _wait(lambda: _accounts()[rek["id"]]["balance"] == 20_000_000 - amt), "angsuran harus keluar dari rekening pilihan"
+
+
 # ================================================================== GL-14 — klasifikasi arus kas
 def test_gl14_klasifikasi_arus_kas_per_akun():
     import os
