@@ -162,6 +162,8 @@ async def set_scheme(contract_id: str, payload: ContractSchemeIn,
     try:
         c = await ce.set_scheme(_org(user), contract_id, payload.scheme,
                                user.get("email"), payload.reason)
+    except Conflict:
+        raise  # 409 lewat penangan global (bentrok dengan permintaan lain)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "update", "contract", contract_id, {"scheme": payload.scheme})
@@ -175,6 +177,8 @@ async def activate_contract(contract_id: str,
     await _contract_scoped(contract_id, user)
     try:
         c = await ce.activate(_org(user), contract_id, user.get("email"))
+    except Conflict:
+        raise  # 409 lewat penangan global (bentrok dengan permintaan lain)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "update", "contract", contract_id, {"action": "activate"})
@@ -190,6 +194,8 @@ async def legal_advance(contract_id: str, stage: str, payload: LegalAdvanceIn,
         c = await ce.legal_advance(_org(user), contract_id, stage,
                                    payload.model_dump(exclude_none=True),
                                    user.get("email"))
+    except Conflict:
+        raise  # 409 lewat penangan global (bentrok dengan permintaan lain)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "update", "contract", contract_id, {"legal_stage": stage})

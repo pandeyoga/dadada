@@ -37,10 +37,9 @@ import payment_scheme_engine as psx
 import reference as ref
 import sequences as seq
 import settings_store as cfg
-import stage_clock as clock
-from core_utils import due_in, new_id, now_iso
+from core_utils import new_id, now_iso
 from db import ORG_ID, db
-from engine import add_activity, auto_create_task, dispatch_pending, emit
+from engine import add_activity
 
 logger = logging.getLogger("sipro.contracts")
 
@@ -296,66 +295,10 @@ async def scheme_terms_spec(org: str, scheme: str, contract: dict = None) -> dic
     return spec
 
 
-async def _builtin_spec(org: str, scheme: str) -> dict:
-    """Termin bawaan menurut dokumen owner (jaring terakhir Fase 53, lihat `scheme_terms_spec`)."""
-    if scheme == "cash_keras":
-        dp = float(await cfg.get("payment.cash.dp_pct", org_id=org) or 80)
-        days = int(await cfg.get("payment.cash.payoff_days_after_completion", org_id=org) or 30)
-        grace = int(await cfg.get("payment.cash.payoff_grace_days", org_id=org) or 7)
-        return {"code": "cash_keras", "name": f"Cash keras (DP {dp:g}% + pelunasan)",
-                "items": [
-                    {"label": f"DP tahap pertama {dp:g}%", "basis": "percent", "value": dp,
-                     "due_offset_days": 0, "due_rule": "sebelum pembangunan dimulai"},
-                    {"label": f"Pelunasan {100 - dp:g}%", "basis": "percent",
-                     "value": 100 - dp, "due_offset_days": 180,
-                     "due_rule": (f"maks {days} hari sejak pemberitahuan pembangunan 100% "
-                                  f"(perpanjangan {grace} hari)"), "event": True}]}
-    if scheme == "cash_bertahap":
-        dp = float(await cfg.get("payment.staged.dp_pct", org_id=org) or 80)
-        n = int(await cfg.get("payment.staged.installment_count", org_id=org) or 6)
-        day = int(await cfg.get("payment.staged.due_day", org_id=org) or 7)
-        grace = int(await cfg.get("payment.staged.grace_day", org_id=org) or 20)
-        sisa = 100 - dp
-        items = [{"label": f"DP tahap pertama {dp:g}%", "basis": "percent", "value": dp,
-                  "due_offset_days": 0, "due_rule": "sebelum pembangunan dimulai"}]
-        for i in range(1, n + 1):
-            items.append({"label": f"Cicilan {i}/{n}", "basis": "percent",
-                          "value": round(sisa / n, 4), "due_offset_days": 30 * i,
-                          "due_rule": (f"tanggal {day} tiap bulan · toleransi s/d "
-                                       f"tanggal {grace}")})
-        return {"code": "cash_bertahap",
-                "name": f"Cash bertahap (DP {dp:g}% + {n}× cicilan)", "items": items}
-    dp = float(await cfg.get("payment.kpr.dp_pct", org_id=org) or 0)
-    items = []
-    if dp > 0:
-        items.append({"label": f"Uang muka (DP) {dp:g}%", "basis": "percent", "value": dp,
-                      "due_offset_days": 0, "due_rule": "sebelum akad kredit"})
-    items.append({"label": f"Pencairan KPR {100 - dp:g}%", "basis": "percent",
-                  "value": 100 - dp, "due_offset_days": 45, "payer": "bank",
-                  "due_rule": "setelah akad kredit (dana masuk dari bank)", "event": True})
-    return {"code": "kpr", "name": f"KPR (DP {dp:g}% + pencairan bank)", "items": items}
-
-
-async def ensure_payment_scheme(org: str, scheme: str) -> dict:
-    """Jaring terakhir: sediakan skema bawaan untuk satu JENIS bila belum ada satu pun.
-
-    Fase 57A mengubah aturan penting di sini: bila skema dengan kode ini SUDAH ADA, ia
-    dikembalikan **apa adanya** dan tidak pernah ditimpa lagi. Sebelumnya setiap kali
-    kontrak diaktifkan termin ditulis ulang dari termin bawaan — yang berarti setiap
-    penyuntingan skema oleh pemakai akan hilang diam-diam pada aktivasi kontrak berikutnya.
-    """
-    doc = await db.payment_schemes.find_one({"org_id": org, "code": scheme}, {"_id": 0})
-    if doc:
-        return doc
-    spec = await _builtin_spec(org, scheme)
-    ts = now_iso()
-    doc = {"id": new_id(), "org_id": org, "code": scheme, "name": spec["name"],
-           "kind": scheme, "items": psx.normalize_terms(spec["items"]),
-           "active": True, "is_default": False, "applies_project_ids": [],
-           "source": "DOC", "created_by": "system", "created_at": ts, "updated_at": ts}
-    await db.payment_schemes.insert_one(dict(doc))
-    doc.pop("_id", None)
-    return doc
+# `_builtin_spec` / `ensure_payment_scheme` pindah ke `builtin_schemes.py` (batas ukuran berkas;
+# KT-10: konfigurasi `payment.*` kini ikut ke baris termin). Nama lama dipertahankan di sini.
+from builtin_schemes import builtin_spec as _builtin_spec  # noqa: E402,F401
+from builtin_schemes import ensure_payment_scheme  # noqa: E402,F401
 
 
 # ============================================================ kontrak: buat & baca
@@ -662,66 +605,15 @@ async def set_costs(org: str, contract_id: str, payload: dict, actor: str) -> di
 
 async def set_scheme(org: str, contract_id: str, scheme: str, actor: str,
                      reason: str = None) -> dict:
-    if scheme not in SCHEMES:
-        raise ValueError(f"Skema '{scheme}' tidak dikenal.")
-    c = await get_raw(org, contract_id)
-    if c.get("scheme") == scheme:
-        return c
-    if c.get("legal") or {}:
-        if any((c.get("legal") or {}).get(s) for s in LEGAL_ORDER):
-            raise ValueError("Skema tidak bisa diubah setelah ada tahap legal — terbitkan "
-                             "adendum/kontrak baru.")
-    ts = now_iso()
-    # Fase 75b: jadwal tagihan dijamin ADA secara sinkron (bukan menunggu event) supaya
-    # pencairan KPR sesudah ganti skema tidak jatuh ke titipan.
-    deal = await db.deals.find_one({"id": c["deal_id"]}, {"_id": 0})
-    if deal and deal.get("status") in ("booked", "completed"):
-        await fin.create_ar_for_deal(deal, org_id=org, actor=actor)
-    if scheme == "kpr":
-        await fin.tag_bank_items_for_deal(org, c["deal_id"])
-    await db.contracts.update_one({"id": contract_id}, {"$set": {
-        "scheme": scheme, "scheme_label": ref.label_of("payment_scheme", scheme),
-        "updated_at": ts},
-        "$push": {"scheme_history": {"from": c.get("scheme"), "to": scheme, "at": ts,
-                                     "by": actor, "reason": reason}}})
-    await add_activity(entity_type="customer", entity_id=c.get("customer_id"),
-                       type="system", actor=actor, org_id=org,
-                       body=(f"Skema kontrak {c.get('number')} diubah menjadi "
-                             f"{ref.label_of('payment_scheme', scheme)}"
-                             + (f" — {reason}" if reason else ".")))
-    return await get_raw(org, contract_id)
+    """Ganti JENIS skema kontrak + selaraskan deal/AR/KPR (KT-05) — lihat `contract_ops`."""
+    import contract_ops
+    return await contract_ops.set_scheme(org, contract_id, scheme, actor, reason)
 
 
 async def activate(org: str, contract_id: str, actor: str) -> dict:
-    """Aktifkan kontrak: termin AR dibuat/disegarkan dari skema `[DOC]` kontrak ini.
-
-    Kenapa AR dibuat ulang: saat deal di-booking, AR lahir dari skema BAWAAN keuangan
-    ("Standar KPR (DP 20%)") — bukan skema kontrak. Sesudah kontrak punya skema resmi,
-    tagihan harus mengikuti dokumen yang ditandatangani pembeli, bukan bawaan sistem.
-    """
-    c = await get_raw(org, contract_id)
-    deal = await db.deals.find_one({"id": c["deal_id"]}, {"_id": 0})
-    if not deal:
-        raise ValueError("Deal kontrak ini tidak ditemukan.")
-    if deal.get("status") not in ("booked", "completed"):
-        raise ValueError("Kontrak hanya bisa diaktifkan setelah reservasi dikonfirmasi "
-                         "(booking).")
-    scheme_doc = (await psx.resolve_for_contract(org, c)).get("scheme") \
-        or await ensure_payment_scheme(org, c.get("scheme"))
-    inv = await fin.create_ar_for_deal(deal, scheme_id=scheme_doc["id"], org_id=org,
-                                       replace=True, actor=actor)
-    ts = now_iso()
-    await db.contracts.update_one({"id": contract_id}, {"$set": {
-        "state": "active", "activated_at": ts, "activated_by": actor,
-        "ar_invoice_id": inv.get("id"), "payment_scheme_id": scheme_doc["id"],
-        "payment_scheme_name": scheme_doc.get("name"),
-        "updated_at": ts}})
-    await add_activity(entity_type="customer", entity_id=c.get("customer_id"),
-                       type="system", actor=actor, org_id=org,
-                       body=(f"Kontrak {c.get('number')} diaktifkan — termin mengikuti "
-                             f"skema {scheme_doc.get('name')} (total "
-                             f"{_rp(inv.get('total'))})."))
-    return await get_raw(org, contract_id)
+    """Aktifkan kontrak (idempoten; termin AR mengikuti skema kontrak) — lihat `contract_ops`."""
+    import contract_ops
+    return await contract_ops.activate(org, contract_id, actor)
 
 
 async def _pay_snapshot(org: str, deal_id: str) -> dict:
@@ -736,120 +628,9 @@ async def _pay_snapshot(org: str, deal_id: str) -> dict:
 # ============================================================ tahap legal
 async def legal_advance(org: str, contract_id: str, stage: str, payload: dict,
                         actor: str) -> dict:
-    """Majukan satu tahap legal setelah gerbang buktinya lulus. Menulis jejak + cermin deal."""
-    if stage not in LEGAL_ORDER:
-        raise ValueError(f"Tahap legal '{stage}' tidak dikenal.")
-    c = await get_raw(org, contract_id)
-    if (c.get("legal") or {}).get(stage):
-        raise ValueError(f"Tahap {ref.label_of('contract_legal_stage', stage)} sudah "
-                         "tercatat untuk kontrak ini.")
-    gates = await legal_gates(org, c)
-    g = gates.get(stage) or {}
-    override = None
-    if not g.get("ok"):
-        reason = " ".join(str(payload.get("override_reason") or "").split())
-        if g.get("overridable") and reason:
-            if len(reason) < 5:
-                raise ValueError("Alasan pengecualian minimal 5 huruf.")
-            file_ids = [str(f) for f in (payload.get("override_file_ids") or []) if f]
-            if not file_ids:
-                raise ValueError("Surat keterangan / dasar pengecualian wajib diunggah "
-                                 "(lampirkan berkasnya).")
-            if await db.files.count_documents({"org_id": org, "id": {"$in": file_ids},
-                                               "is_deleted": False}) != len(file_ids):
-                raise ValueError("Berkas surat keterangan tidak ditemukan — unggah ulang.")
-            override = {"reason": reason, "by": actor, "at": now_iso(),
-                        "file_ids": file_ids,
-                        "blocks": [b["code"] for b in g.get("blocks", [])],
-                        "detail": " ".join(b["detail"] for b in g.get("blocks", []))}
-        else:
-            sebab = " ".join(b["detail"] for b in g.get("blocks", []))
-            if g.get("overridable"):
-                sebab += (" Manajer dapat mencatat tahap ini dengan PENGECUALIAN "
-                          "(alasan tertulis + surat keterangan wajib).")
-            raise ValueError(f"Belum bisa dimajukan ke {g.get('label')}. {sebab}".strip())
-    ts = now_iso()
-    number = payload.get("number")
-    if stage in ("ppjb", "ajb") and not number:
-        number = await seq.next_number(f"legal:{stage}", org, prefix=stage.upper(), context={
-            "stage": stage.upper(), "project_id": c.get("project_id"), "unit_id": c.get("unit_id"),
-            "customer_id": c.get("customer_id")})
-    entry = {"stage": stage, "label": ref.label_of("contract_legal_stage", stage),
-             "number": number, "date": payload.get("date") or ts[:10],
-             "notary": payload.get("notary"), "place": payload.get("place"),
-             "file_id": payload.get("file_id"), "note": payload.get("note"),
-             "override": override,
-             "at": ts, "by": actor}
-    await db.contracts.update_one({"id": contract_id}, {
-        "$set": {f"legal.{stage}": entry, "legal_stage": stage, "updated_at": ts},
-        "$push": {"legal_history": entry}})
-    # ---- cermin ke `deals` supaya layar & gate lama tetap menyatakan hal yang sama ----
-    deal_set = {"updated_at": ts, f"legal_dates.{stage}": entry["date"]}
-    if stage == "akad_kredit":
-        deal_set["akad_at"] = entry["date"]
-        # Cermin ke pengajuan KPR: pencairan bank membaca `financing_apps.akad.date`.
-        await db.financing_apps.update_many(
-            {"org_id": org, "deal_id": c["deal_id"],
-             "$or": [{"akad.date": {"$exists": False}}, {"akad.date": None}, {"akad.date": ""}]},
-            {"$set": {"akad": {"date": entry["date"], "number": number, "notary": entry.get("notary"),
-                               "file_id": entry.get("file_id"), "at": ts, "by": actor,
-                               "note": "Dicatat dari tahap legal kontrak."},
-                      "updated_at": ts}})
-    await db.customers.update_one({"id": c.get("customer_id")}, {"$set": {
-        "contract_legal_stage": stage, f"legal_dates.{stage}": entry["date"],
-        "updated_at": ts}})
-    if override:
-        await add_activity(entity_type="customer", entity_id=c.get("customer_id"),
-                           type="system", actor=actor, org_id=org,
-                           body=(f"PENGECUALIAN {entry['label']} unit {c.get('unit_code')}: "
-                                 f"{override['detail']} Alasan: {override['reason']}"))
-    if stage == "ppjb":
-        pay = await _pay_snapshot(org, c["deal_id"])
-        deal_set.update({"legal_stage": "ppjb", "ppjb": {
-            "number": number, "signed_date": entry["date"], "signed_by": c.get("customer_name"),
-            # DP/persen terbayar SAAT PPJB: dibaca layar Deal & Unit (dulu hanya diisi jalur lama).
-            "dp_paid": pay["paid"], "dp_pct": pay["paid_pct"],
-            "note": entry["note"], "created_at": ts}})
-        await emit("deal.ppjb", "deal", c["deal_id"],
-                   {"unit_id": c.get("unit_id"), "number": number}, org_id=org)
-        await auto_create_task(
-            source_event=f"contract.ajb:{contract_id}",
-            title=f"Jadwalkan AJB / akad: {c.get('customer_name')} · unit {c.get('unit_code')}",
-            type="follow_up", related_entity_type="contract", related_entity_id=contract_id,
-            assigned_to=c.get("assigned_to"), due_date=due_in(days=14), priority="medium",
-            org_id=org)
-    if stage == "ajb":
-        pay = await _pay_snapshot(org, c["deal_id"])
-        deal_set.update({"legal_stage": "ajb", "status": "completed", "sold_at": ts,
-                         "ajb": {"number": number, "notary": entry["notary"],
-                                 "signed_date": entry["date"],
-                                 "buyer": c.get("customer_name"),
-                                 "outstanding_at_ajb": pay["outstanding"], "note": entry["note"],
-                                 "created_at": ts},
-                         **await clock.patch_for("deal", "completed", org_id=org, at=ts)})
-        await db.units.update_one({"id": c.get("unit_id"), "org_id": org}, {"$set": {
-            "status": "sold", "sold_at": ts, "sold_by_deal": c["deal_id"],
-            "updated_at": ts}})
-        await db.contracts.update_one({"id": contract_id},
-                                      {"$set": {"state": "completed"}})
-        await emit("deal.ajb", "deal", c["deal_id"],
-                   {"unit_id": c.get("unit_id"), "number": number}, org_id=org)
-        await emit("deal.sold", "deal", c["deal_id"], {"unit_id": c.get("unit_id")},
-                   org_id=org)
-    await db.deals.update_one({"id": c["deal_id"]}, {"$set": deal_set})
-    if stage == "ajb":
-        # Setelah deal benar-benar `completed` (penangan `deal.sold` membaca deal itu), baru diproses.
-        await dispatch_pending()
-        try:
-            import build_engine as be
-            await be.sync_unit_binding(org, c.get("unit_id"))
-        except Exception:  # noqa: BLE001 — ikatan denormalisasi tidak boleh menggagalkan AJB
-            logger.exception("sync_unit_binding gagal setelah AJB kontrak %s", contract_id)
-    await add_activity(entity_type="customer", entity_id=c.get("customer_id"), type="system",
-                       actor=actor, org_id=org,
-                       body=(f"{entry['label']}" + (f" {number}" if number else "")
-                             + f" tercatat untuk unit {c.get('unit_code')}."))
-    return await get_raw(org, contract_id)
+    """Majukan satu tahap legal (atomik per kontrak, KT-24) — lihat `contract_legal`."""
+    import contract_legal
+    return await contract_legal.legal_advance(org, contract_id, stage, payload, actor)
 
 
 # ============================================================ daftar

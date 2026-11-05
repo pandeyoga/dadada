@@ -90,6 +90,10 @@ def normalize_terms(terms: list) -> list:
             # Siapa yang membayar termin ini: pembeli sendiri, atau BANK lewat pencairan KPR.
             "payer": "bank" if t.get("payer") == "bank" else "buyer",
         }
+        # Perkiraan tanggal untuk termin berbasis peristiwa (terpisah dari "maks N hari" pada
+        # kalimat aturan). Hanya ditulis bila ada, supaya bentuk skema lama tidak berubah.
+        if t.get("estimate_offset_days") not in (None, ""):
+            row["estimate_offset_days"] = int(t["estimate_offset_days"])
         row["due_rule"] = due_sentence(row)
         row["event"] = row["due_mode"] == "event"
         out.append(row)
