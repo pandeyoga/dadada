@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import fund_requests as fr
 from core_utils import parse_pagination, serialize_doc
 from db import ORG_ID, db
+from idempotency import Conflict
 from models_fund_request import (FundRequestCreate, FundRequestDecision, FundRequestDisburse,
                                  FundRequestProof, FundRequestSettle)
 from rbac import audit_log, can, require_permission
@@ -26,7 +27,8 @@ async def _scope(user: dict, q: dict) -> dict:
 
 
 def _err(e):
-    return HTTPException(status_code=400, detail=str(e))
+    # Conflict (balapan / permintaan identik) → 409; selain itu 400.
+    return HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
 
 
 @router.get("")

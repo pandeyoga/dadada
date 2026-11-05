@@ -182,7 +182,9 @@ export default function FundRequestsPage() {
                               onClick={() => act(r, "reject")}><X className="mr-1 h-3.5 w-3.5" /> Tolak</Button>
                           </>) : null}
                           {canApprove && r.status === "approved" ? (
-                            <Button size="sm" data-testid={FUNDREQ.disburseBtn} onClick={() => setDisburse(r)}>
+                            <Button size="sm" data-testid={FUNDREQ.disburseBtn} disabled={isMine(r)}
+                              title={isMine(r) ? "Pemohon tidak boleh mencairkan pengajuannya sendiri" : undefined}
+                              onClick={() => setDisburse(r)}>
                               <HandCoins className="mr-1 h-3.5 w-3.5" /> Cairkan</Button>
                           ) : null}
                           {r.type === "advance" && r.status === "disbursed" && (isMine(r) || canApprove) ? (
