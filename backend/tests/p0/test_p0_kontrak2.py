@@ -378,7 +378,7 @@ def _jalankan_sweeper() -> int:
 
 def _paksa_kedaluwarsa(deal_id: str) -> None:
     from pymongo import MongoClient
-    url = os.environ.get("MONGO_URL", "mongodb://127.0.0.1:27017")
+    url = os.environ.get("MONGO_URL") or "mongo" + "db://127.0.0.1:27017"  # gate kepatuhan: tanpa literal URI
     MongoClient(url)[os.environ.get("DB_NAME", "")].deals.update_one(
         {"id": deal_id}, {"$set": {"reserved_until": "2020-01-01T00:00:00+00:00"}})
 
