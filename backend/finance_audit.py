@@ -54,7 +54,7 @@ async def reconcile(org: str) -> dict:
                    "subledger": tc, "diff": td - tc, "ok": td == tc,
                    "hint": "Ada jurnal tidak seimbang — periksa jurnal manual."})
     failed = [c for c in checks if not c["ok"]]
-    pending = await db.events.count_documents({"org_id": org, "status": "pending"})
+    pending = await db.events.count_documents({"org_id": org, "status": {"$in": ["pending", "processing"]}})
     failed_ev = await db.events.count_documents({"org_id": org, "status": "failed"})
     return {"ok": not failed and not failed_ev, "checks": checks, "failed": len(failed),
             "events_pending": pending, "events_failed": failed_ev}

@@ -411,6 +411,15 @@ app = FastAPI(title="Estora API", version="0.1.0", lifespan=lifespan,
 api = APIRouter(prefix="/api")
 
 
+from idempotency import Conflict as _Conflict  # noqa: E402
+
+
+@app.exception_handler(_Conflict)
+async def conflict_as_409(_request, exc: _Conflict):
+    """Permintaan uang bentrok dengan permintaan identik/balapan (idempotency.py) → HTTP 409."""
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
 @app.exception_handler(RequestValidationError)
 async def readable_validation_error(_request, exc: RequestValidationError):
     """Fase 26: galat validasi SSOT tampil sebagai 400 + pesan Indonesia yang bisa dibaca.
@@ -434,7 +443,7 @@ async def root():
 
 @api.get("/health")
 async def health():
-    pending = await db.events.count_documents({"status": "pending"})
+    pending = await db.events.count_documents({"status": {"$in": ["pending", "processing"]}})
     return {"status": "ok", "service": "sipro-backend", "events_pending": pending}
 
 

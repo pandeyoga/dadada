@@ -33,6 +33,14 @@ UNIQUE_INDEXES = [
     ("inspections", [("org_id", 1), ("inspection_number", 1)], "uq_inspection_number"),
     ("material_requisitions", [("org_id", 1), ("req_number", 1)], "uq_req_number"),
     ("journal_entries", [("org_id", 1), ("entry_no", 1)], "uq_entry_no"),
+    # Satu peristiwa = satu jurnal. `post_journal` mengecek `source_event` dengan find_one lalu
+    # insert; dua pemanggil bersamaan lolos pengecekan itu dan menerbitkan jurnal kembar
+    # (audit IN-03/PK-01). Index unik parsial menutupnya di level database. CATATAN: index
+    # BIASA (org_id, source_event) di seed_indexes.py sengaja dipertahankan — index parsial
+    # `$type:string` tidak dipakai planner untuk find_one(source_event=...) (COLLSCAN, terukur).
+    ("journal_entries", [("org_id", 1), ("source_event", 1)], "uq_journal_source_event"),
+    # Kunci idempotensi permintaan uang (lihat idempotency.py): satu kunci = satu permintaan.
+    ("idempotency_keys", [("key", 1)], "uq_idempotency_key"),
     ("documents", [("org_id", 1), ("doc_number", 1)], "uq_doc_number"),
     ("leads", [("org_id", 1), ("phone", 1)], "uq_leads_phone"),
     ("boq_items", [("org_id", 1), ("project_id", 1), ("cost_code", 1)], "uq_boq_cost_code"),
@@ -169,6 +177,7 @@ PARTIAL = {
     "uq_inspection_number": "inspection_number",
     "uq_req_number": "req_number",
     "uq_entry_no": "entry_no",
+    "uq_journal_source_event": "source_event",
     "uq_customers_nik": "nik",
     "uq_portal_phone": "phone",
     "uq_cashbon_no": "no",

@@ -17,6 +17,8 @@ Money = IDR integer; every journal must balance (total_debit == total_credit).
 """
 import logging
 
+from pymongo.errors import DuplicateKeyError
+
 import sequences as seq
 import gl_periods
 import reference as ref
@@ -179,7 +181,17 @@ async def post_journal(org_id, memo, lines, *, date=None, source_type=None, sour
     }
     if source_deal_id:
         doc["source_deal_id"] = source_deal_id
-    await db.journal_entries.insert_one(dict(doc))
+    try:
+        await db.journal_entries.insert_one(dict(doc))
+    except DuplicateKeyError:
+        # Dua pemanggil bersamaan lolos find_one di atas; index unik (org_id, source_event)
+        # menolak yang kedua. Kembalikan jurnal pemenang — perilaku idempoten yang sama,
+        # tanpa jurnal kembar dan tanpa bukti kas (BKM/BKK) kedua.
+        winner = await db.journal_entries.find_one(
+            {"org_id": org_id, "source_event": source_event}, {"_id": 0}) if source_event else None
+        if winner:
+            return winner
+        raise
     doc.pop("_id", None)
     # Fase 87: setiap baris ke sub-akun kas/bank menerbitkan bukti kas BKM/BKK bernomor.
     import cash_voucher as _cv

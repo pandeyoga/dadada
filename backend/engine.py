@@ -634,9 +634,44 @@ async def _workhub_recurring_tick() -> int:
         return 0
 
 # ----------------------------- Dispatcher + Scheduler -----------------------------
+STALE_CLAIM_SECONDS = 300  # event "processing" lebih lama dari ini dianggap milik proses yang mati
+
+
+async def _release_stale_claims() -> int:
+    """Kembalikan event yang diklaim proses yang sudah mati (crash di tengah handler).
+
+    Aman diulang: semua handler GL idempoten lewat `source_event` yang kini dijaga index unik.
+    """
+    from datetime import datetime, timedelta, timezone
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=STALE_CLAIM_SECONDS)).isoformat()
+    res = await db.events.update_many(
+        {"status": "processing", "claimed_at": {"$lt": cutoff}},
+        {"$set": {"status": "pending"}})
+    return res.modified_count
+
+
 async def dispatch_pending(limit: int = 200) -> int:
-    pending = await db.events.find({"status": "pending"}).sort("created_at", 1).to_list(limit)
-    for ev in pending:
+    """Proses event `pending` — setiap event DIKLAIM secara atomik sebelum handler jalan.
+
+    Sebelumnya pembacaan `pending` tidak mengklaim apa pun, jadi dua pemanggil bersamaan
+    (dua request, ditambah tick scheduler 8 detik, atau panggilan bersarang dari dalam
+    handler) sama-sama memproses event yang SAMA dan menerbitkan jurnal kembar (temuan
+    audit IN-03/PK-01). Sekarang `find_one_and_update(pending → processing)` menjamin satu
+    event hanya dipegang satu pemanggil; yang lain melewatinya.
+    """
+    from pymongo import ReturnDocument
+    await _release_stale_claims()
+    done = 0
+    failed_now = []  # event yang gagal pada putaran ini dicoba lagi di tick berikutnya, bukan saat itu juga
+    for _ in range(limit):
+        ev = await db.events.find_one_and_update(
+            {"status": "pending", "id": {"$nin": failed_now}},
+            {"$set": {"status": "processing", "claimed_at": now_iso()}},
+            sort=[("created_at", 1)], projection={"_id": 0},
+            return_document=ReturnDocument.AFTER)
+        if not ev:
+            break
+        done += 1
         try:
             for handler in HANDLERS.get(ev["type"], []):
                 await handler(ev)
@@ -644,12 +679,13 @@ async def dispatch_pending(limit: int = 200) -> int:
                                        {"$set": {"status": "dispatched", "dispatched_at": now_iso()}})
         except Exception as e:  # noqa: BLE001
             logger.exception("Event dispatch failed: %s", ev.get("type"))
+            failed_now.append(ev["id"])
             retries = ev.get("retries", 0) + 1
             await db.events.update_one({"id": ev["id"]}, {
                 "$set": {"last_error": str(e), "status": "failed" if retries >= 3 else "pending"},
                 "$inc": {"retries": 1},
             })
-    return len(pending)
+    return done
 
 
 _scheduler = None
