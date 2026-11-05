@@ -87,3 +87,20 @@ def test_portal_empty_otp_rejected():
     """IN-10: kode kosong tidak pernah diterima (master OTP kosong tidak lagi mencocokkan '')."""
     r = requests.post(f"{BASE}/portal/auth/verify-otp", json={"identifier": "+628121111111", "code": ""}, timeout=30)
     assert r.status_code == 400
+
+
+def test_automation_template_reply_has_cooldown(sa):
+    """Temuan sampingan: pesan masuk beruntun yang cocok kata kunci tidak boleh memicu balasan template yang sama berkali-kali."""
+    phone = "+62812" + str(uuid.uuid4().int)[:8]
+    for msg in ("Berapa DP-nya ya?", "Cicilan 15 tahun berapa?", "Boleh minta harga lagi"):
+        r = requests.post(f"{BASE}/wa/simulate/inbound", headers=sa, timeout=30,
+                          json={"phone": phone, "name": "AUDIT P0 Cooldown", "message": msg, "mtype": "text"})
+        assert r.status_code == 200, r.text
+        time.sleep(1)
+    time.sleep(2)
+    cid = requests.get(f"{BASE}/inbox", headers=sa, params={"q": phone[-8:]}).json()["data"][0]["id"]
+    msgs = _page(sa, cid, limit=50)["messages"]
+    outs = [m for m in msgs if m["direction"] == "out"]
+    if not outs:
+        pytest.skip("aturan otomasi demo tidak aktif pada instance ini")
+    assert len(outs) == 1, f"balasan otomatis ganda: {len(outs)}"

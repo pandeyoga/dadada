@@ -393,7 +393,25 @@ async def run_rule_actions(rule, org, *, conv=None, lead_id=None, intent=None):
         elif atype == "send_template":
             tmpl = await _find_template(org, code=a.get("template_code"), tid=a.get("template_id"))
             if tmpl and conv:
-                await send_template_message(conv, tmpl, org)
+                # Temuan sampingan audit WA: tiap pesan masuk yang cocok kata kunci mengirim ulang
+                # template yang SAMA (4 balasan identik beruntun terlihat di Inbox). Beri jeda per
+                # (aturan, percakapan, template); `cooldown_hours` pada aksi bisa diubah, 0 = tanpa jeda.
+                cool_h = float(a.get("cooldown_hours", 24) or 0)
+                cool_key = None
+                if cool_h > 0:
+                    import idempotency as _idem
+                    cool_key = _idem.make_key("automation.send_template", rule["id"], conv.get("id"),
+                                              tmpl.get("code") or tmpl.get("id"))
+                    try:
+                        await _idem.claim(cool_key, int(cool_h * 3600))
+                    except _idem.Conflict:
+                        continue
+                try:
+                    await send_template_message(conv, tmpl, org)
+                except Exception:
+                    if cool_key:
+                        await _idem.release(cool_key)
+                    raise
                 await add_activity(entity_type="conversation", entity_id=conv["id"], type="system",
                                    body=f"Template '{tmpl.get('name')}' terkirim otomatis (SIMULASI).",
                                    actor="automation", org_id=org)
