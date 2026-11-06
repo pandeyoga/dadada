@@ -294,7 +294,12 @@ async def bast(deal_id: str, user: dict = Depends(require_permission("finance", 
     deal = await db.deals.find_one({"id": deal_id, "org_id": org}, {"_id": 0})
     if not deal:
         raise HTTPException(status_code=404, detail="Deal tidak ditemukan")
-    rev = await fe.recognize_revenue(deal, org_id=org, actor=user.get("email"))
+    try:
+        rev = await fe.recognize_revenue(deal, org_id=org, actor=user.get("email"))
+    except Conflict:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"data": serialize_doc(rev)}
 
 

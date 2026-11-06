@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import permit_alerts as pa
 import permit_scope as ps
 import settings_store as cfg
-from core_utils import new_id, now_iso, serialize_doc
+from core_utils import new_id, now_iso, serialize_doc, today_wib
 from db import ORG_ID, db
 from models import PermitCreate, PermitStatusUpdate, PermitUpdate
 from models_p46 import PermitRenew
@@ -204,7 +204,7 @@ async def permit_status(pid: str, payload: PermitStatusUpdate,
     if payload.status == "approved":
         setter["approved_at"] = ts
     if payload.note:
-        setter["notes"] = ((doc.get("notes") or "") + f"\n[{ts[:10]}] {payload.note}").strip()
+        setter["notes"] = ((doc.get("notes") or "") + f"\n[{today_wib()}] {payload.note}").strip()
     await db.permits.update_one({"id": pid, "org_id": doc["org_id"]}, {"$set": setter})
     await audit_log(user, "permit.status", "permit", pid, {"status": payload.status})
     return {"data": serialize_doc(_decorate(

@@ -316,15 +316,22 @@ async def toggle_unit_block(unit_id: str, payload, actor: str, org: str = ORG_ID
     if payload.blocked and unit.get("status") in ACTIVE_SALES:
         raise ValueError(f"Unit berstatus '{ref.label_of('unit_status', unit['status'])}' "
                          "tidak bisa diblokir — lepas/batalkan transaksinya dulu.")
+    # PK3-04: "buka blokir" hanya untuk unit yang MEMANG diblokir. Dulu unit booked/sold bisa dijadikan available
+    # lewat jalur ini lalu direservasi pembeli lain (satu rumah dijual dua kali).
+    if not payload.blocked and unit.get("status") != "blocked":
+        raise ValueError(f"Unit tidak sedang diblokir (status '{ref.label_of('unit_status', unit.get('status'))}') — "
+                         "tidak ada yang perlu dibuka. Untuk melepas unit terjual, batalkan transaksinya.")
     new_status = "blocked" if payload.blocked else "available"
     ts = now_iso()
-    await db.units.update_one({"id": unit_id}, {
+    res = await db.units.update_one({"id": unit_id, "org_id": org, "status": unit.get("status")}, {
         "$set": {"status": new_status, "updated_at": ts, "updated_by": actor,
                  "blocked": ({"reason": payload.reason, "by": actor, "at": ts}
                              if payload.blocked else None)},
         "$push": {"status_history": {"field": "status", "from": unit.get("status"),
                                      "to": new_status, "at": ts, "actor": actor,
                                      "reason": payload.reason}}})
+    if res.matched_count != 1:
+        raise ValueError("Status unit baru saja diubah oleh proses lain. Muat ulang lalu coba lagi.")
     await recompute_stats(unit["project_id"], org)
     return await db.units.find_one({"id": unit_id}, {"_id": 0})
 

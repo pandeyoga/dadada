@@ -15,7 +15,7 @@ import re
 
 import gl_engine as gl
 import sequences as seq
-from core_utils import new_id, now_iso
+from core_utils import new_id, now_iso, today_wib
 from db import ORG_ID, db
 from finance_engine import _deal_closed_reason, apply_receipt, notify_finance
 from money_lock import locked
@@ -64,8 +64,8 @@ async def _receive_locked(org: str, payload: dict, actor: str) -> dict:
     due = (payload.get("due_date") or "")[:10]
     if len(due) != 10:
         raise ValueError("Tanggal jatuh tempo giro wajib diisi.")
-    received = (payload.get("received_date") or ts[:10])[:10]
-    if received > ts[:10]:
+    received = (payload.get("received_date") or today_wib())[:10]
+    if received > today_wib():
         raise ValueError("Tanggal terima tidak boleh di masa depan.")
     deal, inv = None, None
     if payload.get("deal_id"):
@@ -136,8 +136,8 @@ async def _clear_locked(org: str, pdc_id: str, payload: dict, actor: str) -> dic
     if not acc or cb.kind_of(acc) != "bank" or not acc.get("is_active", True):
         raise ValueError("Pilih rekening BANK aktif tempat giro dicairkan.")
     ts = now_iso()
-    cleared = (payload.get("cleared_date") or ts[:10])[:10]
-    if cleared > ts[:10]:
+    cleared = (payload.get("cleared_date") or today_wib())[:10]
+    if cleared > today_wib():
         raise ValueError("Tanggal kliring tidak boleh di masa depan.")
     if cleared < doc["received_date"]:
         raise ValueError("Tanggal kliring tidak boleh sebelum tanggal terima.")
@@ -213,7 +213,7 @@ async def listing(org: str, status: str = None, deal_id: str = None, limit: int 
     if deal_id:
         q["deal_id"] = deal_id
     rows = await db.pdc_instruments.find(q, {"_id": 0}).sort([("due_date", 1), ("created_at", -1)]).to_list(limit)
-    today = now_iso()[:10]
+    today = today_wib()
     in_hand = [r async for r in db.pdc_instruments.find({"org_id": org, "status": "received"}, {"_id": 0, "amount": 1, "due_date": 1})]
     from datetime import date as _d, timedelta
     soon = (_d.fromisoformat(today) + timedelta(days=7)).isoformat()

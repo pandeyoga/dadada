@@ -105,8 +105,10 @@ async def delete_deal_cascade(org: str, deal: dict, actor: str) -> dict:
                          ("notifications", "related_entity_type", "related_entity_id")):
         await _del(coll, {"org_id": org, f1: "deal", f2: did}, removed)
     await _del("events", {"org_id": org, "entity_id": did}, removed)
-    # Unit kembali tersedia; ikatan ke deal/lead/pembeli/kontrak dilepas.
-    await db.units.update_one({"id": deal.get("unit_id"), "org_id": org}, {
+    # Unit kembali tersedia; ikatan ke deal/lead/pembeli/kontrak dilepas — HANYA bila unit itu memang dipegang
+    # deal ini (PK3-04: dulu hapus-paksa deal lama melepas unit yang sudah direservasi deal BARU).
+    await db.units.update_one({"id": deal.get("unit_id"), "org_id": org, "$or": [
+        {"reserved_by_deal": did}, {"booked_by_deal": did}, {"sold_by_deal": did}, {"deal_id": did}]}, {
         "$set": {"status": "available", "payment_status": "none", "reserved_by_deal": None,
                  "booked_by_deal": None, "sold_by_deal": None, "updated_at": ts},
         "$unset": {"deal_id": "", "lead_id": "", "lead_name": "", "customer_id": "", "contract_id": "", "sold_at": ""}})

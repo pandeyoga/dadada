@@ -24,7 +24,7 @@ import logging
 
 import reference as ref
 import settings_store as cfg
-from core_utils import due_in, new_id, now_iso
+from core_utils import due_in, new_id, now_iso, today_wib
 from db import db
 from engine import add_activity, auto_create_task
 
@@ -117,6 +117,13 @@ async def kpr_advance(org: str, contract_id: str, stage: str, payload: dict,
     c = await _ce().get_raw(org, contract_id)
     if c.get("scheme") != "kpr":
         raise ValueError("Kontrak ini bukan skema KPR.")
+    # FZ-08: SP3K/akad tidak boleh dicatat pada kontrak yang sudah DIBATALKAN (dulu AR batal hidup lagi Rp 500 jt
+    # dan unit available bertanda booking fee).
+    from deal_state import assert_not_cancelled, deal_of
+    if c.get("state") == "cancelled":
+        raise ValueError("Kontrak ini sudah DIBATALKAN — tahap KPR tidak boleh dicatat untuk penjualan yang batal.")
+    assert_not_cancelled(await deal_of(org, c["deal_id"], {"_id": 0, "status": 1, "cancellation_id": 1}),
+                         "pencatatan tahap KPR")
     if stage not in KPR_ORDER and stage not in ("ditolak", "batal"):
         raise ValueError(f"Tahap KPR '{stage}' tidak dikenal.")
     existed = await db.financing_apps.find_one({"org_id": org, "deal_id": c["deal_id"]}, {"_id": 1})
@@ -170,7 +177,7 @@ async def kpr_advance(org: str, contract_id: str, stage: str, payload: dict,
         if pv and pv["kind"] == "excess" and not pv["excess_ok"]:
             raise ValueError(f"Plafon melebihi porsi bank {_rp(pv['bank_portion'])} sebesar {_rp(pv['excess'])}, "
                              f"tetapi termin pembeli yang bisa dialihkan hanya {_rp(pv['buyer_reducible'])}.")
-        setter["sp3k"] = {"number": payload.get("number"), "date": payload.get("date") or ts[:10],
+        setter["sp3k"] = {"number": payload.get("number"), "date": payload.get("date") or today_wib(),
                           "plafon": int(payload["plafon"]),
                           "tenor": int(payload.get("tenor_months") or 0),
                           "rate": float(payload.get("rate") or 0),
@@ -188,7 +195,7 @@ async def kpr_advance(org: str, contract_id: str, stage: str, payload: dict,
         if payload.get("rate"):
             setter["interest_rate_pct"] = float(payload["rate"])
     if stage == "appraisal":
-        setter["appraisal"] = {"done_at": payload.get("date") or ts[:10],
+        setter["appraisal"] = {"done_at": payload.get("date") or today_wib(),
                               "value": int(payload.get("amount") or 0) or None,
                               "notes": payload.get("note"),
                               "file_id": payload.get("file_id"), "by": actor}
@@ -210,7 +217,7 @@ async def kpr_advance(org: str, contract_id: str, stage: str, payload: dict,
             if not await _ce()._excess_land_paid(org, c, bd):
                 raise ValueError(f"Kelebihan tanah {_rp(bd.get('excess_land'))} wajib lunas "
                                  "sebelum akad kredit (ketentuan SPKT).")
-        setter["akad"] = {"date": payload.get("date") or ts[:10],
+        setter["akad"] = {"date": payload.get("date") or today_wib(),
                           "notary": payload.get("notary"), "place": payload.get("place"),
                           "file_id": payload.get("file_id"), "at": ts, "by": actor}
     if stage == "pencairan":

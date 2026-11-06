@@ -15,7 +15,7 @@ import sequences as seq
 from denorm import cascade_master_change
 from db import db, ORG_ID
 from idempotency import Conflict
-from core_utils import new_id, now_iso, serialize_doc
+from core_utils import new_id, now_iso, serialize_doc, today_wib
 from rbac import has_role, require_permission, assert_project_access, project_query
 from engine import add_activity
 from models import (
@@ -371,7 +371,7 @@ async def spk_status(sid: str, payload: SPKStatusUpdate,
             setter["progress_pct"] = 100
         setter["completed_at"] = ts
     if payload.note:
-        setter["notes"] = ((doc.get("notes") or "") + f"\n[{ts[:10]}] {payload.note}").strip()
+        setter["notes"] = ((doc.get("notes") or "") + f"\n[{today_wib()}] {payload.note}").strip()
     await db.spk.update_one({"id": sid, "org_id": doc["org_id"]}, {"$set": setter})
     await add_activity(entity_type="project", entity_id=doc["project_id"], type="system",
                        body=f"SPK {doc.get('spk_number')} → status {payload.status}.",

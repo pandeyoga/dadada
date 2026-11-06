@@ -6,7 +6,7 @@ ap_invoices (net + retensi), revenue_recognitions, commissions.
 from datetime import datetime, timedelta, timezone
 
 from db import db, ORG_ID
-from core_utils import now, now_iso
+from core_utils import now, now_iso, today_wib
 import finance_engine as fe
 import late_fee_engine as lf
 import settings_store as cfg
@@ -162,7 +162,7 @@ async def send_reminder(deal_id, actor, org_id=ORG_ID) -> dict:
         body=f"Tindak lanjuti pembayaran unit {unit} ({inv.get('lead_name') or 'pembeli'}). Sisa {_rp(outstanding)}.",
         type="finance", related_entity_type="deal", related_entity_id=deal_id, org_id=org_id)
     await auto_create_task(
-        source_event=f"collection_reminder:{deal_id}:{ts[:10]}",
+        source_event=f"collection_reminder:{deal_id}:{today_wib()}",
         title=f"Tagih pembayaran unit {unit}", type="follow_up",
         related_entity_type="deal", related_entity_id=deal_id, assigned_to=assignee,
         description=f"Pengingat penagihan untuk {inv.get('lead_name') or 'pembeli'}. Sisa {_rp(outstanding)}.",

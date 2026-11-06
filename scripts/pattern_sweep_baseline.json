@@ -1,12 +1,10 @@
 {
- "P10_tanggal_bisnis_dari_UTC": 31,
- "P11_router_by_id_tanpa_org_id": 191,
+ "P11_router_by_id_tanpa_org_id": 188,
  "P12_find_lalu_insert": 105,
  "P13_pemindaian_besar_50k": 31,
  "P13_sort_naik_lalu_to_list_N": 109,
- "P1_baca_lalu_tulis_tanpa_penjaga": 191,
- "P3_assert_funds_tanpa_kunci": 9,
- "P6_kode_akun_GL_literal": 175,
- "P7_set_status_tanpa_syarat_status": 115,
+ "P1_baca_lalu_tulis_tanpa_penjaga": 188,
+ "P6_kode_akun_GL_literal": 174,
+ "P7_set_status_tanpa_syarat_status": 112,
  "P9_except_Exception_ditelan": 41
 }

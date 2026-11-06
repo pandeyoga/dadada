@@ -34,7 +34,7 @@ import contracts_engine as ce
 import reference as ref
 import sequences as seq
 import settings_store as cfg
-from core_utils import new_id, now_iso
+from core_utils import new_id, now_iso, today_wib
 from db import ORG_ID, ORG_NAME, db
 
 logger = logging.getLogger("sipro.docgen")
@@ -524,7 +524,7 @@ async def build_context(org: str, contract: dict, code: str, *, actor_name: str,
                                                   org_id=org) or 50),
         "forfeit_days": str(int(await cfg.get("booking_fee.forfeit_no_clarity_days",
                                               org_id=org) or 7)),
-        "document_date": now_iso()[:10],
+        "document_date": today_wib(),
         "marketing_name": actor_name or "—",
         # ---- khusus SPKT
         "spr_number_ref": await _spr_number_ref(org, contract),

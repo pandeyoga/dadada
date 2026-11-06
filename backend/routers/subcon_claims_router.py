@@ -18,7 +18,7 @@ import sequences as seq
 import subcon_finance as sf
 from db import db, ORG_ID
 from idempotency import Conflict, reserved
-from core_utils import new_id, now_iso, serialize_doc
+from core_utils import new_id, now_iso, serialize_doc, today_wib
 from rbac import has_role, require_permission, assert_project_access
 from engine import add_activity, emit, dispatch_pending
 import finance_engine as fe
@@ -247,7 +247,7 @@ async def verify_claim(cid: str, payload: ClaimOpnameIn,
     setter = {"verified_pct": vp, "gross_est": int(gross_est), "status": "verified", "updated_at": ts,
               "verified_by": user.get("email"), "verified_at": ts}
     if payload.note:
-        setter["note"] = ((claim.get("note") or "") + f"\n[opname {ts[:10]}] {payload.note}").strip()
+        setter["note"] = ((claim.get("note") or "") + f"\n[opname {today_wib()}] {payload.note}").strip()
     await db.progress_claims.update_one({"id": cid, "org_id": org}, {"$set": setter})
     return {"data": serialize_doc(await db.progress_claims.find_one({"id": cid}, {"_id": 0}))}
 
@@ -291,7 +291,7 @@ async def _opname_item_claim(org: str, claim: dict, payload: ClaimOpnameIn,
     }
     if payload.note or reason:
         setter["note"] = ((claim.get("note") or "") +
-                          f"\n[opname {ts[:10]}] {payload.note or reason}").strip()
+                          f"\n[opname {today_wib()}] {payload.note or reason}").strip()
     await db.progress_claims.update_one({"id": claim["id"], "org_id": org}, {"$set": setter})
     if dropset:
         await add_activity(entity_type="project", entity_id=claim["project_id"], type="system",
@@ -436,7 +436,7 @@ async def reject_claim(cid: str, payload: StatusNote,
     ts = now_iso()
     setter = {"status": "rejected", "rejected_by": user.get("email"), "rejected_at": ts, "updated_at": ts}
     if payload.note:
-        setter["note"] = ((claim.get("note") or "") + f"\n[tolak {ts[:10]}] {payload.note}").strip()
+        setter["note"] = ((claim.get("note") or "") + f"\n[tolak {today_wib()}] {payload.note}").strip()
     await db.progress_claims.update_one({"id": cid, "org_id": org}, {"$set": setter})
     if claim.get("basis") == "items":
         # Pekerjaan kembali ke daftar "siap ditagih" — tidak hangus karena termin ditolak.
@@ -538,6 +538,6 @@ async def reject_change_order(coid: str, payload: StatusNote,
     ts = now_iso()
     setter = {"status": "rejected", "rejected_by": user.get("email"), "rejected_at": ts, "updated_at": ts}
     if payload.note:
-        setter["reason"] = ((co.get("reason") or "") + f"\n[tolak {ts[:10]}] {payload.note}").strip()
+        setter["reason"] = ((co.get("reason") or "") + f"\n[tolak {today_wib()}] {payload.note}").strip()
     await db.change_orders.update_one({"id": coid, "org_id": org}, {"$set": setter})
     return {"data": serialize_doc(await db.change_orders.find_one({"id": coid}, {"_id": 0}))}

@@ -3,7 +3,7 @@ kontrak → tiap pencairan DIPILIH dari tahapan (bukan angka bebas), divalidasi,
 kuitansi metode `kpr` + jurnal; pembatalan = jurnal balik + status `dibatalkan` (tanpa hapus)."""
 import bank_match
 import finance_engine as fe
-from core_utils import new_id, now_iso
+from core_utils import new_id, now_iso, today_wib
 from db import db
 from engine import add_activity
 from money_lock import locked
@@ -260,14 +260,14 @@ async def _disburse_locked(org: str, contract: dict, app: dict, payload: dict, u
     ts = now_iso()
     rc = await fe.apply_receipt(contract["deal_id"], amount, "kpr",
                                 f"Pencairan KPR {app.get('bank_name') or ''} "
-                                f"{(tranche or {}).get('name') or ''} ({payload.get('date') or ts[:10]})".strip(),
+                                f"{(tranche or {}).get('name') or ''} ({payload.get('date') or today_wib()})".strip(),
                                 actor, org_id=org, allow_overpay=allow_deposit,
                                 cash_account_id=payload.get("cash_account_id"),
                                 proof_file_ids=[payload["file_id"]] if payload.get("file_id") else None,
                                 kpr_disbursement=True)
     receipt = rc.get("receipt") or {}
     did = new_id()
-    entry = {"id": did, "amount": amount, "date": payload.get("date") or ts[:10],
+    entry = {"id": did, "amount": amount, "date": payload.get("date") or today_wib(),
              "tranche_code": (tranche or {}).get("code"), "tranche_name": (tranche or {}).get("name"),
              "milestone": (tranche or {}).get("condition") or "akad_kredit",
              "note": payload.get("note"), "file_id": payload.get("file_id"),

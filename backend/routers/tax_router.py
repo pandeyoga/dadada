@@ -82,6 +82,15 @@ async def update_record(record_id: str, payload: TaxRecordUpdate,
             "lalu catat alasannya di keterangan."))
     if new_status == "paid" and not (updates.get("ntpn") or rec.get("ntpn")):
         raise HTTPException(status_code=400, detail="NTPN wajib diisi untuk menandai pajak sudah disetor.")
+    # PK3-06: pajak atas penjualan yang sudah BATAL tidak boleh dilaporkan/disetor (dulu Rp 113 jt keluar dari
+    # bank untuk deal yang tidak ada). Koreksi nilai pajak dilakukan lewat jurnal koreksi, bukan setoran.
+    if new_status in ("reported", "paid") and new_status != rec.get("status") and rec.get("deal_id"):
+        from deal_state import deal_of, is_cancelled
+        d = await deal_of(org, rec["deal_id"], {"_id": 0, "status": 1, "cancellation_id": 1})
+        if d and is_cancelled(d):
+            raise HTTPException(status_code=400, detail=(
+                "Deal asal pajak ini sudah DIBATALKAN — pajaknya tidak boleh dilaporkan atau disetor. "
+                "Hubungi Manajer Keuangan bila ada kewajiban pajak yang memang tetap harus dibayar."))
     if updates.get("cash_account_id"):
         import cash_bank as _cb
         try:
@@ -97,34 +106,37 @@ async def update_record(record_id: str, payload: TaxRecordUpdate,
         raise HTTPException(status_code=400, detail=str(e))
     first_payment = new_status == "paid" and rec.get("status") != "paid"
     try:
+        from contextlib import nullcontext
+        guard = nullcontext()
         if first_payment:
-            # PK-06: setoran pajak mengeluarkan kas → dana rekening harus cukup.
+            # PK-06 + PL-03: setoran pajak mengeluarkan kas → kunci rekening + dana harus cukup sampai jurnal terposting.
             import cash_bank as _cb
             amt = int(rec.get("amount", 0) or 0)
-            await _cb.assert_funds(org, amt, cash_account_id=updates.get("cash_account_id") or rec.get("cash_account_id"),
-                                   code="1-1200", kind="setoran pajak")
-        # PK-02: klaim atomik atas status yang dibaca SEBELUM jurnal; setoran bersamaan = satu efek.
-        prior = {k: rec.get(k) for k in updates}
-        async with reserved("tax_records", {"id": record_id, "org_id": org}, {"status": rec.get("status")},
-                            {"$set": updates}, undo={"$set": prior}, what="Catatan pajak"):
-            fresh = await db.tax_records.find_one({"id": record_id, "org_id": org}, {"_id": 0})
-
-            # Phase 19 — posting GL: akrual saat 'reported'/'paid', setoran saat 'paid'.
-            enriched = (await tx.enrich_records(org, [fresh]))[0]
-            gl_refs = {}
-            if new_status in ("reported", "paid"):
-                je = await gl.post_tax_accrual(org, enriched)
-                if je:
-                    gl_refs["gl_accrual_entry_no"] = je["entry_no"]
-            if new_status == "paid":
-                je2 = await gl.post_tax_payment(org, enriched)
-                if je2:
-                    gl_refs["gl_setor_entry_no"] = je2["entry_no"]
-                    gl_refs["gl_setor_entry_id"] = je2["id"]
-            if gl_refs:
-                await db.tax_records.update_one({"id": record_id, "org_id": org},
-                                                {"$set": {**gl_refs, "updated_at": now_iso()}})
+            guard = _cb.funds_guard(org, amt, cash_account_id=updates.get("cash_account_id") or rec.get("cash_account_id"),
+                                    code="1-1200", kind="setoran pajak")
+        async with guard:
+            # PK-02: klaim atomik atas status yang dibaca SEBELUM jurnal; setoran bersamaan = satu efek.
+            prior = {k: rec.get(k) for k in updates}
+            async with reserved("tax_records", {"id": record_id, "org_id": org}, {"status": rec.get("status")},
+                                {"$set": updates}, undo={"$set": prior}, what="Catatan pajak"):
                 fresh = await db.tax_records.find_one({"id": record_id, "org_id": org}, {"_id": 0})
+
+                # Phase 19 — posting GL: akrual saat 'reported'/'paid', setoran saat 'paid'.
+                enriched = (await tx.enrich_records(org, [fresh]))[0]
+                gl_refs = {}
+                if new_status in ("reported", "paid"):
+                    je = await gl.post_tax_accrual(org, enriched)
+                    if je:
+                        gl_refs["gl_accrual_entry_no"] = je["entry_no"]
+                if new_status == "paid":
+                    je2 = await gl.post_tax_payment(org, enriched)
+                    if je2:
+                        gl_refs["gl_setor_entry_no"] = je2["entry_no"]
+                        gl_refs["gl_setor_entry_id"] = je2["id"]
+                if gl_refs:
+                    await db.tax_records.update_one({"id": record_id, "org_id": org},
+                                                    {"$set": {**gl_refs, "updated_at": now_iso()}})
+                    fresh = await db.tax_records.find_one({"id": record_id, "org_id": org}, {"_id": 0})
     except Conflict:
         raise
     except ValueError as e:
