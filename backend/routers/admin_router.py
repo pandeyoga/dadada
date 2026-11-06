@@ -221,6 +221,20 @@ async def list_users(skip: int = 0, limit: int = 50,
     return {"data": serialize_doc(rows), "total": total}
 
 
+CROSS_TENANT_ROLE = "super_admin"
+
+
+def _guard_cross_tenant_role(actor: dict, role: str = None, target: dict = None) -> None:
+    """AZ-11/AZ-12: `super_admin` adalah peran LINTAS-penyewa. Peran tingkat organisasi (termasuk
+    `owner`) tidak boleh memberikannya, dan tidak boleh mengubah akun yang memegangnya — kalau
+    boleh, pemilik satu organisasi bisa menaikkan dirinya menjadi pengendali semua organisasi."""
+    if actor.get("role") == CROSS_TENANT_ROLE:
+        return
+    if role == CROSS_TENANT_ROLE or (target or {}).get("role") == CROSS_TENANT_ROLE:
+        raise HTTPException(status_code=403, detail=(
+            "Hanya Super Admin yang boleh memberi, mengubah, atau mencabut peran Super Admin."))
+
+
 @router.post("/users")
 async def create_user(payload: UserCreate,
                       user: dict = Depends(require_permission("users", "create"))):
@@ -228,6 +242,7 @@ async def create_user(payload: UserCreate,
     await load_custom_roles(force=True)
     if not is_known_role(payload.role):
         raise HTTPException(status_code=400, detail="Peran tidak valid")
+    _guard_cross_tenant_role(user, role=payload.role)
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email sudah terdaftar")
     ts = now_iso()
@@ -246,9 +261,13 @@ async def create_user(payload: UserCreate,
 @router.put("/users/{user_id}")
 async def update_user(user_id: str, payload: UserUpdate,
                       user: dict = Depends(require_permission("users", "update"))):
-    target = await db.users.find_one({"id": user_id})
+    org = user.get("org_id", ORG_ID)
+    # AZ-12: pencarian WAJIB dibatasi organisasi — dulu `find_one({"id"})` membuat pemilik organisasi
+    # lain bisa mengganti sandi/peran pengguna organisasi ini (pengambilalihan akun lintas penyewa).
+    target = await db.users.find_one({"id": user_id, "org_id": org})
     if not target:
         raise HTTPException(status_code=404, detail="Pengguna tidak ditemukan")
+    _guard_cross_tenant_role(user, role=payload.role, target=target)
     updates = {}
     if payload.name is not None:
         updates["name"] = payload.name
@@ -264,9 +283,12 @@ async def update_user(user_id: str, payload: UserUpdate,
     if payload.password:
         updates["password_hash"] = hash_password(payload.password)
     updates["updated_at"] = now_iso()
-    await db.users.update_one({"id": user_id}, {"$set": updates})
-    await audit_log(user, "update", "users", user_id, {k: v for k, v in updates.items() if k != "password_hash"})
-    fresh = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    await db.users.update_one({"id": user_id, "org_id": org}, {"$set": updates})
+    logged = {k: v for k, v in updates.items() if k != "password_hash"}
+    if "password_hash" in updates:
+        logged["password_changed"] = True  # jejak: sandi diganti oleh admin (nilai tidak dicatat)
+    await audit_log(user, "update", "users", user_id, logged)
+    fresh = await db.users.find_one({"id": user_id, "org_id": org}, {"_id": 0, "password_hash": 0})
     return {"data": serialize_doc(fresh)}
 
 
