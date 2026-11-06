@@ -9,6 +9,8 @@ Pemisahan tugas yang dipaksakan di sini:
     sudah dilaporkan.
 Sales & peran lapangan tidak punya akses sama sekali (mutasi rekening = data sensitif).
 """
+import re
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 import bank_import as bimp
@@ -73,7 +75,7 @@ async def create_account(payload: BankAccountIn,
         doc.pop("_id", None)
         # Fase 82: setiap rekening langsung mendapat sub-akun GL sendiri (bukan menumpang 1-1200).
         doc["gl_account_code"] = await _cb._ensure_sub_account(org, {**doc, "kind": "bank"})
-        await db.bank_accounts.update_one({"id": doc["id"]}, {"$set": {"kind": "bank"}})
+        await db.bank_accounts.update_one({"id": doc["id"], "org_id": org}, {"$set": {"kind": "bank"}})
     await _cb._post_opening(org, doc)
     await audit_log(user, "create", "bank_accounts", doc["id"], {"name": doc["name"]})
     return {"data": serialize_doc(doc)}
@@ -154,8 +156,9 @@ async def list_transactions(account_id: str = None, match_state: str = None,
     if date_from or date_to:
         query["date"] = {k: v for k, v in (("$gte", date_from), ("$lte", date_to)) if v}
     if q:
-        query["$or"] = [{"description": {"$regex": q, "$options": "i"}},
-                        {"ref": {"$regex": q, "$options": "i"}}]
+        qre = re.escape(q)  # AZ-08
+        query["$or"] = [{"description": {"$regex": qre, "$options": "i"}},
+                        {"ref": {"$regex": qre, "$options": "i"}}]
     total = await db.bank_transactions.count_documents(query)
     rows = await db.bank_transactions.find(query, {"_id": 0}) \
         .sort([("date", -1), ("created_at", -1)]).skip(skip).limit(limit).to_list(limit)

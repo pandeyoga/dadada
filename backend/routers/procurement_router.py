@@ -204,7 +204,7 @@ async def approve_po(pid: str, payload: POAction,
                               body=f"{doc.get('po_number')} — {doc.get('vendor')} siap diterima/ditagih.",
                               type="procurement", related_entity_type="project",
                               related_entity_id=doc["project_id"], org_id=doc["org_id"])
-    return {"data": serialize_doc(await db.purchase_orders.find_one({"id": pid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.purchase_orders.find_one({"id": pid, "org_id": doc["org_id"]}, {"_id": 0}))}
 
 
 @router.post("/pos/{pid}/cancel")
@@ -217,7 +217,7 @@ async def cancel_po(pid: str, payload: POAction,
     await db.purchase_orders.update_one({"id": pid, "org_id": doc["org_id"]}, {"$set": {
         "status": "cancelled", "updated_at": ts}})
     await audit_log(user, "cancel", "purchase_order", pid, {"note": payload.note})
-    return {"data": serialize_doc(await db.purchase_orders.find_one({"id": pid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.purchase_orders.find_one({"id": pid, "org_id": doc["org_id"]}, {"_id": 0}))}
 
 
 # ----------------------------- Goods Receipt Notes -----------------------------
@@ -433,5 +433,5 @@ async def create_bill(payload: ProcurementBillCreate,
                                 "; ".join(match["reasons"]) +
                                 f" \u2014 alasan: {payload.override_reason}",
                                 "finance", "ap_bill", bill["id"])
-    updated = await db.ap_invoices.find_one({"id": bill["id"]}, {"_id": 0})
+    updated = await db.ap_invoices.find_one({"id": bill["id"], "org_id": org}, {"_id": 0})
     return {"data": serialize_doc(updated), "match": match}

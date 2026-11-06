@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from db import db, ORG_ID
 from core_utils import new_id, now_iso, serialize_doc, parse_pagination
-from rbac import require_permission
+from rbac import require_permission, is_scoped_sales, scope_query
 from idempotency import Conflict
 from engine import add_activity, create_notification, emit
 import slik as slik_engine
@@ -21,7 +21,7 @@ async def _deal_ctx(deal_id: str, org: str):
     deal = await db.deals.find_one({"id": deal_id, "org_id": org}, {"_id": 0})
     if not deal:
         raise HTTPException(status_code=404, detail="Deal tidak ditemukan")
-    unit = await db.units.find_one({"id": deal.get("unit_id")}, {"_id": 0}) or {}
+    unit = await db.units.find_one({"id": deal.get("unit_id"), "org_id": org}, {"_id": 0}) or {}
     return deal, unit
 
 
@@ -32,6 +32,10 @@ async def list_financing(deal_id: str = None, customer_id: str = None, skip: int
     query = {"org_id": user.get("org_id", ORG_ID)}
     if deal_id:
         query["deal_id"] = deal_id
+    if is_scoped_sales(user):
+        # AZ-04: sales hanya melihat KPR dari deal yang ditugaskan kepadanya.
+        mine = await db.deals.distinct("id", scope_query(user, {}))
+        query["deal_id"] = {"$in": [deal_id] if deal_id in mine else []} if deal_id else {"$in": mine}
     if customer_id:
         query["customer_id"] = customer_id
     total = await db.financing_apps.count_documents(query)
@@ -51,6 +55,8 @@ async def create_financing(payload: FinancingCreate,
     """
     org = user.get("org_id", ORG_ID)
     deal, unit = await _deal_ctx(payload.deal_id, org)
+    if is_scoped_sales(user) and deal.get("assigned_to") != user.get("email"):
+        raise HTTPException(status_code=403, detail="Akses ditolak: bukan deal Anda")  # AZ-04
     # KT-23: SATU pengajuan KPR aktif per deal. Pengecekan + penyisipan di bawah satu kunci supaya
     # dua klik/dua petugas tidak menghasilkan dua pengajuan (yang menimpa tampilan kontrak).
     import kpr_link
@@ -90,8 +96,8 @@ async def _create_financing_locked(payload, user, org, deal, adopt=None):
         for k in ("id", "created_at", "created_by", "customer_id", "kpr_stage", "stage_history",
                   "contract_id"):
             doc.pop(k, None)
-        await db.financing_apps.update_one({"id": adopt["id"]}, {"$set": doc})
-        doc = await db.financing_apps.find_one({"id": adopt["id"]}, {"_id": 0})
+        await db.financing_apps.update_one({"id": adopt["id"], "org_id": org}, {"$set": doc})
+        doc = await db.financing_apps.find_one({"id": adopt["id"], "org_id": org}, {"_id": 0})
     else:
         await db.financing_apps.insert_one(doc)
     await add_activity(entity_type="deal", entity_id=payload.deal_id, type="financing",
@@ -116,23 +122,31 @@ async def _create_financing_locked(payload, user, org, deal, adopt=None):
     return {"data": serialize_doc(doc), "prescreen": pre, "prescreen_warning": warning}
 
 
-async def _get(fid: str, org: str) -> dict:
+async def _get(fid: str, org: str, user: dict = None) -> dict:
+    """Ambil pengajuan KPR di organisasi `org`. Bila `user` diberikan dan ia sales ber-scope "own",
+    pengajuan wajib milik deal yang ditugaskan kepadanya (AZ-04) — sama seperti lead/deal."""
     f = await db.financing_apps.find_one({"id": fid, "org_id": org}, {"_id": 0})
     if not f:
         raise HTTPException(status_code=404, detail="Pengajuan KPR tidak ditemukan")
+    if user is not None and is_scoped_sales(user):
+        # Pemilik = PIC deal (ikut berpindah saat lead di-assign ulang); cadangan: PIC pengajuan.
+        deal = await db.deals.find_one({"id": f.get("deal_id"), "org_id": org}, {"_id": 0, "assigned_to": 1})
+        owner = (deal or {}).get("assigned_to") or f.get("assigned_to")
+        if owner != user.get("email"):
+            raise HTTPException(status_code=403, detail="Akses ditolak: bukan pengajuan KPR Anda")
     return f
 
 
 @router.get("/{fid}")
 async def get_financing(fid: str, user: dict = Depends(require_permission("financing", "view"))):
-    return {"data": serialize_doc(await _get(fid, user.get("org_id", ORG_ID)))}
+    return {"data": serialize_doc(await _get(fid, user.get("org_id", ORG_ID), user))}
 
 
 @router.put("/{fid}")
 async def update_financing(fid: str, payload: FinancingUpdate,
                            user: dict = Depends(require_permission("financing", "update"))):
     org = user.get("org_id", ORG_ID)
-    await _get(fid, org)
+    await _get(fid, org, user)
     # status divalidasi SSOT di models.FinancingUpdate (reference.financing_status)
     data = {k: v for k, v in payload.model_dump().items() if v is not None}
     for money in ("plafon", "dp_amount"):
@@ -147,7 +161,7 @@ async def update_financing(fid: str, payload: FinancingUpdate,
 async def update_slik(fid: str, payload: SlikUpdate,
                       user: dict = Depends(require_permission("financing", "update"))):
     org = user.get("org_id", ORG_ID)
-    f = await _get(fid, org)
+    f = await _get(fid, org, user)
     status = payload.slik_status
     if status not in {"pending", "clear", "flagged", "rejected"}:
         raise HTTPException(status_code=400, detail="Status SLIK tidak valid.")
@@ -171,7 +185,7 @@ async def disburse(fid: str, payload: DisbursementCreate,
     """Pencairan dari kartu KPR pelanggan = jalur yang SAMA dengan kontrak: tahap dari skema
     pencairan bank (Pusat Konfigurasi › Pencairan KPR), kuitansi `kpr`, piutang berkurang."""
     org = user.get("org_id", ORG_ID)
-    f = await _get(fid, org)
+    f = await _get(fid, org, user)
     if f.get("status") not in ("approved", "disbursing"):
         raise HTTPException(status_code=400,
                             detail="Pencairan hanya untuk pengajuan yang sudah disetujui (SLIK clear).")

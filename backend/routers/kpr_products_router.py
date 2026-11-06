@@ -187,7 +187,7 @@ async def import_products(file: UploadFile = File(...), dry_run: bool = False,
     for p in plan:
         it = {k: v for k, v in p.items() if k not in ("row", "action", "existing_id", "changes")}
         if p["existing_id"]:
-            await db[COLL].update_one({"id": p["existing_id"]}, {"$set": {**it, "updated_at": now_iso()}})
+            await db[COLL].update_one({"id": p["existing_id"], "org_id": org}, {"$set": {**it, "updated_at": now_iso()}})
             updated.append(f"{it['bank_name']} / {it['name']}")
         else:
             doc = {"id": new_id(), "org_id": org, **it, "created_by": user.get("email"),
@@ -228,7 +228,7 @@ async def update_product(pid: str, payload: KprProductIn,
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="Produk KPR tidak ditemukan.")
     await audit_log(user, "update", COLL, pid, {"fields": sorted(data)})
-    return {"data": serialize_doc(await db[COLL].find_one({"id": pid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db[COLL].find_one({"id": pid, "org_id": org}, {"_id": 0}))}
 
 
 @router.delete("/{pid}")

@@ -14,6 +14,8 @@ menutup tiga cacat:
 
 RBAC resource `permits` (PM penuh; pelaksana lapangan lihat + ubah status).
 """
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 
 import permit_alerts as pa
@@ -89,9 +91,10 @@ async def list_permits(project_id: str = None, status: str = None, scope: str = 
         if val:
             fq[field] = val
     if q:
-        fq["$or"] = [{"name": {"$regex": q, "$options": "i"}},
-                     {"reference_no": {"$regex": q, "$options": "i"}},
-                     {"authority": {"$regex": q, "$options": "i"}}]
+        qre = re.escape(q)  # AZ-08
+        fq["$or"] = [{"name": {"$regex": qre, "$options": "i"}},
+                     {"reference_no": {"$regex": qre, "$options": "i"}},
+                     {"authority": {"$regex": qre, "$options": "i"}}]
     rows = await db.permits.find(fq, {"_id": 0}).sort("deadline", 1).to_list(500)
     rows = [_decorate(r, pmap) for r in rows]
     if health:
@@ -188,7 +191,7 @@ async def update_permit(pid: str, payload: PermitUpdate,
     await db.permits.update_one({"id": pid, "org_id": doc["org_id"]}, {"$set": upd})
     await audit_log(user, "permit.update", "permit", pid, upd)
     return {"data": serialize_doc(_decorate(
-        await db.permits.find_one({"id": pid}, {"_id": 0}), {}))}
+        await db.permits.find_one({"id": pid, "org_id": doc["org_id"]}, {"_id": 0}), {}))}
 
 
 @router.post("/{pid}/status")
@@ -208,7 +211,7 @@ async def permit_status(pid: str, payload: PermitStatusUpdate,
     await db.permits.update_one({"id": pid, "org_id": doc["org_id"]}, {"$set": setter})
     await audit_log(user, "permit.status", "permit", pid, {"status": payload.status})
     return {"data": serialize_doc(_decorate(
-        await db.permits.find_one({"id": pid}, {"_id": 0}), {}))}
+        await db.permits.find_one({"id": pid, "org_id": doc["org_id"]}, {"_id": 0}), {}))}
 
 
 @router.post("/{pid}/renew")
@@ -229,7 +232,7 @@ async def renew_permit(pid: str, payload: PermitRenew,
                                  "$push": {"renewals": {"$each": [entry], "$slice": -20}}})
     await audit_log(user, "permit.renew", "permit", pid, entry)
     return {"data": serialize_doc(_decorate(
-        await db.permits.find_one({"id": pid}, {"_id": 0}), {})),
+        await db.permits.find_one({"id": pid, "org_id": doc["org_id"]}, {"_id": 0}), {})),
         "message": f"Masa berlaku izin diperpanjang sampai {str(payload.expiry_at)[:10]}."}
 
 

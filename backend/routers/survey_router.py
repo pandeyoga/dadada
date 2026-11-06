@@ -126,8 +126,8 @@ async def update_survey(survey_id: str, payload: SurveyUpdate,
                           "required": bool(old.get("required")) if it.required is None else bool(it.required),
                           "hint": old.get("hint")})
         updates["checklist"] = items
-    await db.surveys.update_one({"id": survey_id}, {"$set": updates})
-    fresh = await db.surveys.find_one({"id": survey_id}, {"_id": 0})
+    await db.surveys.update_one({"id": survey_id, "org_id": s["org_id"]}, {"$set": updates})
+    fresh = await db.surveys.find_one({"id": survey_id, "org_id": s["org_id"]}, {"_id": 0})
     return {"data": serialize_doc({**fresh, "photos": await _photos(survey_id, user.get("org_id", ORG_ID))})}
 
 
@@ -148,7 +148,7 @@ async def finalize_survey(survey_id: str, payload: SurveyResult,
     updates = {"status": "completed", "result": payload.result, "updated_at": ts, "completed_at": ts}
     if payload.summary is not None:
         updates["summary"] = payload.summary
-    await db.surveys.update_one({"id": survey_id}, {"$set": updates})
+    await db.surveys.update_one({"id": survey_id, "org_id": org}, {"$set": updates})
     # Tandai appointment terkait selesai (bila ada & masih terjadwal).
     if s.get("appointment_id"):
         await db.appointments.update_one(
@@ -158,7 +158,7 @@ async def finalize_survey(survey_id: str, payload: SurveyResult,
                     "not_recommended": "Tidak direkomendasikan"}.get(payload.result, payload.result)
     await add_activity(entity_type="lead", entity_id=s.get("lead_id"), type="system",
                        body=f"Survey selesai — hasil: {result_label}.", actor=user.get("email"), org_id=org)
-    fresh = await db.surveys.find_one({"id": survey_id}, {"_id": 0})
+    fresh = await db.surveys.find_one({"id": survey_id, "org_id": org}, {"_id": 0})
     return {"data": serialize_doc({**fresh, "photos": await _photos(survey_id, org)})}
 
 
@@ -176,6 +176,6 @@ async def upload_survey_photo(survey_id: str, file: UploadFile = File(...), capt
             uploaded_by=user.get("email"), doc_type=caption or "survey_photo", tag="survey")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    await db.surveys.update_one({"id": survey_id}, {"$inc": {"photo_count": 1},
-                                                    "$set": {"updated_at": now_iso()}})
+    await db.surveys.update_one({"id": survey_id, "org_id": org}, {"$inc": {"photo_count": 1},
+                                                                    "$set": {"updated_at": now_iso()}})
     return {"data": rec}

@@ -249,7 +249,7 @@ async def verify_claim(cid: str, payload: ClaimOpnameIn,
     if payload.note:
         setter["note"] = ((claim.get("note") or "") + f"\n[opname {ts[:10]}] {payload.note}").strip()
     await db.progress_claims.update_one({"id": cid, "org_id": org}, {"$set": setter})
-    return {"data": serialize_doc(await db.progress_claims.find_one({"id": cid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.progress_claims.find_one({"id": cid, "org_id": org}, {"_id": 0}))}
 
 
 async def _opname_item_claim(org: str, claim: dict, payload: ClaimOpnameIn,
@@ -299,7 +299,7 @@ async def _opname_item_claim(org: str, claim: dict, payload: ClaimOpnameIn,
                                  f"pekerjaan dikeluarkan ({_rp(setter['excluded_value'])}) — "
                                  f"alasan: {reason}"),
                            actor=user.get("email"), org_id=org)
-    return {"data": serialize_doc(await db.progress_claims.find_one({"id": claim["id"]}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.progress_claims.find_one({"id": claim["id"], "org_id": org}, {"_id": 0}))}
 
 
 @router.post("/claims/{cid}/approve")
@@ -372,7 +372,7 @@ async def _approve_lumpsum_claim(org: str, cid: str, claim: dict, spk: dict, use
                        body=f"Termin {claim.get('claim_number')} disetujui: tagihan AP {_rp(gross)} "
                             f"(retensi {_rp(bill.get('retention_held', 0))}). Progres SPK → {eff}%.",
                        actor=user.get("email"), org_id=org)
-    return {"data": serialize_doc(await db.progress_claims.find_one({"id": cid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.progress_claims.find_one({"id": cid, "org_id": org}, {"_id": 0}))}
 
 
 async def _approve_item_claim(org: str, claim: dict, spk: dict, user: dict) -> dict:
@@ -423,7 +423,7 @@ async def _approve_item_claim(org: str, claim: dict, spk: dict, user: dict) -> d
                              f"{len(included)} pekerjaan terverifikasi. Pekerjaan itu ditandai "
                              "SUDAH DIBAYAR sehingga tidak bisa ditagih dua kali."),
                        actor=user.get("email"), org_id=org)
-    return {"data": serialize_doc(await db.progress_claims.find_one({"id": claim["id"]}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.progress_claims.find_one({"id": claim["id"], "org_id": org}, {"_id": 0}))}
 
 
 @router.post("/claims/{cid}/reject")
@@ -441,7 +441,7 @@ async def reject_claim(cid: str, payload: StatusNote,
     if claim.get("basis") == "items":
         # Pekerjaan kembali ke daftar "siap ditagih" — tidak hangus karena termin ditolak.
         await op.release_lines(org, claim)
-    return {"data": serialize_doc(await db.progress_claims.find_one({"id": cid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.progress_claims.find_one({"id": cid, "org_id": org}, {"_id": 0}))}
 
 
 # =============================== CHANGE ORDERS ===============================
@@ -525,7 +525,7 @@ async def approve_change_order(coid: str,
                        body=f"Change Order {co.get('co_number')} disetujui: nilai kontrak {_rp(old)} → {_rp(new)}"
                             + (f" (+{ext} hari)." if ext else "."),
                        actor=user.get("email"), org_id=org)
-    return {"data": serialize_doc(await db.change_orders.find_one({"id": coid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.change_orders.find_one({"id": coid, "org_id": org}, {"_id": 0}))}
 
 
 @router.post("/change-orders/{coid}/reject")
@@ -540,4 +540,4 @@ async def reject_change_order(coid: str, payload: StatusNote,
     if payload.note:
         setter["reason"] = ((co.get("reason") or "") + f"\n[tolak {ts[:10]}] {payload.note}").strip()
     await db.change_orders.update_one({"id": coid, "org_id": org}, {"$set": setter})
-    return {"data": serialize_doc(await db.change_orders.find_one({"id": coid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.change_orders.find_one({"id": coid, "org_id": org}, {"_id": 0}))}

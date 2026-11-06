@@ -28,6 +28,7 @@ tahap legal pembeli. Aturan yang dipegang:
     supaya layar & gate yang sudah ada tidak mendadak berbohong.
 """
 import logging
+import re
 
 from pymongo.errors import DuplicateKeyError
 
@@ -656,9 +657,10 @@ async def listing(org: str = ORG_ID, *, customer_id: str = None, deal_id: str = 
     if legal_stage:
         query["legal_stage"] = legal_stage
     if q:
-        query["$or"] = [{"number": {"$regex": q, "$options": "i"}},
-                        {"customer_name": {"$regex": q, "$options": "i"}},
-                        {"unit_code": {"$regex": q, "$options": "i"}}]
+        qre = re.escape(q)  # AZ-08
+        query["$or"] = [{"number": {"$regex": qre, "$options": "i"}},
+                        {"customer_name": {"$regex": qre, "$options": "i"}},
+                        {"unit_code": {"$regex": qre, "$options": "i"}}]
     # KT-27: lingkup sales difilter di query (bukan setelah paginasi) supaya `total`/`counts` hanya
     # menghitung kontrak miliknya; `total_all` = jumlah tanpa lingkup (untuk pesan "di luar lingkup").
     total_all = await db.contracts.count_documents(query)

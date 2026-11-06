@@ -178,7 +178,7 @@ async def run_jobdesk(code: str, payload: JobdeskRun,
             "Tidak ada penerima yang cocok. Atur aturan penerima jobdesk atau tambahkan "
             "staf pada divisi ini."))
     for t in rows:
-        await db.tasks.update_one({"id": t["id"]}, {"$set": {
+        await db.tasks.update_one({"id": t["id"], "org_id": org}, {"$set": {
             "assigned_by": user.get("email"), "auto_generated": False}})
     return {"data": serialize_doc(rows), "created": len(rows)}
 
@@ -213,10 +213,10 @@ async def start_task(task_id: str,
     if t.get("status") not in ("open", "snoozed", "in_progress"):
         raise HTTPException(status_code=400,
                             detail=f"Tugas berstatus '{t.get('status')}' tidak bisa dimulai.")
-    await db.tasks.update_one({"id": task_id}, {"$set": {
+    await db.tasks.update_one({"id": task_id, "org_id": t["org_id"]}, {"$set": {
         "status": "in_progress", "started_at": t.get("started_at") or now_iso(),
         "review": "none", "updated_at": now_iso()}})
-    return {"data": serialize_doc(await db.tasks.find_one({"id": task_id}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.tasks.find_one({"id": task_id, "org_id": t["org_id"]}, {"_id": 0}))}
 
 
 BUILD_TASK_CODES = ("TK-10", "TK-12")
@@ -298,7 +298,7 @@ async def submit_task(task_id: str, payload: TaskSubmit,
     else:
         upd.update({"status": "done", "review": "approved", "completed_at": ts,
                     "completed_by": user.get("email")})
-    await db.tasks.update_one({"id": task_id}, {"$set": upd})
+    await db.tasks.update_one({"id": task_id, "org_id": t["org_id"]}, {"$set": upd})
     result = {**t, **upd}
     await wh.log_task_activity(result, f"Tugas '{t.get('title')}' diajukan"
                                + (f": {payload.note}" if payload.note else ""), user.get("email"))
@@ -323,7 +323,7 @@ async def verify_task(task_id: str, payload: TaskVerify,
     if t.get("status") != "submitted":
         raise HTTPException(status_code=400, detail="Hanya tugas yang diajukan bisa diverifikasi.")
     ts = now_iso()
-    await db.tasks.update_one({"id": task_id}, {"$set": {
+    await db.tasks.update_one({"id": task_id, "org_id": t["org_id"]}, {"$set": {
         "status": "done", "review": "approved", "verified_by": user.get("email"),
         "verified_at": ts, "verify_note": payload.note, "completed_at": ts,
         "completed_by": t.get("submitted_by") or t.get("assigned_to"), "updated_at": ts}})
@@ -334,7 +334,7 @@ async def verify_task(task_id: str, payload: TaskVerify,
         related_entity_id=t.get("related_entity_id"), org_id=_org(user))
     await wh.log_task_activity(t, f"Tugas '{t.get('title')}' diverifikasi supervisor.",
                                user.get("email"))
-    return {"data": serialize_doc(await db.tasks.find_one({"id": task_id}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.tasks.find_one({"id": task_id, "org_id": t["org_id"]}, {"_id": 0}))}
 
 
 @router.post("/tasks/{task_id}/reject")
@@ -347,7 +347,7 @@ async def reject_task(task_id: str, payload: TaskReject,
     if t.get("status") != "submitted":
         raise HTTPException(status_code=400, detail="Hanya tugas yang diajukan bisa dikembalikan.")
     ts = now_iso()
-    await db.tasks.update_one({"id": task_id}, {"$set": {
+    await db.tasks.update_one({"id": task_id, "org_id": t["org_id"]}, {"$set": {
         "status": "in_progress", "review": "rejected", "rejected_reason": payload.reason,
         "rejected_by": user.get("email"), "rejected_at": ts, "updated_at": ts}})
     await create_notification(
@@ -355,7 +355,7 @@ async def reject_task(task_id: str, payload: TaskReject,
         body=f"{t.get('title')}: {payload.reason}", type="task",
         related_entity_type=t.get("related_entity_type"),
         related_entity_id=t.get("related_entity_id"), org_id=_org(user))
-    return {"data": serialize_doc(await db.tasks.find_one({"id": task_id}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.tasks.find_one({"id": task_id, "org_id": t["org_id"]}, {"_id": 0}))}
 
 
 @router.post("/tasks/{task_id}/assign")
@@ -384,7 +384,7 @@ async def assign_task(task_id: str, payload: TaskAssign,
     if t.get("status") == "submitted":
         upd["status"] = "in_progress"
         upd["review"] = "none"
-    await db.tasks.update_one({"id": task_id}, {"$set": upd})
+    await db.tasks.update_one({"id": task_id, "org_id": t["org_id"]}, {"$set": upd})
     await create_notification(
         user_email=payload.assigned_to, title=f"Tugas ditugaskan: {t.get('title')}",
         body=payload.note or f"Dari {user.get('name') or user.get('email')}", type="task",
@@ -394,7 +394,7 @@ async def assign_task(task_id: str, payload: TaskAssign,
                        body=f"Tugas dialihkan ke {target.get('name')}"
                             + (f": {payload.note}" if payload.note else ""),
                        actor=user.get("email"), org_id=org)
-    return {"data": serialize_doc(await db.tasks.find_one({"id": task_id}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.tasks.find_one({"id": task_id, "org_id": t["org_id"]}, {"_id": 0}))}
 
 
 async def _related_info(t: dict, org: str):

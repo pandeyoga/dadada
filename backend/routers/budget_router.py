@@ -144,7 +144,7 @@ async def update_item(iid: str, payload: BudgetItemUpdate,
     upd["updated_by"] = user.get("email")
     await db.budget_items.update_one({"id": iid, "org_id": org}, {"$set": upd})
     await audit_log(user, "update", "budget_items", iid, {"fields": sorted(upd.keys())})
-    doc = await db.budget_items.find_one({"id": iid}, {"_id": 0})
+    doc = await db.budget_items.find_one({"id": iid, "org_id": org}, {"_id": 0})
     return {"data": serialize_doc({**doc, "planned_readonly": _is_readonly(doc)})}
 
 
@@ -174,7 +174,7 @@ async def revise_item(iid: str, payload: BudgetRevise,
     entry = await br.revise_item(item["org_id"], iid, planned_amount=payload.planned_amount,
                                 reason=payload.reason, actor=user.get("email"))
     await audit_log(user, "revise", "budget_items", iid, entry)
-    doc = await db.budget_items.find_one({"id": iid}, {"_id": 0})
+    doc = await db.budget_items.find_one({"id": iid, "org_id": item["org_id"]}, {"_id": 0})
     return {"data": serialize_doc(doc), "entry": serialize_doc(entry)}
 
 

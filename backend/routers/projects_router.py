@@ -214,7 +214,7 @@ async def update_unit(project_id: str, unit_id: str, payload: UnitUpdate,
     upd["updated_at"] = now_iso()
     await db.units.update_one({"id": unit_id, "org_id": org}, {"$set": upd})
     await audit_log(user, "update", "units", unit_id, {"fields": sorted(upd)})
-    return {"data": serialize_doc(await db.units.find_one({"id": unit_id}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.units.find_one({"id": unit_id, "org_id": org}, {"_id": 0}))}
 
 
 @router.delete("/projects/{project_id}/units/{unit_id}")

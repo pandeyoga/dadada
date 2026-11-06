@@ -124,7 +124,7 @@ async def map_steps(iid: str, payload: BoQStepMapIn,
             "langkah jadwal yang benar-benar ada."))
     await db.boq_items.update_one({"id": iid, "org_id": doc["org_id"]}, {"$set": {
         "step_codes": list(dict.fromkeys(payload.step_codes)), "updated_at": now_iso()}})
-    return {"data": serialize_doc(await db.boq_items.find_one({"id": iid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.boq_items.find_one({"id": iid, "org_id": doc["org_id"]}, {"_id": 0}))}
 
 
 @router.get("/control")
@@ -194,7 +194,7 @@ async def update_item(iid: str, payload: BoQItemUpdate,
     upd["amount"] = _amount(qty, price)
     upd["updated_at"] = now_iso()
     await db.boq_items.update_one({"id": iid, "org_id": doc["org_id"]}, {"$set": upd})
-    return {"data": serialize_doc(await db.boq_items.find_one({"id": iid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.boq_items.find_one({"id": iid, "org_id": doc["org_id"]}, {"_id": 0}))}
 
 
 @router.delete("/items/{iid}")

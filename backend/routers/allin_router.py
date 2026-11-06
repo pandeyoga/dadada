@@ -165,9 +165,9 @@ async def update_component(cid: str, p: ComponentIn, user: dict = Depends(requir
         for k in ("calc_method", "amount", "pct"):
             upd.pop(k, None)
     upd["updated_at"] = now_iso()
-    await db.cost_components.update_one({"id": cid}, {"$set": upd})
+    await db.cost_components.update_one({"id": cid, "org_id": org}, {"$set": upd})
     await audit_log(user, "update", "cost_components", cid, {"fields": sorted(upd)})
-    return {"data": serialize_doc(await db.cost_components.find_one({"id": cid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.cost_components.find_one({"id": cid, "org_id": org}, {"_id": 0}))}
 
 
 # ------------------------------------------------------------ skema all-in
@@ -218,9 +218,9 @@ async def update_scheme(sid: str, p: SchemeIn, user: dict = Depends(require_perm
         raise HTTPException(status_code=404, detail="Skema tidak ditemukan.")
     upd = {k: v for k, v in p.model_dump(exclude_unset=True).items() if v is not None and k != "code"}
     upd["updated_at"] = now_iso()
-    await db.allin_schemes.update_one({"id": sid}, {"$set": upd})
+    await db.allin_schemes.update_one({"id": sid, "org_id": org}, {"$set": upd})
     await audit_log(user, "update", "allin_schemes", sid, {"fields": sorted(upd)})
-    return {"data": serialize_doc(await db.allin_schemes.find_one({"id": sid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.allin_schemes.find_one({"id": sid, "org_id": org}, {"_id": 0}))}
 
 
 @router.post("/allin-schemes/migrate-legacy")
@@ -335,9 +335,9 @@ async def update_kpr_scheme(sid: str, p: KprSchemeIn, user: dict = Depends(requi
         raise _err(e)
     doc["code"] = cur["code"]
     doc["updated_at"] = now_iso()
-    await db.kpr_disbursement_schemes.update_one({"id": sid}, {"$set": doc})
+    await db.kpr_disbursement_schemes.update_one({"id": sid, "org_id": org}, {"$set": doc})
     await audit_log(user, "update", "kpr_disbursement_schemes", sid, {})
-    return {"data": serialize_doc(await db.kpr_disbursement_schemes.find_one({"id": sid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.kpr_disbursement_schemes.find_one({"id": sid, "org_id": org}, {"_id": 0}))}
 
 
 async def _kpr_app(cid: str, user: dict):

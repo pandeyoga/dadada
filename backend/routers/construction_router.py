@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from db import db, ORG_ID
 from core_utils import new_id, now_iso, serialize_doc, due_in
 from rbac import require_permission, assert_project_access
+from org_scope import get_in_org
 from engine import (emit, add_activity, auto_create_task, recompute_project_progress,
                     build_s_curve)
 from models_master import PhaseUpdate
@@ -75,9 +76,7 @@ async def create_phase(payload: PhaseCreate, user: dict = Depends(require_permis
 async def update_progress(phase_id: str, payload: ProgressUpdate,
                           user: dict = Depends(require_permission("construction", "update"))):
     _check_photo(payload.photo)
-    phase = await db.construction_phases.find_one({"id": phase_id}, {"_id": 0})
-    if not phase:
-        raise HTTPException(status_code=404, detail="Fase tidak ditemukan")
+    phase = await get_in_org(db.construction_phases, phase_id, user, name="Fase")
     proj = await assert_project_access(phase["project_id"], user)
     org = user.get("org_id", ORG_ID)
     if phase.get("work_category"):
@@ -90,7 +89,7 @@ async def update_progress(phase_id: str, payload: ProgressUpdate,
     status = "not_started" if prog == 0 else ("done" if prog >= 100 else "in_progress")
     if phase.get("status") == "qc_hold" and prog < 100:
         status = "qc_hold"
-    await db.construction_phases.update_one({"id": phase_id}, {"$set": {
+    await db.construction_phases.update_one({"id": phase_id, "org_id": org}, {"$set": {
         "progress": prog, "status": status, "updated_at": ts}})
     await db.construction_logs.insert_one({
         "id": new_id(), "org_id": org, "project_id": phase["project_id"], "phase_id": phase_id,
@@ -109,7 +108,7 @@ async def update_progress(phase_id: str, payload: ProgressUpdate,
     await add_activity(entity_type="project", entity_id=phase["project_id"], type="system",
                        body=f"Progres '{phase['name']}' → {prog}%. Overall proyek {overall}%.",
                        actor=user.get("email"), org_id=org)
-    fresh = await db.construction_phases.find_one({"id": phase_id}, {"_id": 0})
+    fresh = await db.construction_phases.find_one({"id": phase_id, "org_id": org}, {"_id": 0})
     return {"data": serialize_doc(fresh), "overall": overall, "curve": curve}
 
 
@@ -126,9 +125,11 @@ async def create_qc(payload: QCCreate, user: dict = Depends(require_permission("
     await db.construction_logs.insert_one(log)
     if payload.result == "fail":
         if payload.phase_id:
-            await db.construction_phases.update_one({"id": payload.phase_id}, {"$set": {"status": "qc_hold", "updated_at": ts}})
+            await db.construction_phases.update_one({"id": payload.phase_id, "org_id": org},
+                                                    {"$set": {"status": "qc_hold", "updated_at": ts}})
         if payload.unit_id:
-            await db.units.update_one({"id": payload.unit_id}, {"$set": {"construction_status": "qc_hold", "updated_at": ts}})
+            await db.units.update_one({"id": payload.unit_id, "org_id": org},
+                                      {"$set": {"construction_status": "qc_hold", "updated_at": ts}})
         await emit("qc.failed", "project", payload.project_id, {"phase_id": payload.phase_id}, org_id=org)
         await auto_create_task(
             source_event=f"qc.fail:{log['id']}",
@@ -146,9 +147,7 @@ async def create_qc(payload: QCCreate, user: dict = Depends(require_permission("
 async def update_phase(phase_id: str, payload: PhaseUpdate,
                        user: dict = Depends(require_permission("construction", "update"))):
     """Koreksi nama/bobot fase. Nama baru disinkronkan ke dokumen anak (mis. permintaan material)."""
-    phase = await db.construction_phases.find_one({"id": phase_id}, {"_id": 0})
-    if not phase:
-        raise HTTPException(status_code=404, detail="Fase tidak ditemukan")
+    phase = await get_in_org(db.construction_phases, phase_id, user, name="Fase")
     await assert_project_access(phase["project_id"], user)
     org = user.get("org_id", ORG_ID)
     upd = {k: v for k, v in payload.model_dump(exclude_unset=True).items()
@@ -165,7 +164,7 @@ async def update_phase(phase_id: str, payload: PhaseUpdate,
         return {"data": serialize_doc(phase)}
     upd["updated_at"] = now_iso()
     await db.construction_phases.update_one({"id": phase_id, "org_id": org}, {"$set": upd})
-    fresh = await db.construction_phases.find_one({"id": phase_id}, {"_id": 0})
+    fresh = await db.construction_phases.find_one({"id": phase_id, "org_id": org}, {"_id": 0})
     synced = await cascade_master_change("construction_phases", phase_id, fresh)
     if "weight" in upd or "work_category" in upd:
         await recompute_project_progress(phase["project_id"], org)
@@ -177,9 +176,7 @@ async def update_phase(phase_id: str, payload: PhaseUpdate,
 async def delete_phase(phase_id: str,
                        user: dict = Depends(require_permission("construction", "update"))):
     """Hapus fase yang salah input. Ditolak bila sudah ada progres/inspeksi/permintaan material."""
-    phase = await db.construction_phases.find_one({"id": phase_id}, {"_id": 0})
-    if not phase:
-        raise HTTPException(status_code=404, detail="Fase tidak ditemukan")
+    phase = await get_in_org(db.construction_phases, phase_id, user, name="Fase")
     await assert_project_access(phase["project_id"], user)
     org = user.get("org_id", ORG_ID)
     if int(phase.get("progress") or 0) > 0:

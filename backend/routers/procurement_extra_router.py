@@ -73,7 +73,7 @@ async def create_return(payload: ReturnIn,
               "ikut turun."),
         type="procurement", related_entity_type="project",
         related_entity_id=po["project_id"], org_id=org)
-    fresh = await db.purchase_orders.find_one({"id": po["id"]}, {"_id": 0})
+    fresh = await db.purchase_orders.find_one({"id": po["id"], "org_id": org}, {"_id": 0})
     return {"data": serialize_doc(doc), "po": serialize_doc(fresh)}
 
 

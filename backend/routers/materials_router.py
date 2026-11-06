@@ -176,7 +176,7 @@ async def set_material_budget(material_id: str, payload: MaterialBudgetSet,
         "boq_item_id": payload.boq_item_id, "budget_qty": float(payload.budget_qty or 0),
         "updated_at": now_iso()}})
     await _check_material_budget(mat["project_id"], material_id, org, user.get("email"))
-    return {"data": serialize_doc(await db.materials.find_one({"id": material_id}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.materials.find_one({"id": material_id, "org_id": org}, {"_id": 0}))}
 
 
 @router.post("/txn")
@@ -325,7 +325,7 @@ async def approve_requisition(rid: str, user: dict = Depends(require_permission(
     await create_notification(user_email=req.get("requested_by"), title="Permintaan material disetujui",
                               body=f"{req.get('req_number')} disetujui, siap dikeluarkan.", type="material",
                               related_entity_type="project", related_entity_id=req["project_id"], org_id=org)
-    return {"data": serialize_doc(await db.material_requisitions.find_one({"id": rid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.material_requisitions.find_one({"id": rid, "org_id": org}, {"_id": 0}))}
 
 
 @router.post("/requisitions/{rid}/reject")
@@ -340,7 +340,7 @@ async def reject_requisition(rid: str, payload: RequisitionIssue,
     if payload.note:
         setter["note"] = ((req.get("note") or "") + f"\n[tolak {ts[:10]}] {payload.note}").strip()
     await db.material_requisitions.update_one({"id": rid, "org_id": org}, {"$set": setter})
-    return {"data": serialize_doc(await db.material_requisitions.find_one({"id": rid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.material_requisitions.find_one({"id": rid, "org_id": org}, {"_id": 0}))}
 
 
 @router.post("/requisitions/{rid}/issue")
@@ -388,7 +388,7 @@ async def issue_requisition(rid: str, payload: RequisitionIssue,
     await add_activity(entity_type="project", entity_id=req["project_id"], type="system",
                        body=f"Material dikeluarkan untuk {req['req_number']} ({len(affected)} item).",
                        actor=user.get("email"), org_id=org)
-    return {"data": serialize_doc(await db.material_requisitions.find_one({"id": rid}, {"_id": 0})),
+    return {"data": serialize_doc(await db.material_requisitions.find_one({"id": rid, "org_id": org}, {"_id": 0})),
             "over_budget_materials": alerts}
 
 
@@ -413,4 +413,4 @@ async def update_material(material_id: str, payload: MaterialUpdate,
     upd["updated_at"] = now_iso()
     await db.materials.update_one({"id": material_id, "org_id": org}, {"$set": upd})
     await audit_log(user, "update", "materials", material_id, {"fields": sorted(upd)})
-    return {"data": serialize_doc(await db.materials.find_one({"id": material_id}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.materials.find_one({"id": material_id, "org_id": org}, {"_id": 0}))}

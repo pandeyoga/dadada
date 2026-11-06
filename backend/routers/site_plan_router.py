@@ -69,14 +69,14 @@ async def _buyer_for(u: dict, org: str):
     deal_id = u.get("booked_by_deal") or u.get("reserved_by_deal")
     stage = None
     if deal_id:
-        d = await db.deals.find_one({"id": deal_id}, {"_id": 0, "lead_id": 1,
-                                                     "legal_stage": 1, "created_at": 1})
+        d = await db.deals.find_one({"id": deal_id, "org_id": org}, {"_id": 0, "lead_id": 1,
+                                                                    "legal_stage": 1, "created_at": 1})
         if d:
             stage = d.get("legal_stage")
             created = d.get("created_at")
             if u.get("buyer_name"):
                 return u["buyer_name"], deal_id, stage, created
-            lead = await db.leads.find_one({"id": d.get("lead_id")}, {"_id": 0, "name": 1})
+            lead = await db.leads.find_one({"id": d.get("lead_id"), "org_id": org}, {"_id": 0, "name": 1})
             return (lead or {}).get("name"), deal_id, stage, created
     return u.get("buyer_name"), deal_id, stage, None
 
@@ -280,7 +280,7 @@ async def save_mapping(project_id: str, payload: MappingSave,
                         other["unit_id"] = None  # satu unit hanya boleh satu shape
             s["unit_id"] = uid
         changed += 1
-    await db.site_plans.update_one({"id": plan["id"]}, {"$set": {
+    await db.site_plans.update_one({"id": plan["id"], "org_id": org}, {"$set": {
         "shapes": shapes, "updated_by": user.get("email"), "updated_at": now_iso()}})
     units = await _units_of(project_id, org)
     return {"data": {"updated": changed, "stats": svgplan.plan_stats(shapes, units)}}
@@ -313,9 +313,9 @@ async def unit_detail(project_id: str, unit_id: str,
     deal = await db.deals.find_one({"id": deal_id, "org_id": org}, {"_id": 0}) if deal_id else None
     lead = None
     if deal and deal.get("lead_id"):
-        lead = await db.leads.find_one({"id": deal["lead_id"]}, {"_id": 0, "name": 1,
-                                                                "phone": 1, "stage": 1,
-                                                                "score_band": 1, "source": 1})
+        lead = await db.leads.find_one({"id": deal["lead_id"], "org_id": org}, {"_id": 0, "name": 1,
+                                                                               "phone": 1, "stage": 1,
+                                                                               "score_band": 1, "source": 1})
     ar = await db.ar_invoices.find_one({"org_id": org, "unit_id": unit_id}, {"_id": 0})
     schedule = []
     if ar:

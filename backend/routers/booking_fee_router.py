@@ -174,8 +174,8 @@ async def invoice_pdf(deal_id: str, user: dict = Depends(require_permission("dea
     import doc_layout as dl
     import doc_script as ds
     from datetime import datetime as _dt
-    deal = await db.deals.find_one({"id": deal_id}, {"_id": 0, "project_name": 1, "project_id": 1}) or {}
-    project = await db.projects.find_one({"id": deal.get("project_id")}, {"_id": 0, "name": 1}) or {}
+    deal = await db.deals.find_one({"id": deal_id, "org_id": org}, {"_id": 0, "project_name": 1, "project_id": 1}) or {}
+    project = await db.projects.find_one({"id": deal.get("project_id"), "org_id": org}, {"_id": 0, "name": 1}) or {}
     intro = await ds.intro_for(org, "INVOICE_BF", {
         "doc_number": inv["no"], "date": _dt.now().strftime("%d-%m-%Y"), "org_name": ORG_NAME,
         "customer_name": inv.get("lead_name") or "-", "unit_code": inv.get("unit_code") or "-",

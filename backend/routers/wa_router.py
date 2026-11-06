@@ -99,7 +99,7 @@ async def put_config(p: ConfigIn, user: dict = Depends(require_permission("setti
             raise HTTPException(400, "Mode live membutuhkan minimal WHATSAPP_TOKEN dan WHATSAPP_PHONE_ID.")
     cfg = await gw.save_config(org, mode=p.mode, creds=creds, actor=user.get("email"))
     if p.is_active is not None:
-        await db.channel_accounts.update_one({"id": cfg["channel"]["id"]}, {"$set": {"is_active": p.is_active}})
+        await db.channel_accounts.update_one({"id": cfg["channel"]["id"], "org_id": org}, {"$set": {"is_active": p.is_active}})
     await audit_log(user, "update", "wa_config", cfg["channel"]["id"],
                     {"mode": p.mode, "fields": [k for k in gw.CRED_KEYS if creds.get(k)]})
     return {"data": await gw.status_summary(org)}
@@ -285,7 +285,7 @@ async def contact_reply(cid: str, p: ReplyIn, user: dict = Depends(require_permi
                         actor=user.get("email"))
     if msg.get("status") == "failed":
         raise HTTPException(424, f"Kirim WA gagal ({msg.get('error_code')}): {msg.get('error_detail')}")
-    await db.wa_contacts.update_one({"id": cid}, {"$set": {"last_reply_at": msg["created_at"], "last_reply_by": user.get("email"),
+    await db.wa_contacts.update_one({"id": cid, "org_id": org}, {"$set": {"last_reply_at": msg["created_at"], "last_reply_by": user.get("email"),
                                                           "conversation_id": conv["id"]}})
     msg.pop("_id", None)
     return {"data": {"message": serialize_doc(msg), "conversation_id": conv["id"]}}

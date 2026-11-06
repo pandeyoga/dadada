@@ -153,7 +153,8 @@ async def punch_pdf(project_id: str = None, status: str = None, unit_id: str = N
     if unit_id:
         fq["unit_id"] = unit_id
     rows = await db.punch_items.find(fq, {"_id": 0}).sort("created_at", -1).to_list(500)
-    unit = await db.units.find_one({"id": unit_id}, {"_id": 0, "code": 1}) if unit_id else None
+    unit = (await db.units.find_one({"id": unit_id, "org_id": user.get("org_id", ORG_ID)}, {"_id": 0, "code": 1})
+            if unit_id else None)
     ctx = {"project_name": pmap.get(project_id) if project_id else None,
            "unit_code": (unit or {}).get("code"), "today": now_iso()}
     pdf = await p62.punch_pdf(user.get("org_id", ORG_ID), rows, ctx,
@@ -229,7 +230,7 @@ async def update_punch(pid: str, payload: PunchUpdateP28,
         upd["photo"] = merged[0]
     upd["updated_at"] = now_iso()
     await db.punch_items.update_one({"id": pid, "org_id": doc["org_id"]}, {"$set": upd})
-    return {"data": serialize_doc(await db.punch_items.find_one({"id": pid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.punch_items.find_one({"id": pid, "org_id": doc["org_id"]}, {"_id": 0}))}
 
 
 @router.post("/punchlist/{pid}/status")
@@ -268,4 +269,4 @@ async def punch_status(pid: str, payload: PunchStatusP28,
     await oi.commit(doc["org_id"], "punch_status", payload.client_ref,
                     collection="punch_items", doc_id=pid,
                     summary={"status": payload.status})
-    return {"data": serialize_doc(await db.punch_items.find_one({"id": pid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.punch_items.find_one({"id": pid, "org_id": doc["org_id"]}, {"_id": 0}))}

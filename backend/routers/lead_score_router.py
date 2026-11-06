@@ -61,7 +61,8 @@ async def lead_score(lead_id: str, user: dict = Depends(require_permission("lead
 async def lead_rescore(lead_id: str, user: dict = Depends(require_permission("leads", "update"))):
     lead = await _lead(lead_id, user)
     out = await ls.rescore(lead.get("org_id", ORG_ID), lead)
-    await db.leads.update_one({"id": lead_id}, {"$set": {**out, "updated_at_score": now_iso()}})
+    await db.leads.update_one({"id": lead_id, "org_id": lead["org_id"]},
+                              {"$set": {**out, "updated_at_score": now_iso()}})
     return {"data": serialize_doc(out), "message": f"Skor dinilai ulang: {out['score']}."}
 
 
@@ -83,7 +84,8 @@ async def log_score_event(lead_id: str, payload: LogEventIn,
                        actor=user.get("email", "system"), org_id=org,
                        meta={"event_key": ev["key"], "points": ev["points"]})
     out = await ls.rescore(org, lead)
-    await db.leads.update_one({"id": lead_id}, {"$set": {**out, "updated_at_score": now_iso()}})
+    await db.leads.update_one({"id": lead_id, "org_id": lead["org_id"]},
+                              {"$set": {**out, "updated_at_score": now_iso()}})
     return {"data": serialize_doc(out), "message": f"Event '{ev['label']}' dicatat. Skor: {out['score']}."}
 
 

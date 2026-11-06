@@ -12,6 +12,7 @@ Kompatibilitas dijaga ketat (tidak ada rename berisiko):
   * `units.type` (teks tipe) tetap diisi untuk kode lama; ditambah `unit_type_id`/`unit_type_code`
 """
 import logging
+import re
 
 import numbering as nb
 import reference as ref
@@ -391,9 +392,10 @@ async def units_listing(org: str = ORG_ID, *, project_id=None, cluster_id=None, 
         if val:
             query[field] = {"$in": val.split(",")} if isinstance(val, str) and "," in val else val
     if q:
-        query["$or"] = [{"code": {"$regex": q, "$options": "i"}},
-                        {"type": {"$regex": q, "$options": "i"}},
-                        {"lead_name": {"$regex": q, "$options": "i"}}]
+        qre = re.escape(q)  # AZ-08
+        query["$or"] = [{"code": {"$regex": qre, "$options": "i"}},
+                        {"type": {"$regex": qre, "$options": "i"}},
+                        {"lead_name": {"$regex": qre, "$options": "i"}}]
     total = await db.units.count_documents(query)
     key = SORTABLE.get(sort, "code")
     rows = await db.units.find(query, {"_id": 0}).sort(

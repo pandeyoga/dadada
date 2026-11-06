@@ -5,6 +5,8 @@ to a project with a contract value + retention. SPK are the contractual basis fo
 subcon Purchase Orders / bills in the procurement pillar. Read is org-scoped;
 project-scoped roles (PM/site) only see SPK for their assigned projects.
 """
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 from typing import List
 
@@ -54,9 +56,10 @@ async def list_subcontractors(q: str = None, active: str = None,
     if active in ("true", "false"):
         fq["is_active"] = active == "true"
     if q:
-        fq["$or"] = [{"name": {"$regex": q, "$options": "i"}},
-                     {"code": {"$regex": q, "$options": "i"}},
-                     {"specialty": {"$regex": q, "$options": "i"}}]
+        qre = re.escape(q)  # AZ-08: input pemakai bukan pola regex
+        fq["$or"] = [{"name": {"$regex": qre, "$options": "i"}},
+                     {"code": {"$regex": qre, "$options": "i"}},
+                     {"specialty": {"$regex": qre, "$options": "i"}}]
     rows = await db.subcontractors.find(fq, {"_id": 0}).sort("name", 1).to_list(500)
     for r in rows:
         r["active_spk"] = await db.spk.count_documents(
@@ -107,7 +110,7 @@ async def update_subcontractor(sid: str, payload: SubcontractorUpdate,
     upd = {k: v for k, v in payload.dict(exclude_unset=True).items()}
     upd["updated_at"] = now_iso()
     await db.subcontractors.update_one({"id": sid, "org_id": org}, {"$set": upd})
-    fresh = await db.subcontractors.find_one({"id": sid}, {"_id": 0})
+    fresh = await db.subcontractors.find_one({"id": sid, "org_id": org}, {"_id": 0})
     # SSOT: samakan nama yang dikopi ke SPK/termin/CO/PO (dulu jadi basi saat rename).
     await cascade_master_change("subcontractors", sid, fresh)
     return {"data": serialize_doc(fresh)}
@@ -204,7 +207,7 @@ async def create_spk_from_rab(payload: SPKFromRabIn,
     unit_codes = sorted({ln.get("unit_code") for ln in lines if ln.get("unit_code")})
     extra = {"spk_kind": payload.spk_kind, "rab_lines": lines, "unit_ids": payload.unit_ids, "unit_codes": unit_codes,
              "rab_total": sum(ln["rab_amount"] for ln in lines), "override_count": sum(1 for ln in lines if ln["override"])}
-    await db.spk.update_one({"id": doc["id"]}, {"$set": extra})
+    await db.spk.update_one({"id": doc["id"], "org_id": org}, {"$set": extra})
     doc.update(extra)
     doc["auto_scope"] = await re_.auto_scope_lines(org, doc, lines, user.get("email"))
     return {"data": serialize_doc(doc)}
@@ -345,7 +348,7 @@ async def update_spk(sid: str, payload: SPKUpdate,
         upd["progress_pct"] = max(0, min(100, int(upd["progress_pct"])))
     upd["updated_at"] = now_iso()
     await db.spk.update_one({"id": sid, "org_id": doc["org_id"]}, {"$set": upd})
-    return {"data": serialize_doc(await db.spk.find_one({"id": sid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.spk.find_one({"id": sid, "org_id": doc["org_id"]}, {"_id": 0}))}
 
 
 @router.post("/spk/{sid}/status")
@@ -376,4 +379,4 @@ async def spk_status(sid: str, payload: SPKStatusUpdate,
     await add_activity(entity_type="project", entity_id=doc["project_id"], type="system",
                        body=f"SPK {doc.get('spk_number')} → status {payload.status}.",
                        actor=user.get("email"), org_id=doc["org_id"])
-    return {"data": serialize_doc(await db.spk.find_one({"id": sid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.spk.find_one({"id": sid, "org_id": doc["org_id"]}, {"_id": 0}))}

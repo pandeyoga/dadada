@@ -20,11 +20,14 @@ import payment_intake as intake
 import proof_sniff
 import reference as ref
 import storage
-from core_utils import new_id, now_iso, serialize_doc, due_in, normalize_phone_e164
+from core_utils import new_id, now_iso, serialize_doc, due_in
 from engine import build_s_curve, auto_create_task, create_notification
 from pdf_utils import build_document_pdf
 import booking_fee as bf
 from portal_security import create_portal_token, get_portal_user
+from portal_identity import find_portal_user, customer_of
+import portal_otp
+import file_serving
 from notifications import send_whatsapp, gen_otp
 import handover_engine as he
 import warranty_engine as we
@@ -37,43 +40,9 @@ router = APIRouter(prefix="/portal", tags=["portal"])
 
 
 # ----------------------------- helpers -----------------------------
-def _norm(ident: str):
-    ident = (ident or "").strip()
-    if "@" in ident:
-        return "email", ident.lower()
-    return "phone", normalize_phone_e164(ident)
-
-
-async def _find_portal_user(ident: str):
-    """Auto-provision dari customer — atau LEAD pemegang reservasi (booking fee, Fase 69B)."""
-    kind, val = _norm(ident)
-    pu = await db.portal_users.find_one({kind: val}, {"_id": 0})
-    if pu:
-        return pu
-    cust = await db.customers.find_one({kind: val}, {"_id": 0})
-    lead = None
-    if not cust:
-        lead = await db.leads.find_one({kind: val}, {"_id": 0})
-        if not lead or not await db.deals.find_one(
-                {"lead_id": lead["id"], "status": {"$in": ["reserved", "booked"]}}, {"_id": 1}):
-            return None
-    src = cust or lead
-    ts = now_iso()
-    pu = {"id": new_id(), "org_id": src.get("org_id", ORG_ID), "is_active": True,
-          "customer_id": cust["id"] if cust else None, "lead_id": None if cust else lead["id"],
-          "name": src.get("name"), "phone": src.get("phone"), "email": src.get("email"),
-          "created_at": ts, "last_login_at": None}
-    await db.portal_users.insert_one(dict(pu))
-    pu.pop("_id", None)
-    return pu
-
-
-async def _customer(pu: dict) -> dict:
-    cust = await db.customers.find_one({"id": pu.get("customer_id")}, {"_id": 0}) if pu.get("customer_id") else None
-    if cust: return cust  # noqa: E701
-    lead = await db.leads.find_one({"id": pu.get("lead_id")}, {"_id": 0}) if pu.get("lead_id") else None
-    return ({"id": lead["id"], "lead_id": lead["id"], "name": lead.get("name"), "is_lead": True,
-             "phone": lead.get("phone"), "email": lead.get("email")} if lead else {})
+# Pencarian identitas pembeli & pelanggan ada di `portal_identity` (AZ-02: ber-scope org_id).
+_find_portal_user = find_portal_user
+_customer = customer_of
 
 
 async def _deals(pu: dict, customer: dict) -> list:
@@ -107,6 +76,7 @@ async def request_otp(payload: PortalOtpRequest):
     pu = await _find_portal_user(payload.identifier)
     if not pu:
         raise HTTPException(status_code=404, detail="Data pembeli tidak ditemukan untuk kontak tersebut.")
+    portal_otp.throttle_request(pu["id"])   # AZ-10: batasi permintaan kode baru per pembeli
     code = gen_otp()
     await db.portal_otps.update_one(
         {"portal_user_id": pu["id"]},
@@ -148,13 +118,9 @@ async def verify_otp(payload: PortalOtpVerify):
     if not code:
         raise HTTPException(status_code=400, detail="Kode OTP wajib diisi.")
     if not master or code != master:
-        rec = await db.portal_otps.find_one({"portal_user_id": pu["id"]}, {"_id": 0})
-        if not rec or rec.get("code") != code:
-            raise HTTPException(status_code=400, detail="Kode OTP salah.")
-        if rec.get("expires_at") and rec["expires_at"] < now_iso():
-            raise HTTPException(status_code=400, detail="Kode OTP kedaluwarsa. Minta kode baru.")
+        await portal_otp.check_code(pu["id"], code)   # AZ-10: maks 5 percobaan per OTP
     await db.portal_otps.delete_one({"portal_user_id": pu["id"]})
-    await db.portal_users.update_one({"id": pu["id"]}, {"$set": {"last_login_at": now_iso()}})
+    await db.portal_users.update_one({"id": pu["id"], "org_id": pu.get("org_id", ORG_ID)}, {"$set": {"last_login_at": now_iso()}})
     token = create_portal_token(pu)
     return {"token": token, "profile": {"name": pu.get("name"), "customer_id": pu.get("customer_id"),
                                          "phone": pu.get("phone"), "email": pu.get("email")}}
@@ -176,8 +142,8 @@ async def overview(pu: dict = Depends(get_portal_user)):
     deals = await _deals(pu, cust)
     out = []
     for d in deals:
-        unit = await db.units.find_one({"id": d.get("unit_id")}, {"_id": 0}) or {}
-        project = await db.projects.find_one({"id": d.get("project_id")}, {"_id": 0}) or {}
+        unit = await db.units.find_one({"id": d.get("unit_id"), "org_id": org}, {"_id": 0}) or {}
+        project = await db.projects.find_one({"id": d.get("project_id"), "org_id": org}, {"_id": 0}) or {}
         inv = await db.ar_invoices.find_one({"org_id": org, "deal_id": d["id"]}, {"_id": 0})
         fin = await db.financing_apps.find_one({"org_id": org, "deal_id": d["id"]}, {"_id": 0})
         doc_count = await db.documents.count_documents({"org_id": org, "deal_id": d["id"]})
@@ -215,7 +181,7 @@ async def portal_kpr(pu: dict = Depends(get_portal_user)):
         contract = await db.contracts.find_one({"org_id": org, "deal_id": d["id"]}, {"_id": 0})
         if not contract or contract.get("scheme") != "kpr":
             continue
-        unit = await db.units.find_one({"id": d.get("unit_id")}, {"_id": 0, "code": 1}) or {}
+        unit = await db.units.find_one({"id": d.get("unit_id"), "org_id": org}, {"_id": 0, "code": 1}) or {}
         sched = await kpr.schedule_of(org, contract)
         sched.pop("amendments", None)
         out.append({"deal_id": d["id"], "unit_code": unit.get("code"), **sched})
@@ -290,7 +256,7 @@ async def upload_payment_proof(file: UploadFile = File(...), deal_id: str = Form
             optimize=ctype.startswith("image/"), watermark_lines=None)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    await db.files.update_one({"id": rec["id"]},
+    await db.files.update_one({"id": rec["id"], "org_id": org},
                               {"$set": {"portal_customer_id": cust.get("id")}})
     return {"data": {"id": rec["id"], "filename": rec.get("original_filename"),
                      "content_type": rec.get("content_type"), "size": rec.get("size")},
@@ -348,7 +314,7 @@ async def progress(pu: dict = Depends(get_portal_user)):
     deals = await _deals(pu, cust)
     result = []
     for d in deals:
-        unit = await db.units.find_one({"id": d.get("unit_id")}, {"_id": 0}) or {}
+        unit = await db.units.find_one({"id": d.get("unit_id"), "org_id": org}, {"_id": 0}) or {}
         phases = await db.construction_phases.find(
             {"org_id": org, "project_id": d.get("project_id")}, {"_id": 0}).sort("order", 1).to_list(300)
         # Fase 28b — bukti visual: foto lapangan (punch berfoto pada unit ini + buku
@@ -466,8 +432,9 @@ async def portal_file(file_id: str, request: Request, variant: str = Query(None)
         data, ctype = await storage.get_file_bytes(path, rec.get("provider"))
     except FileNotFoundError:
         raise HTTPException(404, "Objek foto tidak ada di storage.")
-    return Response(content=data, media_type=want_type or ctype,
-                    headers={"Cache-Control": "private, max-age=3600"})
+    return Response(content=data, media_type=want_type or ctype,   # AZ-07: nosniff + attachment selain gambar/PDF
+                    headers={**file_serving.headers(rec.get("original_filename"), want_type or ctype, file_id),
+                             "Cache-Control": "private, max-age=3600"})
 
 
 @router.get("/documents")
@@ -555,7 +522,7 @@ async def create_complaint(payload: ComplaintCreate, pu: dict = Depends(get_port
     deal = next((d for d in deals if d["id"] == payload.deal_id), deals[0] if deals else None)
     unit_code, unit_id = None, None
     if deal:
-        unit = await db.units.find_one({"id": deal.get("unit_id")}, {"_id": 0}) or {}
+        unit = await db.units.find_one({"id": deal.get("unit_id"), "org_id": org}, {"_id": 0}) or {}
         unit_code = unit.get("code")
         # Fase 50A: komplain dulu hanya menyimpan KODE unit, bukan id-nya. Akibatnya tidak
         # ada satu pun jalan otomatis dari keluhan pembeli ke rumahnya (dan ke masa

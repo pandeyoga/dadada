@@ -56,7 +56,9 @@ async def create_manual_complaint(payload: ComplaintManualCreate,
     if is_scoped_sales(user) and deal and deal.get("assigned_to") != user.get("email"):
         raise HTTPException(status_code=403, detail="Akses ditolak: bukan pembeli Anda")
     unit_id = payload.unit_id or (deal or {}).get("unit_id")
-    unit = await db.units.find_one({"id": unit_id}, {"_id": 0, "code": 1}) if unit_id else None
+    unit = await db.units.find_one({"id": unit_id, "org_id": org}, {"_id": 0, "code": 1}) if unit_id else None
+    if payload.unit_id and not unit:   # AZ-02: unit dari payload wajib milik organisasi pemakai
+        raise HTTPException(status_code=404, detail="Unit tidak ditemukan.")
     ts = now_iso()
     cid = new_id()
     sla = due_in(hours=48)
@@ -223,11 +225,11 @@ async def respond_complaint(cid: str, payload: ComplaintRespond,
         setter["resolved_at"] = ts
     await db.complaints.update_one({"id": cid, "org_id": doc["org_id"]},
                                    {"$push": {"responses": resp}, "$set": setter})
-    cust = await db.customers.find_one({"id": doc.get("customer_id")}, {"_id": 0}) or {}
+    cust = await db.customers.find_one({"id": doc.get("customer_id"), "org_id": doc["org_id"]}, {"_id": 0}) or {}
     await send_whatsapp(cust.get("phone"),
                         f"Update komplain '{doc.get('subject')}': {payload.message}")
     await audit_log(user, "respond", "complaints", cid)
-    fresh = _mark_breach(await db.complaints.find_one({"id": cid}, {"_id": 0}), now_iso())
+    fresh = _mark_breach(await db.complaints.find_one({"id": cid, "org_id": doc["org_id"]}, {"_id": 0}), now_iso())
     return {"data": serialize_doc(fresh)}
 
 
@@ -250,7 +252,7 @@ async def update_status(cid: str, payload: ComplaintStatusUpdate,
                                        "at": ts, "staff": True, "system": True}}
     await db.complaints.update_one({"id": cid, "org_id": doc["org_id"]}, upd)
     await audit_log(user, "status", "complaints", cid, {"status": payload.status})
-    fresh = _mark_breach(await db.complaints.find_one({"id": cid}, {"_id": 0}), now_iso())
+    fresh = _mark_breach(await db.complaints.find_one({"id": cid, "org_id": doc["org_id"]}, {"_id": 0}), now_iso())
     return {"data": serialize_doc(fresh)}
 
 
@@ -268,5 +270,5 @@ async def assign_complaint(cid: str, payload: ComplaintAssign,
         body=f"{doc.get('customer_name')}: {doc.get('subject')}", type="complaint",
         related_entity_type="deal", related_entity_id=doc.get("deal_id"), org_id=doc["org_id"])
     await audit_log(user, "assign", "complaints", cid, {"assigned_to": payload.assigned_to})
-    fresh = _mark_breach(await db.complaints.find_one({"id": cid}, {"_id": 0}), now_iso())
+    fresh = _mark_breach(await db.complaints.find_one({"id": cid, "org_id": doc["org_id"]}, {"_id": 0}), now_iso())
     return {"data": serialize_doc(fresh)}

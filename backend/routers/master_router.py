@@ -14,11 +14,20 @@ from pydantic import BaseModel
 import reference as ref
 from db import db, ORG_ID
 from core_utils import new_id, now_iso, serialize_doc
-from rbac import require_permission, audit_log
+from rbac import require_permission, audit_log, is_scoped_sales
 from models_master import (DocTemplateCreate, DocTemplateUpdate,
                            QcTemplateCreate, QcTemplateUpdate)
 
 router = APIRouter(prefix="/master", tags=["master-data"])
+
+
+def _assert_template_editable(user: dict, tpl: dict) -> None:
+    """AZ-06: sales (scope "own") hanya boleh mengubah/mengarsipkan template BUATANNYA sendiri.
+    Template bawaan/buatan orang lain hanya untuk peran non-sales yang punya `documents:update`."""
+    if is_scoped_sales(user) and tpl.get("created_by") != user.get("email"):
+        raise HTTPException(status_code=403, detail=(
+            "Akses ditolak: template ini bukan buatan Anda. Minta manajer penjualan/admin "
+            "dokumen untuk mengubahnya."))
 
 
 # ----------------------------- document templates -----------------------------
@@ -55,13 +64,14 @@ async def update_doc_template(tid: str, payload: DocTemplateUpdate,
     cur = await db.document_templates.find_one({"id": tid, "org_id": org}, {"_id": 0})
     if not cur:
         raise HTTPException(status_code=404, detail="Template dokumen tidak ditemukan.")
+    _assert_template_editable(user, cur)
     upd = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     if not upd:
         return {"data": serialize_doc(cur)}
     upd["updated_at"] = now_iso()
     await db.document_templates.update_one({"id": tid, "org_id": org}, {"$set": upd})
     await audit_log(user, "update", "document_templates", tid, {"fields": sorted(upd)})
-    return {"data": serialize_doc(await db.document_templates.find_one({"id": tid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.document_templates.find_one({"id": tid, "org_id": org}, {"_id": 0}))}
 
 
 @router.delete("/doc-templates/{tid}")
@@ -69,9 +79,16 @@ async def archive_doc_template(tid: str,
                                user: dict = Depends(require_permission("documents", "update"))):
     """Arsip (soft delete) — dokumen yang sudah terbit tetap merujuk template ini."""
     org = user.get("org_id", ORG_ID)
+    flt = {"id": tid, "org_id": org}
+    if is_scoped_sales(user):      # AZ-06: sales hanya boleh mengarsipkan buatannya sendiri
+        flt["created_by"] = user.get("email")
     res = await db.document_templates.update_one(
-        {"id": tid, "org_id": org}, {"$set": {"is_active": False, "updated_at": now_iso()}})
+        flt, {"$set": {"is_active": False, "updated_at": now_iso()}})
     if not res.matched_count:
+        if "created_by" in flt and await db.document_templates.count_documents({"id": tid, "org_id": org}):
+            raise HTTPException(status_code=403, detail=(
+                "Akses ditolak: template ini bukan buatan Anda. Minta manajer penjualan/admin "
+                "dokumen untuk mengarsipkannya."))
         raise HTTPException(status_code=404, detail="Template dokumen tidak ditemukan.")
     await audit_log(user, "archive", "document_templates", tid)
     return {"data": {"id": tid, "is_active": False}}
@@ -140,7 +157,7 @@ async def update_qc_template(tid: str, payload: QcTemplateUpdate,
     upd["updated_at"] = now_iso()
     await db.inspection_templates.update_one({"id": tid, "org_id": org}, {"$set": upd})
     await audit_log(user, "update", "inspection_templates", tid, {"fields": sorted(upd)})
-    return {"data": serialize_doc(await db.inspection_templates.find_one({"id": tid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.inspection_templates.find_one({"id": tid, "org_id": org}, {"_id": 0}))}
 
 
 @router.delete("/qc-templates/{tid}")
@@ -204,7 +221,7 @@ async def phone_fix(body: PhoneFixIn, user: dict = Depends(require_permission("s
         if clash:
             raise HTTPException(status_code=409,
                                 detail=f"Nomor {norm} sudah dipakai baris lain ({clash.get('name') or clash.get('id')}).")
-    await db[body.collection].update_one({"id": body.id}, {"$set": {field: norm, "updated_at": now_iso()}})
+    await db[body.collection].update_one({"id": body.id, "org_id": org}, {"$set": {field: norm, "updated_at": now_iso()}})
     await audit_log(user, "update", body.collection, body.id,
                     meta={"field": field, "from": row.get(field), "to": norm, "reason": "phone_fix"})
     msg = f"Nomor diperbarui menjadi {norm}." if norm else "Nomor dihapus dari baris."
@@ -275,7 +292,7 @@ async def _orphan_references(org: str) -> list:
     async def parent_ids(coll: str) -> set:
         if coll not in cache:
             cache[coll] = {d["id"] for d in
-                           await db[coll].find({}, {"_id": 0, "id": 1}).to_list(20000) if d.get("id")}
+                           await db[coll].find({"org_id": org}, {"_id": 0, "id": 1}).to_list(20000) if d.get("id")}
         return cache[coll]
 
     for child, fk, parent in ORPHAN_CHECKS:
@@ -283,7 +300,7 @@ async def _orphan_references(org: str) -> list:
             continue
         if parent is None:
             rows = await db[child].find(
-                {"related_entity_id": {"$ne": None}},
+                {"org_id": org, "related_entity_id": {"$ne": None}},
                 {"_id": 0, "id": 1, "title": 1, "related_entity_type": 1,
                  "related_entity_id": 1}).to_list(5000)
             for r in rows:
@@ -296,7 +313,7 @@ async def _orphan_references(org: str) -> list:
                                 "label": r.get("title")})
             continue
         ids = await parent_ids(parent)
-        rows = await db[child].find({fk: {"$ne": None}}, {"_id": 0, "id": 1, fk: 1}).to_list(20000)
+        rows = await db[child].find({"org_id": org, fk: {"$ne": None}}, {"_id": 0, "id": 1, fk: 1}).to_list(20000)
         for r in rows:
             if r.get(fk) not in ids:
                 out.append({"collection": child, "id": r.get("id"), "field": fk,

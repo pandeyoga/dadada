@@ -33,7 +33,8 @@ def _clean(payload: dict) -> dict:
 async def _attach_files(cust: dict) -> dict:
     ids = [f["file_id"] for f in (cust.get("kyc_files") or [])]
     if ids:
-        metas = await db.files.find({"id": {"$in": ids}, "is_deleted": False},
+        # AZ-02: berkas KYC hanya dari organisasi pemilik pelanggan (id berasal dari dokumen pelanggan).
+        metas = await db.files.find({"id": {"$in": ids}, "org_id": cust.get("org_id"), "is_deleted": False},
                                     {"_id": 0, "data_b64": 0}).to_list(100)
         by_id = {m["id"]: m for m in metas}
         for f in cust.get("kyc_files", []):

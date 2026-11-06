@@ -11,6 +11,7 @@ dibuang metadata EXIF/GPS-nya, dan dibuatkan thumbnail. Galeri memakai
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Request
 from fastapi.responses import Response
 
+import file_serving
 import photo_utils
 import storage
 from core_utils import serialize_doc, parse_pagination
@@ -50,21 +51,23 @@ async def _derive_context(org_id: str, owner_type: str, owner_id: str) -> str:
     """
     if not owner_id:
         return None
-    proj = await db.projects.find_one({"id": owner_id}, {"_id": 0, "name": 1})
+    # AZ-02: id pemilik datang dari formulir — cari HANYA di organisasi pengunggah, supaya nama
+    # proyek/kavling/temuan organisasi lain tidak ikut tercetak pada watermark.
+    proj = await db.projects.find_one({"id": owner_id, "org_id": org_id}, {"_id": 0, "name": 1})
     if proj:
         return proj.get("name")
-    unit = await db.units.find_one({"id": owner_id}, {"_id": 0, "code": 1, "project_id": 1})
+    unit = await db.units.find_one({"id": owner_id, "org_id": org_id}, {"_id": 0, "code": 1, "project_id": 1})
     if unit:
-        p = await db.projects.find_one({"id": unit.get("project_id")}, {"_id": 0, "name": 1}) or {}
+        p = await db.projects.find_one({"id": unit.get("project_id"), "org_id": org_id}, {"_id": 0, "name": 1}) or {}
         return " · ".join(x for x in [p.get("name"), f"Kavling {unit.get('code')}"] if x)
-    punch = await db.punch_items.find_one({"id": owner_id},
+    punch = await db.punch_items.find_one({"id": owner_id, "org_id": org_id},
                                           {"_id": 0, "title": 1, "unit_code": 1, "project_id": 1})
     if punch:
-        p = await db.projects.find_one({"id": punch.get("project_id")}, {"_id": 0, "name": 1}) or {}
+        p = await db.projects.find_one({"id": punch.get("project_id"), "org_id": org_id}, {"_id": 0, "name": 1}) or {}
         return " · ".join(x for x in [p.get("name"),
                                       f"Kavling {punch['unit_code']}" if punch.get("unit_code") else None,
                                       punch.get("title")] if x)[:70]
-    task = await db.tasks.find_one({"id": owner_id}, {"_id": 0, "title": 1})
+    task = await db.tasks.find_one({"id": owner_id, "org_id": org_id}, {"_id": 0, "title": 1})
     if task:
         return str(task.get("title") or "")[:70]
     return None
@@ -110,7 +113,7 @@ async def upload_file(file: UploadFile = File(...), owner_type: str = Form("gene
         geo = bpol.geo_doc({"lat": lat, "lng": lng, "accuracy": accuracy,
                             "captured_at": captured_at})
         if geo:
-            await db.files.update_one({"id": rec["id"]}, {"$set": {"geo": geo}})
+            await db.files.update_one({"id": rec["id"], "org_id": org_id}, {"$set": {"geo": geo}})
             rec["geo"] = geo
     return {"data": rec}
 
@@ -145,6 +148,8 @@ async def download_file(file_id: str, request: Request, auth: str = Query(None),
         data, ctype = await storage.get_file_bytes(path, rec.get("provider"))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Objek file tidak ditemukan di storage")
-    return Response(content=data, media_type=want_type or ctype,
-                    headers={"Content-Disposition": f'inline; filename="{rec.get("original_filename", file_id)}"',
+    media = want_type or ctype
+    # AZ-07: hanya gambar raster/PDF yang inline; selain itu attachment + nosniff.
+    return Response(content=data, media_type=media,
+                    headers={**file_serving.headers(rec.get("original_filename"), media, file_id),
                              "Cache-Control": "private, max-age=3600"})

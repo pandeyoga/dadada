@@ -8,6 +8,7 @@ import notif_prefs as npf
 from db import db, ORG_ID
 from core_utils import now_iso, serialize_doc, parse_pagination
 from rbac import require_permission
+from org_scope import get_in_org
 from engine import add_activity, create_notification
 from models import ActivityCreate, CommentCreate
 from models_p65 import NotifGroupAction, NotifPrefsUpdate
@@ -39,9 +40,8 @@ async def create_activity(payload: ActivityCreate,
 @router.post("/activities/{activity_id}/comment")
 async def reply_comment(activity_id: str, payload: CommentCreate,
                         user: dict = Depends(require_permission("activities", "create"))):
-    parent = await db.activities.find_one({"id": activity_id}, {"_id": 0})
-    if not parent:
-        raise HTTPException(status_code=404, detail="Aktivitas tidak ditemukan")
+    # AZ-02: induk komentar wajib dari organisasi pemakai (dulu pengguna org lain bisa membalas).
+    parent = await get_in_org(db.activities, activity_id, user, name="Aktivitas")
     doc = await add_activity(
         entity_type=parent["entity_type"], entity_id=parent["entity_id"], body=payload.body,
         type="comment", actor=user.get("email"), mentions=payload.mentions,
@@ -141,7 +141,7 @@ async def group_read(payload: NotifGroupAction,
     if not ids:
         raise HTTPException(status_code=404, detail="Kelompok notifikasi tidak ditemukan")
     res = await db.notifications.update_many(
-        {"id": {"$in": ids}, "user_email": email, "read": False},
+        {"id": {"$in": ids}, "org_id": org, "user_email": email, "read": False},
         {"$set": {"read": True, "read_at": now_iso()}})
     return {"data": {"marked": res.modified_count, "members": len(ids)}}
 
@@ -156,7 +156,7 @@ async def group_dismiss(payload: NotifGroupAction,
         raise HTTPException(status_code=404, detail="Kelompok notifikasi tidak ditemukan")
     ts = now_iso()
     res = await db.notifications.update_many(
-        {"id": {"$in": ids}, "user_email": email},
+        {"id": {"$in": ids}, "org_id": org, "user_email": email},
         {"$set": {"dismissed_at": ts, "read": True, "read_at": ts}})
     return {"data": {"dismissed": res.modified_count, "members": len(ids)}}
 
@@ -164,7 +164,8 @@ async def group_dismiss(payload: NotifGroupAction,
 @router.post("/notifications/{notif_id}/read")
 async def mark_read(notif_id: str, user: dict = Depends(require_permission("notifications", "update"))):
     res = await db.notifications.update_one(
-        {"id": notif_id, "user_email": user.get("email")}, {"$set": {"read": True, "read_at": now_iso()}})
+        {"id": notif_id, "org_id": user.get("org_id", ORG_ID), "user_email": user.get("email")},
+        {"$set": {"read": True, "read_at": now_iso()}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Notifikasi tidak ditemukan")
     return {"message": "Ditandai sudah dibaca"}
@@ -176,7 +177,7 @@ async def dismiss(notif_id: str,
     """Sembunyikan satu notifikasi dari daftar (TIDAK dihapus — jejaknya tetap bisa diaudit)."""
     ts = now_iso()
     res = await db.notifications.update_one(
-        {"id": notif_id, "user_email": user.get("email")},
+        {"id": notif_id, "org_id": user.get("org_id", ORG_ID), "user_email": user.get("email")},
         {"$set": {"dismissed_at": ts, "read": True, "read_at": ts}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Notifikasi tidak ditemukan")
@@ -200,7 +201,7 @@ async def mark_all_read(category: str = None,
     org, email = user.get("org_id", ORG_ID), user.get("email")
     if not category:
         res = await db.notifications.update_many(
-            {"user_email": email, "read": False},
+            {"org_id": org, "user_email": email, "read": False},
             {"$set": {"read": True, "read_at": now_iso()}})
         return {"data": {"marked": res.modified_count}}
     rows = await db.notifications.find(
@@ -211,5 +212,5 @@ async def mark_all_read(category: str = None,
     if not ids:
         return {"data": {"marked": 0}}
     res = await db.notifications.update_many(
-        {"id": {"$in": ids}}, {"$set": {"read": True, "read_at": now_iso()}})
+        {"id": {"$in": ids}, "org_id": org, "user_email": email}, {"$set": {"read": True, "read_at": now_iso()}})
     return {"data": {"marked": res.modified_count}}

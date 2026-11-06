@@ -13,6 +13,8 @@ Rute:
 Semua tulisan uang bilangan bulat rupiah; keadaan "belum ada data" dikembalikan APA ADANYA
 (`state="missing_data"`) supaya layar tidak pernah menampilkan skor 0 karangan.
 """
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 
 import vendor_engine as ve
@@ -41,8 +43,9 @@ async def list_vendors(q: str = None, category: str = None, active: bool = None,
     if active is not None:
         fq["is_active"] = active
     if q:
-        fq["$or"] = [{"name": {"$regex": q, "$options": "i"}},
-                     {"code": {"$regex": q, "$options": "i"}}]
+        qre = re.escape(q)  # AZ-08
+        fq["$or"] = [{"name": {"$regex": qre, "$options": "i"}},
+                     {"code": {"$regex": qre, "$options": "i"}}]
     rows = await db.vendors.find(fq, {"_id": 0}).sort("name", 1).to_list(500)
     for r in rows:
         r["usage"] = await ve.vendor_usage(org, r)

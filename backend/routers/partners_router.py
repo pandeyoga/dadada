@@ -189,7 +189,7 @@ async def issue_fee(payload: FeeIssue,
     if not deal:
         raise HTTPException(status_code=404, detail="Deal tidak ditemukan.")
     if not deal.get("partner_id"):
-        lead = await db.leads.find_one({"id": deal.get("lead_id")}, {"_id": 0, "partner_id": 1})
+        lead = await db.leads.find_one({"id": deal.get("lead_id"), "org_id": org}, {"_id": 0, "partner_id": 1})
         if (lead or {}).get("partner_id") != partner["id"]:
             raise HTTPException(
                 status_code=400,
@@ -251,7 +251,7 @@ async def decide_conflict(conflict_id: str, payload: ConflictDecision,
                             detail="Keputusan harus memilih salah satu mitra yang mengklaim.")
     partner = await _get_partner(payload.partner_id, org)
     ts = now_iso()
-    await db.partner_attribution_conflicts.update_one({"id": conflict_id}, {"$set": {
+    await db.partner_attribution_conflicts.update_one({"id": conflict_id, "org_id": org}, {"$set": {
         "status": "overridden", "decision": payload.partner_id, "decided_by": user.get("email"),
         "decided_at": ts, "decision_reason": payload.reason}})
     lead_ids = [i for i in (conflict.get("lead_id"), conflict.get("first_lead_id")) if i]
@@ -268,7 +268,7 @@ async def decide_conflict(conflict_id: str, payload: ConflictDecision,
                        actor=user.get("email"), org_id=org)
     await audit_log(user, "update", "partner_attribution", conflict_id,
                     {"decision": payload.partner_id, "reason": payload.reason})
-    fresh = await db.partner_attribution_conflicts.find_one({"id": conflict_id}, {"_id": 0})
+    fresh = await db.partner_attribution_conflicts.find_one({"id": conflict_id, "org_id": org}, {"_id": 0})
     return {"data": serialize_doc(fresh)}
 
 

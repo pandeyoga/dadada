@@ -54,7 +54,7 @@ async def _get_item(item_id: str, user: dict) -> tuple:
     if not item:
         raise HTTPException(status_code=404, detail="Item pekerjaan tidak ditemukan")
     await assert_project_access(item["project_id"], user)
-    sched = await db.build_schedules.find_one({"id": item["schedule_id"]}, {"_id": 0})
+    sched = await db.build_schedules.find_one({"id": item["schedule_id"], "org_id": org}, {"_id": 0})
     return item, sched
 
 
@@ -182,11 +182,11 @@ async def update_template(template_id: str, payload: BuildTemplateIn,
            "version": int(tpl.get("version") or 1) + 1, "updated_at": now_iso(),
            "updated_by": user.get("email")}
     await _assert_no_overlap(org, {**tpl, **upd}, exclude_id=template_id)
-    await db.build_templates.update_one({"id": template_id}, {"$set": upd})
+    await db.build_templates.update_one({"id": template_id, "org_id": org}, {"$set": upd})
     used = await db.build_schedules.count_documents({"org_id": org, "template_id": template_id})
     await audit_log(user, "update", "build_templates", template_id,
                     {"steps": len(steps), "version": upd["version"]})
-    fresh = await db.build_templates.find_one({"id": template_id}, {"_id": 0})
+    fresh = await db.build_templates.find_one({"id": template_id, "org_id": org}, {"_id": 0})
     return {"data": serialize_doc(fresh), "warnings": await _warnings(org, fresh),
             "note": (f"{used} jadwal unit yang sudah dibuat TIDAK diubah otomatis "
                      "(bukti kerja tidak boleh bergeser). Template baru berlaku untuk "
@@ -380,8 +380,8 @@ async def delete_schedule(schedule_id: str,
             f"{done} pekerjaan sudah diverifikasi — jadwal tidak boleh dihapus "
             "(bukti kerja & jejak audit harus utuh)."))
     await db.build_items.delete_many({"org_id": org, "schedule_id": schedule_id})
-    await db.build_schedules.delete_one({"id": schedule_id})
-    await db.units.update_one({"id": sched["unit_id"]}, {"$set": {
+    await db.build_schedules.delete_one({"id": schedule_id, "org_id": org})
+    await db.units.update_one({"id": sched["unit_id"], "org_id": org}, {"$set": {
         "construction_progress": 0, "construction_status": "not_started",
         "updated_at": now_iso()}})
     await audit_log(user, "delete", "build_schedules", schedule_id,

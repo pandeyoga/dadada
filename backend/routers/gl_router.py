@@ -13,6 +13,8 @@ Endpoints (RBAC resource `gl` — finance + owner/super_admin only):
   GET  /gl/summary             — dashboard KPIs
 All GET endpoints keep query params optional (owner endpoint sweep must return 200).
 """
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from db import db, ORG_ID
@@ -85,7 +87,8 @@ async def list_journals(source_type: str = None, source_id: str = None, auto: st
     if auto in ("true", "false"):
         fq["auto"] = auto == "true"
     if q:
-        fq["$or"] = [{"memo": {"$regex": q, "$options": "i"}}, {"entry_no": {"$regex": q, "$options": "i"}}]
+        qre = re.escape(q)  # AZ-08
+        fq["$or"] = [{"memo": {"$regex": qre, "$options": "i"}}, {"entry_no": {"$regex": qre, "$options": "i"}}]
     total = await db.journal_entries.count_documents(fq)
     rows = await db.journal_entries.find(fq, {"_id": 0}).sort([("date", -1), ("created_at", -1)]).skip(skip).limit(limit).to_list(limit)
     return {"data": serialize_doc(rows), "total": total}

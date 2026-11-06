@@ -184,7 +184,7 @@ async def send_lead_wa(lead_id: str, payload: MessageCreate,
         "mode": "simulation", "created_at": ts,
     }
     await db.messages.insert_one(dict(msg))
-    await db.conversations.update_one({"id": conv["id"]}, {"$set": {
+    await db.conversations.update_one({"id": conv["id"], "org_id": org}, {"$set": {
         "last_message_at": ts, "last_direction": "out", "status": "active",
         "unanswered_task_at": None, "updated_at": ts}})
     await add_activity(entity_type="lead", entity_id=lead_id, type="system",
@@ -253,7 +253,7 @@ async def log_manual_wa(lead_id: str, payload: LeadWaManual,
         "mode": "manual", "evidence_file_ids": ids, "created_at": ts,
     }
     await db.messages.insert_one(dict(msg))
-    await db.conversations.update_one({"id": conv["id"]}, {"$set": {
+    await db.conversations.update_one({"id": conv["id"], "org_id": org}, {"$set": {
         "last_message_at": ts, "last_direction": "out", "status": "active",
         "unanswered_task_at": None, "updated_at": ts}})
     await add_activity(entity_type="lead", entity_id=lead_id, type="system",
@@ -267,7 +267,7 @@ async def log_manual_wa(lead_id: str, payload: LeadWaManual,
                                         note=f"WA manual (bukti foto): {note[:80]}")
     closed_task = None
     if task:
-        fresh_task = await db.tasks.find_one({"id": task["id"]}, {"_id": 0})
+        fresh_task = await db.tasks.find_one({"id": task["id"], "org_id": org}, {"_id": 0})
         if fresh_task.get("status") not in ("done", "cancelled"):
             proof = list(fresh_task.get("proof") or [])
             proof.append({"kind": "note", "at": ts,
@@ -279,7 +279,7 @@ async def log_manual_wa(lead_id: str, payload: LeadWaManual,
                    "verified_by": "system", "verified_at": ts,
                    "verify_note": f"Bukti foto WA manual ({len(ids)} lampiran) tervalidasi.",
                    "updated_at": ts}
-            await db.tasks.update_one({"id": task["id"]}, {"$set": upd})
+            await db.tasks.update_one({"id": task["id"], "org_id": org}, {"$set": upd})
             closed_task = {**fresh_task, **upd}
         else:
             closed_task = fresh_task
@@ -320,7 +320,7 @@ async def inbound_demo(lead_id: str, payload: MessageCreate,
     await db.messages.insert_one({
         "id": new_id(), "org_id": org, "conversation_id": conv["id"], "direction": "in",
         "body": body, "sender": "contact", "mode": "simulation", "created_at": ts})
-    await db.conversations.update_one({"id": conv["id"]}, {"$set": {
+    await db.conversations.update_one({"id": conv["id"], "org_id": org}, {"$set": {
         "last_message_at": ts, "last_direction": "in", "status": "active",
         "window_expires_at": due_in(hours=24), "unread": 1, "updated_at": ts}})
     await add_activity(entity_type="lead", entity_id=lead_id, type="system",
@@ -328,7 +328,7 @@ async def inbound_demo(lead_id: str, payload: MessageCreate,
                        actor="contact", org_id=org)
     await emit("message.received", "conversation", conv["id"], {"body": body}, org_id=org)
     await dispatch_pending()
-    fresh = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    fresh = await db.leads.find_one({"id": lead_id, "org_id": org}, {"_id": 0})
     return {"data": serialize_doc(fresh), "window_open": True, "mode": "simulation"}
 
 

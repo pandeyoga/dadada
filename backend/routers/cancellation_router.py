@@ -160,5 +160,5 @@ async def document_of(contract_id: str,
     if not row:
         return {"data": None,
                 "reason": "Belum ada berita acara pembatalan pada kontrak ini."}
-    doc = await db.documents.find_one({"id": row["document_id"]}, {"_id": 0, "content": 0})
+    doc = await db.documents.find_one({"id": row["document_id"], "org_id": _org(user)}, {"_id": 0, "content": 0})
     return {"data": serialize_doc(doc)}

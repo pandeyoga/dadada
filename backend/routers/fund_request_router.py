@@ -1,4 +1,6 @@
 """Pengajuan keuangan: siapa pun mengajukan; finance/owner menyetujui & mencairkan (SoD)."""
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 
 import fund_requests as fr
@@ -41,9 +43,10 @@ async def listing(status: str = None, type: str = None, q: str = None, skip: int
     if type:
         query["type"] = type
     if q:
-        query["$or"] = [{"no": {"$regex": q, "$options": "i"}},
-                        {"title": {"$regex": q, "$options": "i"}},
-                        {"requester_name": {"$regex": q, "$options": "i"}}]
+        qre = re.escape(q)  # AZ-08
+        query["$or"] = [{"no": {"$regex": qre, "$options": "i"}},
+                        {"title": {"$regex": qre, "$options": "i"}},
+                        {"requester_name": {"$regex": qre, "$options": "i"}}]
     total = await db[fr.COLL].count_documents(query)
     rows = await db[fr.COLL].find(query, {"_id": 0}).sort("created_at", -1) \
         .skip(skip).limit(limit).to_list(limit)

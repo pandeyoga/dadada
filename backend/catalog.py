@@ -12,6 +12,7 @@ dikeraskan di kode — sehingga kebijakan akuntansi (mis. BPHTB sebagai titipan 
 pendapatan jasa) bisa diubah admin tanpa deploy.
 """
 import logging
+import re
 
 import numbering as nb
 import reference as ref
@@ -113,8 +114,9 @@ async def list_unit_types(org: str = ORG_ID, q: str = None, active: bool = None)
     if active is not None:
         query["active"] = active
     if q:
-        query["$or"] = [{"code": {"$regex": q, "$options": "i"}},
-                        {"name": {"$regex": q, "$options": "i"}}]
+        qre = re.escape(q)  # AZ-08
+        query["$or"] = [{"code": {"$regex": qre, "$options": "i"}},
+                        {"name": {"$regex": qre, "$options": "i"}}]
     rows = await db.unit_types.find(query, {"_id": 0}).sort("code", 1).to_list(500)
     for r in rows:
         r["units_count"] = await db.units.count_documents(

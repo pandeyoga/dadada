@@ -9,6 +9,7 @@ from pydantic import BaseModel
 import reference as ref
 import settings_store as cfg
 from db import db, ORG_ID
+from rbac import require_permission
 from security import get_current_user
 
 router = APIRouter(prefix="/reference", tags=["reference"])
@@ -90,9 +91,13 @@ class NewValueIn(BaseModel):
 
 @router.post("/{group}/values")
 async def add_reference_value(group: str, payload: NewValueIn,
-                              user: dict = Depends(get_current_user)):
+                              user: dict = Depends(require_permission("settings", "manage"))):
     """Simpan nilai baru grup dinamis ke MASTER organisasi (bukan hanya di form yang sedang
-    diisi) — bank/jenis izin yang ditambah lewat pemilih tetap ada walau form batal disimpan."""
+    diisi) — bank/jenis izin yang ditambah lewat pemilih tetap ada walau form batal disimpan.
+
+    AZ-05: mengubah master organisasi = `settings:manage` (dulu cukup login: peran apa pun
+    bisa menambah "Bank KPR"/"Jenis Izin" tanpa persetujuan). Pemilih di UI (`addValue`)
+    menelan 403 dan memakai nilai itu hanya pada formulir yang sedang diisi."""
     g = ref.GROUPS.get(group)
     if not g:
         raise HTTPException(status_code=404, detail=f"Grup reference '{group}' tidak ada.")

@@ -149,7 +149,7 @@ async def update_items(iid: str, payload: InspectionItemsUpdate,
     items = list(by_key.values())
     await db.inspections.update_one({"id": iid, "org_id": org},
                                     {"$set": {"items": items, **_counts(items), "updated_at": now_iso()}})
-    return {"data": serialize_doc(await db.inspections.find_one({"id": iid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.inspections.find_one({"id": iid, "org_id": org}, {"_id": 0}))}
 
 
 @router.put("/{iid}/schedule")
@@ -189,7 +189,7 @@ async def schedule_inspection(iid: str, payload: InspectionScheduleIn,
                              f"Tanggal rencana inspeksi {insp.get('inspection_number')} "
                              "dihapus."),
                        actor=user.get("email"), org_id=org)
-    return {"data": serialize_doc(await db.inspections.find_one({"id": iid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.inspections.find_one({"id": iid, "org_id": org}, {"_id": 0}))}
 
 
 @router.post("/{iid}/finalize")
@@ -263,4 +263,4 @@ async def finalize(iid: str, user: dict = Depends(require_permission("constructi
 
     await add_activity(entity_type="project", entity_id=insp["project_id"], type="system",
                        body=body, actor=user.get("email"), org_id=org)
-    return {"data": serialize_doc(await db.inspections.find_one({"id": iid}, {"_id": 0}))}
+    return {"data": serialize_doc(await db.inspections.find_one({"id": iid, "org_id": org}, {"_id": 0}))}

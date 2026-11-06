@@ -9,6 +9,7 @@ import sequences
 from db import db, ORG_ID, ORG_NAME
 from core_utils import new_id, now_iso, serialize_doc, parse_pagination
 from rbac import require_permission, scope_query, is_scoped_sales
+from org_scope import get_in_org
 from engine import add_activity, dispatch_pending, emit
 from models import DocumentCreate, DocumentSign
 from pdf_utils import build_document_pdf
@@ -87,7 +88,7 @@ async def create_document(payload: DocumentCreate,
             "SPR resmi lahir dari kontrak — jadikan deal ini Pembeli dulu (booking → Jadikan "
             "Pembeli), lalu terbitkan SPR sesuai skema dari kontraknya."))
     # PPJB guard (prasyarat): butuh progress konstruksi >= 20%
-    unit = await db.units.find_one({"id": deal.get("unit_id")}, {"_id": 0}) or {}
+    unit = await db.units.find_one({"id": deal.get("unit_id"), "org_id": org}, {"_id": 0}) or {}
     if payload.template_code == "PPJB" and (unit.get("construction_progress") or 0) < 20:
         raise HTTPException(status_code=400,
                             detail="PPJB ditolak: progres konstruksi < 20% (prasyarat belum terpenuhi).")
@@ -97,8 +98,8 @@ async def create_document(payload: DocumentCreate,
         if not rr:
             raise HTTPException(status_code=400,
                                 detail="AJB ditolak: BAST/serah terima belum dilakukan (prasyarat belum terpenuhi).")
-    lead = await db.leads.find_one({"id": deal.get("lead_id")}, {"_id": 0}) or {}
-    project = await db.projects.find_one({"id": deal.get("project_id")}, {"_id": 0}) or {}
+    lead = await db.leads.find_one({"id": deal.get("lead_id"), "org_id": org}, {"_id": 0}) or {}
+    project = await db.projects.find_one({"id": deal.get("project_id"), "org_id": org}, {"_id": 0}) or {}
     ts = now_iso()
     year = ts[:4]
     doc_number = await sequences.next_number(f"document:{payload.template_code}", org,
@@ -132,9 +133,8 @@ async def create_document(payload: DocumentCreate,
 
 
 async def _get_doc_scoped(doc_id: str, user: dict) -> dict:
-    d = await db.documents.find_one({"id": doc_id}, {"_id": 0})
-    if not d:
-        raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
+    # AZ-01: wajib dalam organisasi pemakai (lintas-org = 404).
+    d = await get_in_org(db.documents, doc_id, user, name="Dokumen")
     if is_scoped_sales(user) and d.get("assigned_to") != user.get("email"):
         raise HTTPException(status_code=403, detail="Akses ditolak: bukan dokumen Anda")
     return d
@@ -152,8 +152,9 @@ async def finalize_document(doc_id: str, user: dict = Depends(require_permission
     if d.get("status") != "draft":
         raise HTTPException(status_code=400, detail="Hanya dokumen draft yang bisa difinalisasi.")
     ts = now_iso()
-    await db.documents.update_one({"id": doc_id}, {"$set": {"status": "finalized", "finalized_at": ts, "updated_at": ts}})
-    fresh = await db.documents.find_one({"id": doc_id}, {"_id": 0})
+    await db.documents.update_one({"id": doc_id, "org_id": d["org_id"]},
+                                  {"$set": {"status": "finalized", "finalized_at": ts, "updated_at": ts}})
+    fresh = await db.documents.find_one({"id": doc_id, "org_id": d["org_id"]}, {"_id": 0})
     return {"data": serialize_doc(fresh)}
 
 
@@ -178,7 +179,7 @@ async def sign_document(doc_id: str, payload: DocumentSign,
         ts = now_iso()
         sig = {"role": payload.role, "name": payload.name, "signed_at": ts}
         first_signature = not d.get("first_signed_at")
-        await db.documents.update_one({"id": doc_id}, {
+        await db.documents.update_one({"id": doc_id, "org_id": d["org_id"]}, {
             "$push": {"signatures": sig},
             "$set": {"status": "signed", "first_signed_at": d.get("first_signed_at") or ts, "updated_at": ts}})
     await add_activity(entity_type="deal", entity_id=d.get("deal_id"), type="document",
@@ -193,7 +194,7 @@ async def sign_document(doc_id: str, payload: DocumentSign,
                    {"template_code": d.get("template_code"), "deal_id": d.get("deal_id")},
                    org_id=user.get("org_id", ORG_ID))
         await dispatch_pending()
-    fresh = await db.documents.find_one({"id": doc_id}, {"_id": 0})
+    fresh = await db.documents.find_one({"id": doc_id, "org_id": d["org_id"]}, {"_id": 0})
     return {"data": serialize_doc(fresh)}
 
 

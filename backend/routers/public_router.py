@@ -128,7 +128,7 @@ async def public_showroom_lead(token: str, payload: ShowroomLeadCreate, request:
     if existing:
         # Index unik leads(org,phone) melindungi data: jangan buat lead kembar — catat
         # minat baru sebagai aktivitas pada lead yang sudah ada.
-        await db.leads.update_one({"id": existing["id"]},
+        await db.leads.update_one({"id": existing["id"], "org_id": org},
                                   {"$set": {"updated_at": now_iso()}})
         await add_activity(entity_type="lead", entity_id=existing["id"], type="system",
                           body=f"Mengisi form showroom publik lagi — {note}",

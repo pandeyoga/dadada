@@ -279,12 +279,12 @@ async def attach_receipt_proof(rid: str, payload: ReceiptProofIn,
     if not rc:
         raise HTTPException(status_code=404, detail="Kuitansi tidak ditemukan")
     ids = [str(f) for f in payload.proof_file_ids if f]
-    n = await db.files.count_documents({"id": {"$in": ids}, "is_deleted": False})
+    n = await db.files.count_documents({"id": {"$in": ids}, "org_id": org, "is_deleted": False})
     if n != len(set(ids)):
         raise HTTPException(status_code=400, detail="Ada berkas bukti yang tidak ditemukan.")
-    await db.receipts.update_one({"id": rid}, {"$addToSet": {"proof_file_ids": {"$each": ids}}})
+    await db.receipts.update_one({"id": rid, "org_id": org}, {"$addToSet": {"proof_file_ids": {"$each": ids}}})
     await audit_log(user, "update", "receipts", rid, {"proof_file_ids": ids})
-    rc = await db.receipts.find_one({"id": rid}, {"_id": 0})
+    rc = await db.receipts.find_one({"id": rid, "org_id": org}, {"_id": 0})
     return {"data": serialize_doc(rc)}
 
 
@@ -431,7 +431,7 @@ async def invoice_pdf(deal_id: str, user: dict = Depends(require_permission("fin
     from datetime import datetime as _dt
     buyer = deal.get("lead_name") or deal.get("customer_name") or inv.get("lead_name")
     if not buyer and deal.get("lead_id"):
-        lead = await db.leads.find_one({"id": deal["lead_id"]}, {"_id": 0, "name": 1}) or {}
+        lead = await db.leads.find_one({"id": deal["lead_id"], "org_id": org}, {"_id": 0, "name": 1}) or {}
         buyer = lead.get("name")
     buyer = buyer or "-"
     pending = sorted(str(it.get("due_date") or "")[:10] for it in inv.get("items", [])

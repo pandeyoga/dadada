@@ -9,6 +9,7 @@ from denorm import cascade_master_change
 from db import db, ORG_ID
 from core_utils import new_id, now_iso, serialize_doc, parse_pagination, due_in, now
 from rbac import require_permission, scope_query, is_scoped_sales, can, FULL_ACCESS_ROLES
+from org_scope import get_in_org
 import lead_lifecycle as lc
 from engine import (emit, dispatch_pending, add_activity, auto_assign_lead,
                     compute_lead_score, auto_create_task)
@@ -30,9 +31,8 @@ STAGE_FLOW = {
 
 
 async def _get_lead_scoped(lead_id: str, user: dict) -> dict:
-    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead tidak ditemukan")
+    # AZ-01: wajib dalam organisasi pemakai (lintas-org = 404), baru cek kepemilikan sales.
+    lead = await get_in_org(db.leads, lead_id, user, name="Lead")
     if is_scoped_sales(user) and lead.get("assigned_to") != user.get("email"):
         raise HTTPException(status_code=403, detail="Akses ditolak: bukan lead Anda")
     return lead
@@ -205,7 +205,7 @@ async def create_lead(payload: LeadCreate,
     await db.leads.insert_one(lead)
     if conflict:
         await db.partner_attribution_conflicts.update_one(
-            {"id": conflict["id"]}, {"$set": {"lead_id": lead["id"]}})
+            {"id": conflict["id"], "org_id": org}, {"$set": {"lead_id": lead["id"]}})
     await emit("lead.created", "lead", lead["id"], {"source": payload.source}, org_id=org)
     await dispatch_pending()
     lead.pop("_id", None)
@@ -370,11 +370,11 @@ async def update_lead(lead_id: str, payload: LeadUpdate,
     merged = {**lead, **updates}
     import lead_scoring
     updates.update(await lead_scoring.rescore(org, merged))
-    await db.leads.update_one({"id": lead_id}, {"$set": updates})
+    await db.leads.update_one({"id": lead_id, "org_id": org}, {"$set": updates})
     if updates.get("partner_id"):
         import partner_engine as pengine
         await pengine.refresh_stats(updates["partner_id"], org_id=org)
-    fresh = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    fresh = await db.leads.find_one({"id": lead_id, "org_id": org}, {"_id": 0})
     # SSOT: nama lead yang dikopi ke tagihan/agenda/survey ikut disamakan.
     synced = await cascade_master_change("leads", lead_id, fresh)
     if "name" in updates:
@@ -411,7 +411,7 @@ async def _sync_contact_downstream(org: str, old_lead: dict, updates: dict, lead
                 {"org_id": org, "channel": conv.get("channel"), "contact_phone": new_phone,
                  "id": {"$ne": conv["id"]}}, {"_id": 1})
             if not clash:
-                await db.conversations.update_one({"id": conv["id"]},
+                await db.conversations.update_one({"id": conv["id"], "org_id": org},
                                                   {"$set": {"contact_phone": new_phone, "updated_at": ts}})
 
 
@@ -488,14 +488,14 @@ async def assign_lead(lead_id: str, payload: LeadAssign,
         raise HTTPException(status_code=400, detail="Pengguna tujuan tidak ditemukan")
     ts = now_iso()
     old_owner = lead.get("assigned_to")
-    await db.leads.update_one({"id": lead_id}, {"$set": {"assigned_to": payload.assigned_to, "updated_at": ts}})
+    await db.leads.update_one({"id": lead_id, "org_id": org}, {"$set": {"assigned_to": payload.assigned_to, "updated_at": ts}})
     # KT-16: deal/kontrak/AR/booking fee/pembeli/percakapan turunan ikut pindah PIC (bila masih dipegang PIC lama).
     import lead_cascade
     moved = await lead_cascade.reassign_children(org, lead_id, old_owner, payload.assigned_to, ts)
     extra = (" Ikut dipindahkan: " + ", ".join(f"{v} {k}" for k, v in moved.items()) + ".") if moved else ""
     await add_activity(entity_type="lead", entity_id=lead_id, type="system",
                        body=f"Lead di-assign ke {target.get('name')}.{extra}", actor=user.get("email"), org_id=org)
-    fresh = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    fresh = await db.leads.find_one({"id": lead_id, "org_id": org}, {"_id": 0})
     return {"data": serialize_doc(fresh)}
 
 
@@ -669,8 +669,8 @@ async def update_appointment(appt_id: str, payload: AppointmentUpdate,
         updates["participants"] = await _clean_participants(
             user.get("org_id", ORG_ID), updates["participants"])
     updates["updated_at"] = now_iso()
-    await db.appointments.update_one({"id": appt_id}, {"$set": updates})
-    fresh = await db.appointments.find_one({"id": appt_id}, {"_id": 0})
+    await db.appointments.update_one({"id": appt_id, "org_id": appt["org_id"]}, {"$set": updates})
+    fresh = await db.appointments.find_one({"id": appt_id, "org_id": appt["org_id"]}, {"_id": 0})
     if fresh.get("lead_id"):
         await add_activity(entity_type="lead", entity_id=fresh["lead_id"], type="system",
                            body=f"Agenda diperbarui: {fresh.get('title')} "
@@ -683,6 +683,7 @@ async def update_appointment(appt_id: str, payload: AppointmentUpdate,
 async def appointment_status(appt_id: str, payload: AppointmentStatus,
                              user: dict = Depends(require_permission("appointments", "update"))):
     appt = await _get_appt_scoped(appt_id, user)
-    await db.appointments.update_one({"id": appt_id}, {"$set": {"status": payload.status, "updated_at": now_iso()}})
-    fresh = await db.appointments.find_one({"id": appt_id}, {"_id": 0})
+    await db.appointments.update_one({"id": appt_id, "org_id": appt["org_id"]},
+                                     {"$set": {"status": payload.status, "updated_at": now_iso()}})
+    fresh = await db.appointments.find_one({"id": appt_id, "org_id": appt["org_id"]}, {"_id": 0})
     return {"data": serialize_doc(fresh)}

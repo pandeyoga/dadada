@@ -250,6 +250,7 @@ async def _get_task_scoped(task_id: str, user: dict):
 async def update_task(task_id: str, payload: TaskUpdate,
                       user: dict = Depends(require_permission("work_tasks", "update"))):
     await _get_task_scoped(task_id, user)
+    org = user.get("org_id", ORG_ID)
     updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
     if updates.get("assigned_to"):
         target = await wh.user_by_email(user.get("org_id", ORG_ID), updates["assigned_to"])
@@ -257,8 +258,8 @@ async def update_task(task_id: str, payload: TaskUpdate,
             raise HTTPException(status_code=400, detail="Pengguna tujuan tidak ditemukan")
         updates["division"] = wh.division_of(target)
     updates["updated_at"] = now_iso()
-    await db.tasks.update_one({"id": task_id}, {"$set": updates})
-    fresh = await db.tasks.find_one({"id": task_id}, {"_id": 0})
+    await db.tasks.update_one({"id": task_id, "org_id": org}, {"$set": updates})
+    fresh = await db.tasks.find_one({"id": task_id, "org_id": org}, {"_id": 0})
     return {"data": serialize_doc(fresh)}
 
 
@@ -281,7 +282,7 @@ async def complete_task(task_id: str, payload: TaskComplete,
             "Tugas ini memerlukan bukti kerja. Gunakan tombol 'Ajukan Hasil' agar bukti "
             "tercatat dan bisa diverifikasi."))
     ts = now_iso()
-    await db.tasks.update_one({"id": task_id}, {"$set": {
+    await db.tasks.update_one({"id": task_id, "org_id": t["org_id"]}, {"$set": {
         "status": "done", "review": "approved", "outcome": payload.outcome,
         "completed_at": ts, "completed_by": user.get("email"), "updated_at": ts,
     }})
@@ -289,18 +290,18 @@ async def complete_task(task_id: str, payload: TaskComplete,
         await add_activity(entity_type=t["related_entity_type"], entity_id=t["related_entity_id"],
                            type="system", body=f"Task selesai: {t.get('title')}",
                            actor=user.get("email"), org_id=user.get("org_id", ORG_ID))
-    fresh = await db.tasks.find_one({"id": task_id}, {"_id": 0})
+    fresh = await db.tasks.find_one({"id": task_id, "org_id": t["org_id"]}, {"_id": 0})
     return {"data": serialize_doc(fresh)}
 
 
 @router.post("/tasks/{task_id}/snooze")
 async def snooze_task(task_id: str, payload: TaskSnooze,
                       user: dict = Depends(require_permission("work_tasks", "update"))):
-    await _get_task_scoped(task_id, user)
-    await db.tasks.update_one({"id": task_id}, {"$set": {
+    t = await _get_task_scoped(task_id, user)
+    await db.tasks.update_one({"id": task_id, "org_id": t["org_id"]}, {"$set": {
         "status": "snoozed", "due_date": payload.until, "updated_at": now_iso(),
     }})
-    fresh = await db.tasks.find_one({"id": task_id}, {"_id": 0})
+    fresh = await db.tasks.find_one({"id": task_id, "org_id": t["org_id"]}, {"_id": 0})
     return {"data": serialize_doc(fresh)}
 
 

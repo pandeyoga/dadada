@@ -137,7 +137,7 @@ async def get_conversation(conv_id: str, before: str = "", limit: int = 200, mar
     for r in rows:
         r.pop("_id", None)
     if mark_read and not before:
-        await db.conversations.update_one({"id": conv_id}, {"$set": {"unread": 0}})
+        await db.conversations.update_one({"id": conv_id, "org_id": conv["org_id"]}, {"$set": {"unread": 0}})
     return {"data": {"conversation": _decorate(conv), "messages": serialize_doc(rows),
                      "has_more": has_more, "next_before": cursor}}
 
@@ -163,7 +163,7 @@ async def update_conv_contact(conv_id: str, p: ContactEditIn,
     if not upd:
         return {"data": _decorate(conv)}
     upd["updated_at"] = now_iso()
-    await db.conversations.update_one({"id": conv_id}, {"$set": upd})
+    await db.conversations.update_one({"id": conv_id, "org_id": org}, {"$set": upd})
     wc_set = {"updated_at": upd["updated_at"]}
     if "contact_name" in upd:
         wc_set["name"] = upd["contact_name"]
@@ -174,7 +174,7 @@ async def update_conv_contact(conv_id: str, p: ContactEditIn,
         await db.wa_contacts.update_one({"org_id": org, "phone": conv["contact_phone"]}, {"$set": wc_set})
     from rbac import audit_log
     await audit_log(user, "update", "conversations", conv_id, {"fields": sorted(upd)})
-    fresh = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    fresh = await db.conversations.find_one({"id": conv_id, "org_id": org}, {"_id": 0})
     return {"data": _decorate(fresh)}
 
 
@@ -213,7 +213,7 @@ async def send_message(conv_id: str, payload: MessageCreate,
     body = template["body"] if template else payload.body
     if template and conv.get("lead_id"):
         from engine import render_wa_body, wa_template_vars
-        _lead_tpl = await db.leads.find_one({"id": conv["lead_id"]}, {"_id": 0})
+        _lead_tpl = await db.leads.find_one({"id": conv["lead_id"], "org_id": org}, {"_id": 0})
         if _lead_tpl:
             body = render_wa_body(body, await wa_template_vars(_lead_tpl))
     if direction == "out":
@@ -224,7 +224,7 @@ async def send_message(conv_id: str, payload: MessageCreate,
                             template=(template if template else None),
                             conversation_id=conv_id, actor=user.get("email"))
         if template:
-            await db.messages.update_one({"id": msg["id"]}, {"$set": {"body": body}})
+            await db.messages.update_one({"id": msg["id"], "org_id": org}, {"$set": {"body": body}})
             msg["body"] = body
         if msg.get("status") == "failed":
             raise HTTPException(status_code=424, detail=f"Kirim WA gagal ({msg.get('error_code')}): {msg.get('error_detail')}")
@@ -241,14 +241,14 @@ async def send_message(conv_id: str, payload: MessageCreate,
     conv_set = {"last_message_at": ts, "status": "active", "updated_at": ts, "last_direction": direction}
     if direction == "in":
         conv_set["window_expires_at"] = due_in(hours=24)
-    await db.conversations.update_one({"id": conv_id}, {"$set": conv_set})
+    await db.conversations.update_one({"id": conv_id, "org_id": org}, {"$set": conv_set})
 
     # Fase 29b: percakapan WA kini BERPENGARUH pada lifecycle lead (dulu terputus:
     # kirim/terima pesan tidak mencatat kontak pertama, tidak muncul di timeline lead).
     lead_id = conv.get("lead_id")
     if lead_id:
         import lead_lifecycle as lc
-        lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+        lead = await db.leads.find_one({"id": lead_id, "org_id": org}, {"_id": 0})
         if lead:
             arah = "terkirim" if direction == "out" else "masuk"
             mode_lbl = "LIVE" if msg.get("mode") == "live" else "SIMULASI"
@@ -339,7 +339,7 @@ async def conversation_nba(conv_id: str,
     # stage advancement suggestion (needs the linked lead)
     lead = None
     if conv.get("lead_id"):
-        lead = await db.leads.find_one({"id": conv["lead_id"]}, {"_id": 0, "stage": 1, "name": 1})
+        lead = await db.leads.find_one({"id": conv["lead_id"], "org_id": org}, {"_id": 0, "stage": 1, "name": 1})
     if lead:
         nxt = NEXT_STAGE.get(lead.get("stage"))
         if nxt:

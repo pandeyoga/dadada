@@ -31,6 +31,7 @@ from pydantic import ValidationError
 
 import capture_failures as cf
 import partner_engine as pengine
+import rate_limit
 import wa_gateway as gw
 import wa_inbound as wi
 from core_utils import new_id, now_iso, today_iso_date
@@ -169,8 +170,18 @@ async def tiktok_lead(request: Request):
     return await _capture("tiktok_lead", request)
 
 
+WEB_RATE_MAX, WEB_RATE_WINDOW = 20, 600   # AZ-09: per IP, 20 kiriman / 10 menit
+
+
 @router.post("/web")
 async def web_form(request: Request):
+    """Formulir web publik (tanpa tanda tangan) — dibatasi lajunya per IP supaya tidak bisa
+    dipakai membanjiri CRM dengan lead palsu. Webhook provider bertanda tangan TIDAK dibatasi."""
+    ip = request.client.host if request.client else "?"
+    if not rate_limit.hit_ok("webhook_web", ip, WEB_RATE_MAX, WEB_RATE_WINDOW):
+        return JSONResponse(status_code=429, content={"detail": (
+            "Terlalu banyak kiriman dari perangkat ini. Coba lagi beberapa menit lagi "
+            "atau hubungi kami via WhatsApp.")}, headers={"Retry-After": str(WEB_RATE_WINDOW)})
     return await _capture("website", request)
 
 
@@ -205,7 +216,7 @@ async def partner_lead(partner_id: str, request: Request, token: str = None):
         # Nomor sudah ada: JANGAN membuat lead kedua (nomor unik per organisasi). Klaim
         # mitra tetap dicatat + pemenangnya ditetapkan mesin atribusi.
         ts = now_iso()
-        await db.leads.update_one({"id": existing["id"]}, {"$set": {
+        await db.leads.update_one({"id": existing["id"], "org_id": ORG_ID}, {"$set": {
             "partner_id": verdict["partner_id"],
             "partner_attribution_model": verdict["model"],
             "partner_attributed_at": ts, "updated_at": ts,

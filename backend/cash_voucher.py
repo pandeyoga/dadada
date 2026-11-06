@@ -7,6 +7,7 @@ SATU bukti kas bernomor: debit ke kas/bank → BKM, kredit → BKK. Bukti kas ad
 PDF ber-kop. Jurnal lama tanpa bukti diterbitkan susulan saat startup (`backfill`).
 """
 import logging
+import re
 
 import sequences as seq
 from core_utils import new_id, now_iso
@@ -85,8 +86,9 @@ async def listing(org: str, kind: str = None, account_id: str = None, date_from:
         if date_to:
             f["date"]["$lte"] = date_to[:10]
     if q:
-        f["$or"] = [{"no": {"$regex": q, "$options": "i"}}, {"memo": {"$regex": q, "$options": "i"}},
-                    {"entry_no": {"$regex": q, "$options": "i"}}]
+        qre = re.escape(q)  # AZ-08
+        f["$or"] = [{"no": {"$regex": qre, "$options": "i"}}, {"memo": {"$regex": qre, "$options": "i"}},
+                    {"entry_no": {"$regex": qre, "$options": "i"}}]
     total = await db.cash_vouchers.count_documents(f)
     rows = await db.cash_vouchers.find(f, {"_id": 0}).sort([("date", -1), ("created_at", -1)]).skip(skip).limit(limit).to_list(limit)
     sums = {"BKM": 0, "BKK": 0}

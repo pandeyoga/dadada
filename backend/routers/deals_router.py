@@ -7,6 +7,7 @@ import stage_clock as clock
 from db import db, ORG_ID, BOOKING_HOLD_DAYS
 from core_utils import new_id, now_iso, serialize_doc, parse_pagination
 from rbac import can, require_permission, scope_query, is_scoped_sales, audit_log, has_role
+from org_scope import get_in_org
 import lead_lifecycle as lc
 from engine import emit, add_activity, dispatch_pending
 from models import DealReserve, DealAction, DealCancel, DealPricingDecision, PpjbSign, AjbSign
@@ -107,9 +108,10 @@ async def list_deals(status: str = None, q: str = None, assigned_to: str = None,
     for st in ("reserved", "booked", "cancelled", "closed"):
         counts[st] = await db.deals.count_documents({**scope_query(user, {}), "status": st})
     # enrich
+    org_id = user.get("org_id", ORG_ID)
     for d in rows:
-        unit = await db.units.find_one({"id": d.get("unit_id")}, {"_id": 0, "code": 1, "type": 1})
-        lead = await db.leads.find_one({"id": d.get("lead_id")}, {"_id": 0, "name": 1})
+        unit = await db.units.find_one({"id": d.get("unit_id"), "org_id": org_id}, {"_id": 0, "code": 1, "type": 1})
+        lead = await db.leads.find_one({"id": d.get("lead_id"), "org_id": org_id}, {"_id": 0, "name": 1})
         d["unit_code"] = unit.get("code") if unit else None
         d["unit_type"] = unit.get("type") if unit else None
         d["lead_name"] = lead.get("name") if lead else None
@@ -118,9 +120,8 @@ async def list_deals(status: str = None, q: str = None, assigned_to: str = None,
 
 @router.get("/deals/{deal_id}")
 async def get_deal(deal_id: str, user: dict = Depends(require_permission("deals", "view"))):
-    d = await db.deals.find_one({"id": deal_id}, {"_id": 0})
-    if not d:
-        raise HTTPException(status_code=404, detail="Deal tidak ditemukan")
+    # AZ-01: wajib dalam organisasi pemakai (lintas-org = 404).
+    d = await get_in_org(db.deals, deal_id, user, name="Deal")
     if is_scoped_sales(user) and d.get("assigned_to") != user.get("email"):
         raise HTTPException(status_code=403, detail="Akses ditolak: bukan deal Anda")
     return {"data": serialize_doc(d)}
@@ -367,7 +368,8 @@ async def decide_pricing(deal_id: str, payload: DealPricingDecision,
     state = "approved" if payload.approve else "rejected"
     new_pa = {**pa, "state": state, "decided_by": user.get("email"), "decided_at": ts,
               "decision_reason": payload.reason.strip()}
-    await db.deals.update_one({"id": deal_id}, {"$set": {"pricing_approval": new_pa, "updated_at": ts}})
+    await db.deals.update_one({"id": deal_id, "org_id": d["org_id"]},
+                              {"$set": {"pricing_approval": new_pa, "updated_at": ts}})
     await audit_log(user, "approve" if payload.approve else "reject", "deals", deal_id,
                     {"pricing_approval": state, "reason": payload.reason.strip()})
     await add_activity(entity_type="lead", entity_id=d["lead_id"], type="sales", actor=user.get("email"),
@@ -379,7 +381,7 @@ async def decide_pricing(deal_id: str, payload: DealPricingDecision,
             user_email=pa["requested_by"], org_id=user.get("org_id", ORG_ID), type="sales",
             title=f"Potongan reservasi unit {d.get('unit_code')} {'disetujui' if payload.approve else 'ditolak'}",
             body=payload.reason.strip(), related_entity_type="deal", related_entity_id=deal_id)
-    fresh = await db.deals.find_one({"id": deal_id}, {"_id": 0})
+    fresh = await db.deals.find_one({"id": deal_id, "org_id": d["org_id"]}, {"_id": 0})
     return {"data": serialize_doc(fresh),
             "message": f"Potongan {'disetujui' if payload.approve else 'ditolak'}."}
 
@@ -416,9 +418,8 @@ async def delete_deal(deal_id: str, reason: str = None,
 
 
 async def _get_deal_editable(deal_id: str, user: dict) -> dict:
-    d = await db.deals.find_one({"id": deal_id}, {"_id": 0})
-    if not d:
-        raise HTTPException(status_code=404, detail="Deal tidak ditemukan")
+    # AZ-01: lintas-organisasi = 404; baru sesudahnya cek kepemilikan sales.
+    d = await get_in_org(db.deals, deal_id, user, name="Deal")
     if is_scoped_sales(user) and d.get("assigned_to") != user.get("email"):
         raise HTTPException(status_code=403, detail="Akses ditolak: bukan deal Anda")
     return d
@@ -444,13 +445,13 @@ async def book_deal(deal_id: str, payload: DealAction,
     ts = now_iso()
     # CAS: dua klik "Konfirmasi Booking" serentak hanya menghasilkan satu booking (satu event
     # deal.booked, satu jadwal AR, satu komisi); yang kedua mendapat 409.
-    klaim = await db.deals.update_one({"id": deal_id, "status": "reserved"}, {"$set": {
+    klaim = await db.deals.update_one({"id": deal_id, "org_id": org, "status": "reserved"}, {"$set": {
         "status": "booked", "booked_at": ts, "updated_at": ts,
         **await clock.patch_for("deal", "booked", org_id=org, at=ts)}})
     if klaim.matched_count != 1:
         from idempotency import Conflict
         raise Conflict("Reservasi ini baru saja dikonfirmasi/diubah oleh proses lain. Muat ulang halaman.")
-    await db.units.update_one({"id": d["unit_id"]}, {"$set": {
+    await db.units.update_one({"id": d["unit_id"], "org_id": org}, {"$set": {
         "status": "booked", "booked_by_deal": deal_id, "payment_status": "booking_fee", "updated_at": ts}})
     # Fase 31 (perbaikan cacat): ikatan unit → deal → lead → pembeli disimpan pada unit,
     # supaya progres pembangunan, portal pembeli, dan laporan tidak bergantung pencarian
@@ -466,7 +467,7 @@ async def book_deal(deal_id: str, payload: DealAction,
     await add_activity(entity_type="lead", entity_id=d["lead_id"], type="system",
                        body="Deal dikonfirmasi (booked).", actor=user.get("email"), org_id=org)
     await dispatch_pending()  # process deal.booked now -> generate AR schedule + commission (Finance)
-    fresh = await db.deals.find_one({"id": deal_id}, {"_id": 0})
+    fresh = await db.deals.find_one({"id": deal_id, "org_id": org}, {"_id": 0})
     return {"data": serialize_doc(fresh)}
 
 
@@ -519,8 +520,8 @@ async def _deal_payment_summary(deal_id: str, org: str, price: int) -> dict:
 async def deal_legal(deal_id: str, user: dict = Depends(require_permission("deals", "view"))):
     d = await _get_deal_editable(deal_id, user)
     org = user.get("org_id", ORG_ID)
-    unit = await db.units.find_one({"id": d.get("unit_id")}, {"_id": 0, "code": 1, "status": 1}) or {}
-    lead = await db.leads.find_one({"id": d.get("lead_id")}, {"_id": 0, "name": 1}) or {}
+    unit = await db.units.find_one({"id": d.get("unit_id"), "org_id": org}, {"_id": 0, "code": 1, "status": 1}) or {}
+    lead = await db.leads.find_one({"id": d.get("lead_id"), "org_id": org}, {"_id": 0, "name": 1}) or {}
     fin = await db.financing_apps.find_one({"org_id": org, "deal_id": deal_id}, {"_id": 0})
     payment = await _deal_payment_summary(deal_id, org, d.get("price", 0))
     return {"data": {
@@ -572,7 +573,7 @@ async def _legal_via_contract(deal_id: str, stage: str, entry: dict, user: dict)
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "update", "contract", contract["id"],
                     {"legal_stage": stage, "via": "deals_legacy_endpoint"})
-    fresh = await db.deals.find_one({"id": deal_id}, {"_id": 0})
+    fresh = await db.deals.find_one({"id": deal_id, "org_id": org}, {"_id": 0})
     return {"data": serialize_doc(fresh)}
 
 
