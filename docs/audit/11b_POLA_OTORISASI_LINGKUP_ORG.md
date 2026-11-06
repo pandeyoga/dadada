@@ -73,3 +73,10 @@ Batal: `409`; hapus: `200` tanpa efek.
 ## 5. Catatan metode & pembersihan
 Agen mencatat data uji berawalan `AUDIT-` tertinggal di DB instance ketiga; tidak ada data produksi tersentuh. Pengguna `pat.*` yang saya buat berada di
 DB uji saya. CORS `allow_origins=*` + `allow_credentials=true` dicatat agen tetapi tidak diangkat sebagai temuan (autentikasi berbasis header Bearer).
+
+## 6. Status perbaikan
+Semua temuan di bagian 2 sudah diperbaiki dan punya tes regresi yang **merah pada kode lama dan hijau pada kode baru**
+(`backend/tests/p0/test_p0_otorisasi.py` AZ-11/12; `test_p0_otorisasi_org.py` AZ-01/02; `test_p0_otorisasi_lain.py` AZ-04…10).
+Pengecualian yang disengaja: 17 pencari-by-id yang tersisa pada sapuan adalah `/auth/*` (pengguna sendiri) dan koleksi `orgs` (dokumen organisasi,
+dijaga peran `super_admin`/organisasi sendiri). Belum diuji: pola yang sama pada koleksi keuangan (`ar_invoices`, `ap_invoices`, `commissions`,
+`receipts`) lewat HTTP lintas-org — pencarinya sudah ber-`org_id` menurut sapuan statis, tetapi belum dibuktikan dengan tes lintas-org.

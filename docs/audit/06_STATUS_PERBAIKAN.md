@@ -109,7 +109,14 @@ Konteks: penelusuran pola menemukan celah yang sama di jalur yang belum disentuh
 | PK3-01 | ✔ | Pembuatan rekap upah diserialkan per proyek (rekap kedua ditolak "bertumpang") | — (belum ada tes khusus) |
 | PK3-02 | ✔ | Stok keluar & opname diserialkan per material | `test_p0_konkurensi3.py` |
 | PK3-03 | ✔ | Penerbitan BAST diserialkan per unit (permintaan serentak mendapat dokumen yang sama) | idem |
-| AZ-01/02/04…10 | ⏳ | Lingkup organisasi di ±190 pencari-by-id, KPR scope sales, send-wa, OTP, regex, XSS file, rate-limit webhook — dikerjakan agen terpisah | (menyusul) |
+| AZ-01 / AZ-02 | ✔ | Lingkup organisasi: `org_scope.py` (`get_in_org`, `org_filter`) dipakai di ±170 pencari-by-id di 40 router; lintas-org dijawab **404** (bukan 403). Sapuan `P11` turun 188→17 (sisanya sah: `/auth/*` dan koleksi `orgs`) | `test_p0_otorisasi_org.py` (30) |
+| AZ-04 | ✔ | KPR: scope sales (sales hanya KPR dari deal yang ditugaskan kepadanya) | `test_p0_otorisasi_lain.py` |
+| AZ-05 | ✔ | Menambah nilai referensi master butuh `settings:manage` | idem |
+| AZ-06 | ✔ | `send-wa`: lead/customer tujuan wajib di org pemanggil dan (untuk sales) miliknya; sales hanya boleh mengubah/mengarsipkan template buatannya | idem |
+| AZ-07 | ✔ | Berkas non-gambar/PDF disajikan `attachment`; `X-Content-Type-Options: nosniff` selalu | idem |
+| AZ-08 | ✔ | `re.escape(q)` di 10 pembangun `$regex`; `q=[` tidak lagi 500 | idem |
+| AZ-09 | ✔ | `/webhooks/web` dibatasi laju per IP (bawaan 60/10 menit, `WEB_FORM_RATE_MAX`) | idem |
+| AZ-10 | ✔ | OTP portal: maks 5 percobaan per kode (atomik), kode dikunci setelahnya; permintaan kode baru dibatasi per pembeli | idem |
 
 Perubahan perilaku yang akan terlihat pemakai:
 - Persetujuan transfer/pembayaran dari rekening yang saldonya sudah berkurang kini ditolak dengan pesan "Saldo … tidak cukup" **pada saat disetujui**.
@@ -118,6 +125,9 @@ Perubahan perilaku yang akan terlihat pemakai:
 - Void kuitansi pada deal yang sudah batal ditolak; void kuitansi pra-BAST sesudah BAST menaikkan piutang.
 - Tahap KPR pada kontrak batal ditolak. Setoran/lapor pajak untuk deal batal ditolak.
 - Penambahan pengguna dengan peran Super Admin kini hanya bisa oleh Super Admin.
+- Data milik organisasi lain kini dijawab 404 di semua layar/API. Sales hanya melihat KPR dari deal miliknya.
+- Pemilih "tambah bank/jenis izin baru" hanya berhasil untuk peran dengan izin `settings:manage` (peran lain memakai nilai itu hanya pada formulir yang sedang diisi).
+- Berkas HTML/SVG yang diunggah kini diunduh, bukan dibuka di peramban. Kode OTP portal terkunci setelah 5 salah. Formulir web publik dibatasi 60 kiriman/10 menit per IP (naikkan lewat env bila di belakang proxy dengan lonjakan sah).
 
 Risiko/catatan baru: status sementara `posting` pada transfer bisa tertinggal bila proses mati tepat di tengah (jurnalnya idempoten, jadi aman dicoba ulang oleh admin setelah status dipulihkan);
 `funds_guard(flush_events=True)` mengosongkan antrean event sebelum melepas kunci (komisi, refund titipan) sehingga latensi permintaan ikut naik sedikit.

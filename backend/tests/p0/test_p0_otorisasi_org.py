@@ -142,7 +142,7 @@ def test_dokumen_get_org_lain_404(paket):
 def test_dokumen_finalize_dan_sign_org_lain_404_status_tetap_draft(paket):
     did = paket["doc"]["id"]
     r1 = call(NUSA, "POST", f"/documents/{did}/finalize")
-    r2 = call(NUSA, "POST", f"/documents/{did}/sign", json={"role": "pembeli", "name": "Bajakan"})
+    r2 = call(NUSA, "POST", f"/documents/{did}/sign", json={"role": "buyer", "name": "Bajakan"})
     r3 = call(NUSA, "GET", f"/documents/{did}/pdf")
     assert (r1.status_code, r2.status_code, r3.status_code) == (404, 404, 404), \
         (r1.status_code, r2.status_code, r3.status_code, r1.text[:100])
@@ -277,6 +277,7 @@ def sumber_daya(dunia):
     ("GET", "berkas", "/files/{id}/meta"),
 ])
 def test_penjaga_sumber_daya_org_lain_404(sumber_daya, metode, kunci, path):
-    body = {"status": "active", "until": "2030-01-01", "outcome": "x"} if metode == "POST" else None
+    body = ({"status": "approved" if "/permits/" in path else "active", "until": "2030-01-01", "outcome": "x"}
+            if metode == "POST" else None)
     r = call(NUSA, metode, path.format(id=sumber_daya[kunci]), json=body)
     assert r.status_code == 404, f"{metode} {path}: {r.status_code} {r.text[:160]}"

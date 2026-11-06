@@ -31,6 +31,8 @@ from pydantic import ValidationError
 
 import capture_failures as cf
 import partner_engine as pengine
+import os
+
 import rate_limit
 import wa_gateway as gw
 import wa_inbound as wi
@@ -170,7 +172,9 @@ async def tiktok_lead(request: Request):
     return await _capture("tiktok_lead", request)
 
 
-WEB_RATE_MAX, WEB_RATE_WINDOW = 20, 600   # AZ-09: per IP, 20 kiriman / 10 menit
+# AZ-09: per IP, `WEB_FORM_RATE_MAX` kiriman / 10 menit (bawaan 60). Di belakang proxy/CDN semua pengunjung berbagi
+# satu IP — naikkan lewat env bila lonjakan kampanye yang sah ikut terblokir.
+WEB_RATE_MAX, WEB_RATE_WINDOW = int(os.environ.get("WEB_FORM_RATE_MAX", "60")), 600
 
 
 @router.post("/web")

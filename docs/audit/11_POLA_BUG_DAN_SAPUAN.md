@@ -256,11 +256,11 @@ kelasnya (G7 + G8 di bagian 7).
 ## 9. Status perbaikan (diperbarui)
 
 Dikerjakan dan **terbukti** (tes regresi merah pada kode lama, hijau pada kode baru; suite penuh 232 lulus): AZ-11, AZ-12, PL-01, PL-02, PL-03,
-PL-05, PK3-05/FZ-03, FZ-01, FZ-02, FZ-08, PK3-04, PK3-01, PK3-02, PK3-03; PK3-06 sebagian (setor pajak deal batal ditolak). Rincian dan perubahan
+PL-05, AZ-01…10, PK3-05/FZ-03, FZ-01, FZ-02, FZ-08, PK3-04, PK3-01, PK3-02, PK3-03; PK3-06 sebagian (setor pajak deal batal ditolak). Rincian dan perubahan
 perilaku: `06_STATUS_PERBAIKAN.md` bagian 8. Ratchet sapuan (`scripts/pattern_sweep.py`) turun: tanggal-UTC 31→0, cek-dana-tanpa-kunci 9→0,
 set-status-tanpa-syarat 115→112, baca-lalu-tulis 191→188, kode akun literal 175→174.
 
-Sedang dikerjakan agen terpisah: lingkup organisasi di ±190 pencari-by-id (AZ-01/02/04/05/06/07/08/09/10, `11b`).
+Lingkup organisasi dan celah otorisasi lain (AZ-01/02/04/05/06/07/08/09/10, `11b`) juga sudah dikerjakan dan terbukti (sapuan `P11` 188→17; suite penuh bertambah 49 tes).
 
 Belum dikerjakan: PL-04 (salinan nama tak tersinkron; 52 pasangan tak terdaftar), pembersihan otomatis dependen saat deal batal (tugas, komisi, fee
 marketing, KPR, kupon, catatan pajak — PK3-08), hapus-paksa deal yang bocor (PK3-09, FZ-04, FZ-07), retur GRN serentak (FZ-06), FN-02/03, HMAC/rate-limit
