@@ -204,8 +204,8 @@ badan fungsi — benar, tetapi pola "peran ditanam di kode" (P6). Hasil matriks 
 
 ## 8. Hasil penyapu dinamis (agen)
 
-Dua dari tiga agen sudah melapor; laporan lengkap ada di `11a_…` (konkurensi/status/yatim) dan `11b_…` (otorisasi/lingkup org).
-Laporan agen ketiga (fuzz invarian lintas entitas) menyusul di bagian 8.3. **Klaim agen bukan fakta sampai saya verifikasi** — hasil
+Ketiga agen sudah melapor; laporan lengkap: `11a_…` (konkurensi/status/yatim), `11b_…` (otorisasi/lingkup org), `11c_…` (fuzz invarian).
+**Klaim agen bukan fakta sampai saya verifikasi** — hasil
 verifikasi saya:
 
 ### 8.1 Otorisasi & lingkup organisasi (`11b`)
@@ -231,8 +231,27 @@ status (PK3-04). Pola yang diperluas oleh laporan ini:
   satu unit terjual dua kali, stok negatif.
 - Dugaan gugur: persetujuan transfer ×3 **tidak** menjurnal ganda (jurnal 1×) — konsisten dengan PL-01: masalahnya cek dana, bukan jurnal ganda.
 
-### 8.3 Fuzz invarian
-*(menunggu laporan agen)*
+### 8.3 Fuzz invarian (`11c`, alat di `scripts/fuzz/`)
+Alat baru: 74 invarian (65 keras) dan 49 jenis operasi acak, mode berurutan dan serentak, pengecil otomatis. Dijalankan 1.797 operasi
+berurutan + 192 putaran serentak: 0 HTTP 5xx, 8 temuan baru. **Jalur uang masuk utama dan AP lolos semua invarian di bawah beban acak** —
+kuitansi, titipan, konversi, reservasi, kupon, giro, komisi, AP. Yang bocor adalah **pinggiran siklus hidup** (sesudah BAST/pembatalan/hapus):
+
+| ID | Sev | Ringkas | Verifikasi saya |
+|---|---|---|---|
+| FZ-01 | Tinggi | Void kuitansi **sesudah BAST** membalik Dr 2-1400 yang sudah nol → kewajiban kontrak −Rp 495 jt | KODE: `_void_receipt_locked` tidak memeriksa pengakuan pendapatan/pembatalan |
+| FZ-02 | Tinggi | Void kuitansi sesudah pembatalan disetujui menghidupkan AR deal batal | AGEN |
+| FZ-03 | Tinggi | `POST /finance/ar/{deal}/bast` tanpa gerbang: deal `reserved`/**batal** diakui pendapatan Rp 500 jt | KODE + **dua agen independen** (sama dengan PK3-05) |
+| FZ-08 | Tinggi | SP3K/akad KPR diterima pada kontrak yang sudah dibatalkan; AR batal hidup lagi | AGEN |
+| FZ-04 | Sedang | Hapus-paksa deal: giro tertinggal (salah nama koleksi) dan BKM/BKK yatim | sama dengan PK3-09 |
+| FZ-06 | Sedang | Dua retur GRN serentak sama-sama lolos (stok −100) | KODE: `create_return` baca `returned_qty` lalu tulis |
+| FZ-07 | Sedang | Hapus-paksa serentak dengan kuitansi/void → jurnal/kuitansi yatim (3/20 dan 2/10 percobaan) | AGEN (probabilistik) |
+| FZ-05 | Rendah | `book` selalu menulis `payment_status="booking_fee"` meski AR sudah lunas | AGEN |
+
+**Pola gabungan dari tiga agen:** hampir semua temuan berat berpusat pada satu akar — **tidak ada aturan "keadaan deal/kontrak" yang dibaca bersama oleh
+semua jalur uang**. BAST, void kuitansi, SP3K/akad, pajak, upah, komisi, dan fee masing-masing memeriksa (atau tidak memeriksa) status deal dengan cara
+sendiri. Satu fungsi `deal_state(deal) → {boleh_terima_uang, boleh_BAST, boleh_void, boleh_KPR, …}` yang dipakai semua jalur akan menutup
+kelasnya (G7 + G8 di bagian 7).
+
 
 ## 9. Rencana perbaikan (usulan, belum dikerjakan — menunggu persetujuan)
 
