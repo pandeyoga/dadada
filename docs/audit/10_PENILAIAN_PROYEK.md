@@ -1,7 +1,7 @@
 # Penilaian Sisi Manajemen Proyek, Pembangunan & Operasional — SIPRO / Estora
 
 Penilai: konsultan manajemen proyek konstruksi/properti (perspektif developer perumahan Indonesia) · Tanggal: 5 Nov 2026
-Objek: kode di `/home/user/dadada` (repo read-only), dijalankan di **Instance #9** (UI :3043, API :8043, DB `sipro_eval`).
+Objek: kode di repositori (read-only), dijalankan di **Instance #9** (UI :3043, API :8043, DB `sipro_eval`).
 Ini PENILAIAN kemampuan terhadap tujuan project, bukan audit bug keuangan/kontrak/WA (itu sudah ada di `docs/audit/`).
 Label bukti: **TERBUKTI-UI** (dicoba lewat browser) · **TERBUKTI-API** (dicoba lewat HTTP/DB) · **DARI-KODE** (hanya dibaca, belum dijalankan).
 Data uji buatan saya diawali `EVAL-` (daftar di Lampiran A). Screenshot: (berkas uji tidak disertakan di repo) (daftar di Lampiran B).
