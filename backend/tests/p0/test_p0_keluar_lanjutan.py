@@ -60,13 +60,15 @@ class TestMarketingFee:
         assert len(j["data"]["journal_ids"]) == 1
 
     def test_saldo_kurang_ditolak(self):
+        # Saldo dibaca SEBELUM membayar: dulu dibaca sesudahnya, sehingga bila Kas Besar cukup (pembayaran sah 200)
+        # saldo yang sudah turun membuat tes salah menyimpulkan "seharusnya ditolak".
+        if accounts()["Kas Besar"]["balance"] >= 20_000_000:
+            pytest.skip("Kas Besar cukup untuk uji ini")
         s, j = self._fee(a_booked_deal()["id"], 20_000_000)
         fid = j["data"]["id"]
         call("owner", "POST", f"/marketing/fees/{fid}/approve", {})
         # sumber 'kas' → Kas Besar (default); fee > saldo kas besar
         s, j = call("finance", "POST", f"/marketing/fees/{fid}/pay", {"amount": 20_000_000, "source": "kas"})
-        if accounts()["Kas Besar"]["balance"] >= 20_000_000:
-            pytest.skip("Kas Besar cukup untuk uji ini")
         assert s == 400 and "tidak cukup" in detail((s, j)), (s, j)
 
 

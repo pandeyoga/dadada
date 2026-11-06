@@ -7,7 +7,7 @@ import listing as lst
 import stage_clock as clock
 import sequences
 from db import db, ORG_ID, ORG_NAME
-from core_utils import new_id, now_iso, serialize_doc, parse_pagination
+from core_utils import new_id, now_iso, serialize_doc, parse_pagination, today_wib
 from rbac import require_permission, scope_query, is_scoped_sales
 from org_scope import get_in_org
 from engine import add_activity, dispatch_pending, emit
@@ -110,7 +110,7 @@ async def create_document(payload: DocumentCreate,
                                                       "unit_id": deal.get("unit_id"),
                                                       "customer_name": lead.get("name")})
     ctx = {
-        "doc_number": doc_number, "date": ts[:10], "buyer_name": lead.get("name"),
+        "doc_number": doc_number, "date": today_wib(), "buyer_name": lead.get("name"),
         "buyer_phone": lead.get("phone"), "project_name": project.get("name"),
         "unit_code": unit.get("code"), "unit_type": unit.get("type"),
         "price": _idr(deal.get("price")), "booking_fee": _idr(deal.get("booking_fee")),

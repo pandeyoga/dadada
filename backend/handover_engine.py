@@ -296,11 +296,19 @@ async def handover_check(org: str, unit_id: str) -> dict:
 
 
 # =================================================================== terbitkan BAST
-async def issue(org: str, unit_id: str, actor: str, *, handed_over_at: str = None,
-                received_by: str = None, note: str = None, meter_air: str = None,
-                meter_listrik: str = None, keys_handed: int = None,
-                override: bool = False, override_reason: str = None,
-                client_ref: str = None) -> dict:
+async def issue(org: str, unit_id: str, actor: str, **kw) -> dict:
+    """Terbitkan BAST — diserialkan per unit (PK3-03: empat permintaan bersamaan dulu menerbitkan empat BAST aktif
+    dan masa garansi berlipat). Yang menunggu kunci melihat BAST pertama dan mendapat jawaban `replay`."""
+    from idempotency import mutex
+    async with mutex(f"handover.issue:{org}:{unit_id}", what="Penerbitan BAST unit ini"):
+        return await _issue_locked(org, unit_id, actor, **kw)
+
+
+async def _issue_locked(org: str, unit_id: str, actor: str, *, handed_over_at: str = None,
+                        received_by: str = None, note: str = None, meter_air: str = None,
+                        meter_listrik: str = None, keys_handed: int = None,
+                        override: bool = False, override_reason: str = None,
+                        client_ref: str = None) -> dict:
     """Terbitkan BAST. Menahan bila daftar periksa belum bersih (kecuali diterobos).
 
     Idempoten: unit yang sudah punya BAST aktif TIDAK melahirkan dokumen kedua — dokumen

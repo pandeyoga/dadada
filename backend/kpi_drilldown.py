@@ -9,7 +9,7 @@ import reference as ref
 import workhub as wh
 from db import db, ORG_ID
 from rbac import can, scope_query
-from core_utils import now_iso
+from core_utils import now_iso, today_wib
 
 # kunci -> (resource, action) izin yang wajib dimiliki peran pemanggil
 PERMISSION = {
@@ -181,7 +181,7 @@ async def _build(user, p, sub):
         elif sub == "rework":
             iq["status"] = "rework"
         elif sub == "late_items":
-            iq.update({"status": {"$ne": "done"}, "planned_finish": {"$lt": now_iso()[:10]}})
+            iq.update({"status": {"$ne": "done"}, "planned_finish": {"$lt": today_wib()}})
         else:
             iq.update({"status": {"$nin": ["done"]}, "gate_reasons.0": {"$exists": True}})
         for it in await db.build_items.find(iq, {"_id": 0, "evidence": 0, "checklist": 0, "history": 0}).sort("planned_finish", 1).to_list(400):

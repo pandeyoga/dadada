@@ -9,13 +9,14 @@ Phase 18 menambah:
     saat pemakaian (out kumulatif) melampaui RAB -> flag `over_budget` + tugas urgent
     + notifikasi ke PM (idempotent) + event `material.overbudget`.
 """
+from idempotency import mutex
 from fastapi import APIRouter, Depends, HTTPException
 
 import sequences as seq
 from models_master import MaterialUpdate
 from rbac import has_role, audit_log
 from db import db, ORG_ID
-from core_utils import new_id, now_iso, serialize_doc, due_in
+from core_utils import new_id, now_iso, serialize_doc, due_in, today_wib
 from rbac import require_permission, assert_project_access, project_query
 from engine import (add_activity, material_book_stock, auto_create_task,
                     create_notification, emit)
@@ -188,21 +189,22 @@ async def create_txn(payload: MaterialTxn, user: dict = Depends(require_permissi
     mat = await db.materials.find_one({"id": payload.material_id, "org_id": org}, {"_id": 0})
     if not mat:
         raise HTTPException(status_code=404, detail="Material tidak ditemukan")
-    if payload.type == "out":
+    async with mutex(f"stock:{org}:{payload.project_id}:{payload.material_id}", what="Stok material ini"):
+        if payload.type == "out":
+            stock = await material_book_stock(payload.project_id, payload.material_id, org)
+            if payload.qty > stock:
+                raise HTTPException(status_code=400, detail=f"Stok tidak cukup (tersedia {stock} {mat.get('uom')})")
+        ts = now_iso()
+        txn = {"id": new_id(), "org_id": org, "project_id": payload.project_id, "material_id": payload.material_id,
+               "type": payload.type, "qty": payload.qty, "note": payload.note, "ref": payload.ref,
+               "requisition_id": None, "phase_id": None, "task_id": None,
+               "actor": user.get("email"), "created_at": ts}
+        await db.material_txns.insert_one(txn)
+        if payload.type == "out":
+            await _check_material_budget(payload.project_id, payload.material_id, org, user.get("email"))
         stock = await material_book_stock(payload.project_id, payload.material_id, org)
-        if payload.qty > stock:
-            raise HTTPException(status_code=400, detail=f"Stok tidak cukup (tersedia {stock} {mat.get('uom')})")
-    ts = now_iso()
-    txn = {"id": new_id(), "org_id": org, "project_id": payload.project_id, "material_id": payload.material_id,
-           "type": payload.type, "qty": payload.qty, "note": payload.note, "ref": payload.ref,
-           "requisition_id": None, "phase_id": None, "task_id": None,
-           "actor": user.get("email"), "created_at": ts}
-    await db.material_txns.insert_one(txn)
-    if payload.type == "out":
-        await _check_material_budget(payload.project_id, payload.material_id, org, user.get("email"))
-    stock = await material_book_stock(payload.project_id, payload.material_id, org)
-    txn.pop("_id", None)
-    return {"data": serialize_doc(txn), "stock": stock}
+        txn.pop("_id", None)
+        return {"data": serialize_doc(txn), "stock": stock}
 
 
 @router.post("/opname")
@@ -212,20 +214,21 @@ async def stock_opname(payload: OpnameCreate, user: dict = Depends(require_permi
     mat = await db.materials.find_one({"id": payload.material_id, "org_id": org}, {"_id": 0})
     if not mat:
         raise HTTPException(status_code=404, detail="Material tidak ditemukan")
-    book = await material_book_stock(payload.project_id, payload.material_id, org)
-    variance = round(payload.physical_qty - book, 2)
-    ts = now_iso()
-    await db.material_txns.insert_one({
-        "id": new_id(), "org_id": org, "project_id": payload.project_id, "material_id": payload.material_id,
-        "type": "adjust", "qty": variance, "note": (payload.note or "Stock opname"),
-        "ref": "OPNAME", "book_qty": book, "physical_qty": payload.physical_qty,
-        "actor": user.get("email"), "created_at": ts})
-    await add_activity(entity_type="project", entity_id=payload.project_id, type="system",
-                       body=f"Opname {mat.get('name')}: buku {book}, fisik {payload.physical_qty}, selisih {variance} {mat.get('uom')}.",
-                       actor=user.get("email"), org_id=org)
-    return {"data": {"material_id": payload.material_id, "book_qty": book,
-                     "physical_qty": payload.physical_qty, "variance": variance,
-                     "new_stock": payload.physical_qty}}
+    async with mutex(f"stock:{org}:{payload.project_id}:{payload.material_id}", what="Stok material ini"):
+        book = await material_book_stock(payload.project_id, payload.material_id, org)
+        variance = round(payload.physical_qty - book, 2)
+        ts = now_iso()
+        await db.material_txns.insert_one({
+            "id": new_id(), "org_id": org, "project_id": payload.project_id, "material_id": payload.material_id,
+            "type": "adjust", "qty": variance, "note": (payload.note or "Stock opname"),
+            "ref": "OPNAME", "book_qty": book, "physical_qty": payload.physical_qty,
+            "actor": user.get("email"), "created_at": ts})
+        await add_activity(entity_type="project", entity_id=payload.project_id, type="system",
+                           body=f"Opname {mat.get('name')}: buku {book}, fisik {payload.physical_qty}, selisih {variance} {mat.get('uom')}.",
+                           actor=user.get("email"), org_id=org)
+        return {"data": {"material_id": payload.material_id, "book_qty": book,
+                         "physical_qty": payload.physical_qty, "variance": variance,
+                         "new_stock": payload.physical_qty}}
 
 
 # ------------------------------ requisitions (EPIC 2.6) ------------------------------
@@ -338,7 +341,7 @@ async def reject_requisition(rid: str, payload: RequisitionIssue,
     ts = now_iso()
     setter = {"status": "rejected", "rejected_by": user.get("email"), "rejected_at": ts, "updated_at": ts}
     if payload.note:
-        setter["note"] = ((req.get("note") or "") + f"\n[tolak {ts[:10]}] {payload.note}").strip()
+        setter["note"] = ((req.get("note") or "") + f"\n[tolak {today_wib()}] {payload.note}").strip()
     await db.material_requisitions.update_one({"id": rid, "org_id": org}, {"$set": setter})
     return {"data": serialize_doc(await db.material_requisitions.find_one({"id": rid, "org_id": org}, {"_id": 0}))}
 

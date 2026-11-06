@@ -191,51 +191,55 @@ async def disburse(rid: str, payload, actor: str, org: str = ORG_ID) -> dict:
     import cash_bank as cb
     cash_code = await cb.resolve_code(org, payload.cash_account_id, cash_account(payload.source))
     cash_acc = await cb.account_by_code(org, cash_code)
-    if not r.get("ap_bill_id"):  # jalur AP memeriksa dana di pay_ap_bill
-        await cb.assert_funds(org, amt, cash_account_id=(cash_acc or {}).get("id"), code=cash_code,
-                              kind=f"pencairan pengajuan {r['no']}")
-    ts = now_iso()
-    # PK-02: klaim atomik approved → disbursing SEBELUM uang bergerak. Dua pencairan bersamaan dulu
-    # sama-sama lolos cek status (jalur AP: tagihan dibayar 2x; non-AP: riwayat/aktivitas ganda).
-    async with reserved(COLL, {"id": rid, "org_id": org}, {"status": "approved"},
-                        {"$set": {"status": "disbursing", "updated_at": ts}},
-                        undo={"$set": {"status": "approved"}}, what="Pengajuan"):
-        if r.get("ap_bill_id"):
-            # Pembayaran vendor yang menunjuk tagihan AP: lunasi 2-1100 lewat mesin AP (jurnal
-            # Dr Utang Usaha / Cr kas) — beban sudah diakui saat tagihan disetujui.
-            import finance_engine as fe
-            bill, pay = await fe.pay_ap_bill(r["ap_bill_id"], amt, f"Pengajuan {r['no']} — {r['title']}",
-                                             actor, org, return_payment=True,
-                                             cash_account_id=(cash_acc or {}).get("id"))
-            je = await db.journal_entries.find_one(
-                {"org_id": org, "source_type": "ap_bill", "source_id": bill["id"],
-                 "memo": {"$regex": "^Pembayaran"}}, {"_id": 0, "id": 1, "entry_no": 1},
-                sort=[("created_at", -1)]) or {"id": None, "entry_no": "-"}
-            extra_set = {"ap_payment_id": pay["id"], "ap_bill_status": bill.get("status")}
-        else:
-            if r["type"] == "advance":
-                debit = ADVANCE_ACCOUNT
-                memo = f"Pencairan kas bon {r['no']} — {r.get('requester_name') or r['requested_by']}"
-            else:
-                debit = r27.CASHBON_ACCOUNT.get(r.get("category"), "6-1300")
-                memo = f"Pencairan pengajuan {r['no']} — {r['title']}"
-            je = await gl.post_journal(
-                org, memo, [{"account_code": debit, "debit": amt, "credit": 0},
-                            {"account_code": cash_code, "debit": 0, "credit": amt}],
-                source_type="fund_request", source_id=rid,
-                source_event=f"fund_request.disburse:{rid}", posted_by=actor)
-            extra_set = {}
+    # PL-03: kunci rekening + cek dana sampai jurnal terposting. Jalur AP memeriksa dana (dan mengunci) di
+    # pay_ap_bill sendiri — jangan dikunci dua kali (mutex yang sama akan saling menunggu).
+    from contextlib import nullcontext
+    guard = (cb.funds_guard(org, amt, cash_account_id=(cash_acc or {}).get("id"), code=cash_code,
+                            kind=f"pencairan pengajuan {r['no']}")
+             if not r.get("ap_bill_id") else nullcontext())
+    async with guard:
         ts = now_iso()
-        final = "disbursed" if r["type"] == "advance" else "settled"
-        await _push(rid, {"status": final, "disbursed_amount": amt, "disbursed_at": ts,
-                          "disbursed_by": actor, "source": payload.source,
-                          "reference_no": payload.reference_no, "disburse_note": payload.note,
-                          "payment_proofs": proofs,
-                          "cash_account_id": (cash_acc or {}).get("id"), "cash_account_code": cash_code,
-                          "cash_account_name": (cash_acc or {}).get("name"), **extra_set,
-                          **({"settled_at": ts, "settled_by": actor, "expense_total": amt}
-                             if final == "settled" else {})},
-                    actor, "disbursed", payload.note, journal_id=je["id"])
+        # PK-02: klaim atomik approved → disbursing SEBELUM uang bergerak. Dua pencairan bersamaan dulu
+        # sama-sama lolos cek status (jalur AP: tagihan dibayar 2x; non-AP: riwayat/aktivitas ganda).
+        async with reserved(COLL, {"id": rid, "org_id": org}, {"status": "approved"},
+                            {"$set": {"status": "disbursing", "updated_at": ts}},
+                            undo={"$set": {"status": "approved"}}, what="Pengajuan"):
+            if r.get("ap_bill_id"):
+                # Pembayaran vendor yang menunjuk tagihan AP: lunasi 2-1100 lewat mesin AP (jurnal
+                # Dr Utang Usaha / Cr kas) — beban sudah diakui saat tagihan disetujui.
+                import finance_engine as fe
+                bill, pay = await fe.pay_ap_bill(r["ap_bill_id"], amt, f"Pengajuan {r['no']} — {r['title']}",
+                                                 actor, org, return_payment=True,
+                                                 cash_account_id=(cash_acc or {}).get("id"))
+                je = await db.journal_entries.find_one(
+                    {"org_id": org, "source_type": "ap_bill", "source_id": bill["id"],
+                     "memo": {"$regex": "^Pembayaran"}}, {"_id": 0, "id": 1, "entry_no": 1},
+                    sort=[("created_at", -1)]) or {"id": None, "entry_no": "-"}
+                extra_set = {"ap_payment_id": pay["id"], "ap_bill_status": bill.get("status")}
+            else:
+                if r["type"] == "advance":
+                    debit = ADVANCE_ACCOUNT
+                    memo = f"Pencairan kas bon {r['no']} — {r.get('requester_name') or r['requested_by']}"
+                else:
+                    debit = r27.CASHBON_ACCOUNT.get(r.get("category"), "6-1300")
+                    memo = f"Pencairan pengajuan {r['no']} — {r['title']}"
+                je = await gl.post_journal(
+                    org, memo, [{"account_code": debit, "debit": amt, "credit": 0},
+                                {"account_code": cash_code, "debit": 0, "credit": amt}],
+                    source_type="fund_request", source_id=rid,
+                    source_event=f"fund_request.disburse:{rid}", posted_by=actor)
+                extra_set = {}
+            ts = now_iso()
+            final = "disbursed" if r["type"] == "advance" else "settled"
+            await _push(rid, {"status": final, "disbursed_amount": amt, "disbursed_at": ts,
+                              "disbursed_by": actor, "source": payload.source,
+                              "reference_no": payload.reference_no, "disburse_note": payload.note,
+                              "payment_proofs": proofs,
+                              "cash_account_id": (cash_acc or {}).get("id"), "cash_account_code": cash_code,
+                              "cash_account_name": (cash_acc or {}).get("name"), **extra_set,
+                              **({"settled_at": ts, "settled_by": actor, "expense_total": amt}
+                                 if final == "settled" else {})},
+                        actor, "disbursed", payload.note, journal_id=je["id"])
     await add_activity(entity_type="fund_request", entity_id=rid, type="system",
                        body=f"Pengajuan {r['no']} dicairkan {rp(amt)} ({payload.source}). "
                             f"Jurnal {je['entry_no']}.", actor=actor, org_id=org)

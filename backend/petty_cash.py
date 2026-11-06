@@ -135,24 +135,26 @@ async def disburse_advance(advance_id: str, amount, source: str, note, actor: st
     import cash_bank as _cb
     cash_code = await _cb.resolve_code(org_id, cash_account_id, cash_account(source))
     cash_acc = await _cb.account_by_code(org_id, cash_code)
-    await _cb.assert_funds(org_id, amt, cash_account_id=(cash_acc or {}).get("id"), code=cash_code,
-                           kind=f"pencairan kas bon {adv['no']}")
-    # PK-02: klaim atomik approved → disbursing SEBELUM jurnal (pencairan bersamaan = satu efek).
-    async with reserved("cash_advances", {"id": advance_id, "org_id": org_id}, {"status": "approved"},
-                        {"$set": {"status": "disbursing", "updated_at": ts}},
-                        undo={"$set": {"status": "approved"}}, what="Kas bon"):
-        je = await gl.post_journal(
-            org_id, f"Pencairan kas bon {adv['no']} — {adv.get('requester_name') or adv['requested_by']}",
-            [{"account_code": ADVANCE_ACCOUNT, "debit": amt, "credit": 0},
-             {"account_code": cash_code, "debit": 0, "credit": amt}],
-            source_type="cash_advance", source_id=advance_id,
-            source_event=f"cashbon.disburse:{advance_id}", posted_by=actor)
-        await db.cash_advances.update_one({"id": advance_id}, {"$set": {
-            "status": "disbursed", "disbursed_amount": amt, "disbursed_at": ts,
-            "disbursed_by": actor, "source": source, "disburse_note": note,
-            "cash_account_id": (cash_acc or {}).get("id"), "cash_account_code": cash_code,
-            "cash_account_name": (cash_acc or {}).get("name"),
-            "outstanding": amt, "updated_at": ts}, "$push": {"journal_ids": je["id"]}})
+    # PL-03: kunci rekening + cek dana sampai jurnal pencairan terposting.
+    guard = _cb.funds_guard(org_id, amt, cash_account_id=(cash_acc or {}).get("id"), code=cash_code,
+                            kind=f"pencairan kas bon {adv['no']}")
+    async with guard:
+        # PK-02: klaim atomik approved → disbursing SEBELUM jurnal (pencairan bersamaan = satu efek).
+        async with reserved("cash_advances", {"id": advance_id, "org_id": org_id}, {"status": "approved"},
+                            {"$set": {"status": "disbursing", "updated_at": ts}},
+                            undo={"$set": {"status": "approved"}}, what="Kas bon"):
+            je = await gl.post_journal(
+                org_id, f"Pencairan kas bon {adv['no']} — {adv.get('requester_name') or adv['requested_by']}",
+                [{"account_code": ADVANCE_ACCOUNT, "debit": amt, "credit": 0},
+                 {"account_code": cash_code, "debit": 0, "credit": amt}],
+                source_type="cash_advance", source_id=advance_id,
+                source_event=f"cashbon.disburse:{advance_id}", posted_by=actor)
+            await db.cash_advances.update_one({"id": advance_id}, {"$set": {
+                "status": "disbursed", "disbursed_amount": amt, "disbursed_at": ts,
+                "disbursed_by": actor, "source": source, "disburse_note": note,
+                "cash_account_id": (cash_acc or {}).get("id"), "cash_account_code": cash_code,
+                "cash_account_name": (cash_acc or {}).get("name"),
+                "outstanding": amt, "updated_at": ts}, "$push": {"journal_ids": je["id"]}})
     await add_activity(entity_type="cash_advance", entity_id=advance_id, type="system",
                        body=f"Kas bon {adv['no']} dicairkan {rp(amt)} ({source}). Jurnal {je['entry_no']}.",
                        actor=actor, org_id=org_id)
@@ -202,24 +204,28 @@ async def settle_advance(advance_id: str, items: list, note, actor: str, org_id=
         raise ValueError("Total realisasi pengeluaran harus lebih dari 0.")
     ts = now_iso()
     # Realisasi di atas uang muka = kas KELUAR tambahan (penggantian); sisa dikembalikan = kas masuk.
+    from contextlib import nullcontext
+    guard = nullcontext()
     if reimburse:
         import cash_bank as _cb
         cash_code = adv.get("cash_account_code") or cash_account(adv.get("source"))
-        await _cb.assert_funds(org_id, reimburse, code=cash_code,
-                               kind=f"penggantian kelebihan realisasi kas bon {adv['no']}")
-    # PK-02: klaim atomik disbursed → settling (pertanggungjawaban bersamaan = satu jurnal).
-    async with reserved("cash_advances", {"id": advance_id, "org_id": org_id}, {"status": "disbursed"},
-                        {"$set": {"status": "settling", "updated_at": ts}},
-                        undo={"$set": {"status": "disbursed"}}, what="Kas bon"):
-        je = await gl.post_journal(
-            org_id, f"Pertanggungjawaban kas bon {adv['no']}", lines,
-            source_type="cash_advance", source_id=advance_id,
-            source_event=f"cashbon.settle:{advance_id}", posted_by=actor)
-        await db.cash_advances.update_one({"id": advance_id}, {"$set": {
-            "status": "settled", "expenses": rows, "expense_total": total,
-            "returned_amount": returned, "reimburse_amount": reimburse, "outstanding": 0,
-            "settled_at": ts, "settled_by": actor, "settle_note": note, "updated_at": ts},
-            "$push": {"journal_ids": je["id"]}})
+        # PL-03: penggantian = kas KELUAR → kunci rekening + cek dana sampai jurnal terposting.
+        guard = _cb.funds_guard(org_id, reimburse, code=cash_code,
+                                kind=f"penggantian kelebihan realisasi kas bon {adv['no']}")
+    async with guard:
+        # PK-02: klaim atomik disbursed → settling (pertanggungjawaban bersamaan = satu jurnal).
+        async with reserved("cash_advances", {"id": advance_id, "org_id": org_id}, {"status": "disbursed"},
+                            {"$set": {"status": "settling", "updated_at": ts}},
+                            undo={"$set": {"status": "disbursed"}}, what="Kas bon"):
+            je = await gl.post_journal(
+                org_id, f"Pertanggungjawaban kas bon {adv['no']}", lines,
+                source_type="cash_advance", source_id=advance_id,
+                source_event=f"cashbon.settle:{advance_id}", posted_by=actor)
+            await db.cash_advances.update_one({"id": advance_id}, {"$set": {
+                "status": "settled", "expenses": rows, "expense_total": total,
+                "returned_amount": returned, "reimburse_amount": reimburse, "outstanding": 0,
+                "settled_at": ts, "settled_by": actor, "settle_note": note, "updated_at": ts},
+                "$push": {"journal_ids": je["id"]}})
     detail = f"realisasi {rp(total)}"
     if returned:
         detail += f", sisa dikembalikan {rp(returned)}"

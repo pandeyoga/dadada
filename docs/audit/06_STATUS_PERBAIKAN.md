@@ -86,3 +86,38 @@ Berkas: `test_p0_kontrak`, `test_p0_kontrak2`, `test_p0_lead_customer`, `test_p0
 ## 7. Sebelum deploy ke produksi
 
 1. **Backup** database dan uji pemulihan. 2. Jalankan di salinan data produksi, perhatikan log indeks unik dan migrasi skema bawaan. 3. Jalankan `/finance/reconcile` sebelum dan sesudah. 4. Pastikan `PORTAL_MASTER_OTP` acak/kosong di server dan variabel lingkungan baru dibaca (`EVENT_RETRY_BACKOFF` opsional). 5. Sampaikan perubahan perilaku (bagian 3) ke finance, sales, dan manajer **sebelum** go-live terutama pemisahan tugas dan jeda 15 detik.
+
+## 8. Ronde 3 — perbaikan berbasis POLA (dokumen 11, 11a–11c)
+
+Konteks: penelusuran pola menemukan celah yang sama di jalur yang belum disentuh ronde 1–2. Tiap perbaikan di bawah punya tes regresi yang
+**merah pada kode lama dan hijau pada kode baru** (dibuktikan dengan mengembalikan kode lama sementara).
+
+| ID | Status | Perubahan | Tes |
+|---|:-:|---|---|
+| AZ-11 | ✔ | `super_admin` hanya boleh diberikan/diubah oleh `super_admin` (pemilik organisasi tidak bisa lagi membuat pengendali lintas-tenant) | `test_p0_otorisasi.py` |
+| AZ-12 | ✔ | `PUT /admin/users/{id}` dibatasi `org_id`; perubahan sandi dicatat di audit (tanpa nilai) | idem |
+| PL-01 | ✔ | Transfer internal: dana dicek (dan rekening dikunci) saat **disetujui**, bukan hanya saat dibuat | `test_p0_dana_kas.py` |
+| PL-02 | ✔ | Setuju/tolak transfer atomik (CAS); yang kalah balapan mendapat 409; status sementara `posting` | idem |
+| PL-03 | ✔ | `cash_bank.funds_guard` (kunci per rekening + cek dana + tahan sampai jurnal terposting) dipasang di 10 jalur uang keluar: komisi, refund titipan, aset tetap, pencairan pengajuan dana, upah, fee marketing, pencairan & penggantian kas bon, setoran pajak, refund pembatalan | idem |
+| PL-05 | ✔ | Tanggal bisnis dari WIB (`today_wib`) di 20 berkas; dini hari WIB "hari ini" tidak lagi ditolak sebagai "masa depan" | `test_p0_waktu.py` |
+| PK3-05 / FZ-03 | ✔ | `deal_state.py` (satu predikat "batal" untuk semua jalur): BAST hanya untuk deal `booked`/`completed` tidak batal | `test_p0_status_deal.py` |
+| FZ-01 | ✔ | Void kuitansi **sesudah BAST** menaikkan piutang 1-1300 (bukan membalik 2-1400 yang sudah nol) | idem |
+| FZ-02 | ✔ | Void kuitansi pada deal batal ditolak (koreksi lewat pengajuan pembatalan/refund) | idem |
+| FZ-08 | ✔ | Tahap KPR (SP3K/akad…) ditolak pada kontrak/deal batal | idem |
+| PK3-06 | ◐ | Catatan pajak milik deal batal tidak bisa dilaporkan/disetor (**pembersihan otomatis catatan pajak saat batal belum dikerjakan**) | idem |
+| PK3-04 | ✔ | "Buka blokir" hanya untuk unit yang diblokir; hapus-paksa deal tidak melepas unit yang kini dipegang deal lain | idem |
+| PK3-01 | ✔ | Pembuatan rekap upah diserialkan per proyek (rekap kedua ditolak "bertumpang") | — (belum ada tes khusus) |
+| PK3-02 | ✔ | Stok keluar & opname diserialkan per material | `test_p0_konkurensi3.py` |
+| PK3-03 | ✔ | Penerbitan BAST diserialkan per unit (permintaan serentak mendapat dokumen yang sama) | idem |
+| AZ-01/02/04…10 | ⏳ | Lingkup organisasi di ±190 pencari-by-id, KPR scope sales, send-wa, OTP, regex, XSS file, rate-limit webhook — dikerjakan agen terpisah | (menyusul) |
+
+Perubahan perilaku yang akan terlihat pemakai:
+- Persetujuan transfer/pembayaran dari rekening yang saldonya sudah berkurang kini ditolak dengan pesan "Saldo … tidak cukup" **pada saat disetujui**.
+- Dua pembayaran dari rekening yang sama kini **antre** (maks. 8 detik); bila terlalu lama pengguna melihat 409 "Rekening/kas ini sedang dipakai transaksi lain".
+- BAST pada deal yang belum booking atau sudah batal kini ditolak (400).
+- Void kuitansi pada deal yang sudah batal ditolak; void kuitansi pra-BAST sesudah BAST menaikkan piutang.
+- Tahap KPR pada kontrak batal ditolak. Setoran/lapor pajak untuk deal batal ditolak.
+- Penambahan pengguna dengan peran Super Admin kini hanya bisa oleh Super Admin.
+
+Risiko/catatan baru: status sementara `posting` pada transfer bisa tertinggal bila proses mati tepat di tengah (jurnalnya idempoten, jadi aman dicoba ulang oleh admin setelah status dipulihkan);
+`funds_guard(flush_events=True)` mengosongkan antrean event sebelum melepas kunci (komisi, refund titipan) sehingga latensi permintaan ikut naik sedikit.

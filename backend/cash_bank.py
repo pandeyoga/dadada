@@ -13,6 +13,7 @@ import logging
 from contextlib import asynccontextmanager
 
 import gl_engine as gl
+import idempotency as idem
 import sequences as seq
 from core_utils import new_id, now_iso, today_wib
 from db import ORG_ID, db
@@ -301,7 +302,7 @@ async def assert_funds(org: str, amount, *, cash_account_id: str = None, code: s
     import settings_store as _st
     if await _st.get("cash.allow_negative", org_id=org):
         return
-    cash_code = await resolve_code(org, cash_account_id, code or "1-1200")
+    cash_code = await resolve_code(org, cash_account_id, code or HEADER["bank"])
     bal = await account_balance(org, cash_code)
     if bal < amount:
         acc = await account_by_code(org, cash_code) or {}
@@ -310,6 +311,25 @@ async def assert_funds(org: str, amount, *, cash_account_id: str = None, code: s
             f"Saldo {name} Rp {bal:,} tidak cukup untuk {kind} Rp {amount:,} "
             f"(kurang Rp {amount - bal:,}). Isi dana ke rekening ini (transfer/penerimaan) atau "
             "pilih rekening/kas lain.")
+
+
+@asynccontextmanager
+async def funds_guard(org: str, amount, *, cash_account_id: str = None, code: str = None,
+                      kind: str = "Pembayaran", flush_events: bool = False):
+    """Satu pintu untuk uang KELUAR dari kas/bank: kunci per rekening → cek dana → (blok pemanggil
+    menulis subledger + memposting jurnal) → lepas kunci (audit PL-03).
+
+    `assert_funds` saja tidak cukup: dua pengeluaran berbeda yang bersamaan sama-sama membaca saldo lama
+    (dua pembelian aset @60% saldo bank → rekening −Rp 1,55 M). Kunci harus DIPEGANG sampai jurnal tampil
+    di buku; jalur yang jurnalnya diposting lewat event (komisi, refund titipan) memakai `flush_events=True`
+    supaya antrean event dikosongkan sebelum kunci dilepas."""
+    cash_code = await resolve_code(org, cash_account_id, code or HEADER["bank"])
+    async with cash_lock(org, cash_code):
+        await assert_funds(org, amount, cash_account_id=cash_account_id, code=code, kind=kind)
+        yield cash_code
+        if flush_events and not FUNDS_CHECK_SUSPENDED:
+            from engine import dispatch_pending
+            await dispatch_pending()
 
 
 # ----------------------------------------------------------------- saldo & buku
@@ -522,7 +542,7 @@ async def create_transfer(org: str, payload: dict, actor: str) -> dict:
            "kind": kind, "kind_label": TRANSFER_KINDS[kind],
            "from_account_id": src["id"], "from_name": src["name"], "from_code": src["gl_account_code"],
            "to_account_id": dst["id"], "to_name": dst["name"], "to_code": dst["gl_account_code"],
-           "amount": amount, "fee": fee, "date": (payload.get("date") or ts[:10])[:10],
+           "amount": amount, "fee": fee, "date": (payload.get("date") or today_wib())[:10],
            "reference": payload.get("reference"), "note": payload.get("note"),
            "status": "pending", "created_by": actor, "created_at": ts, "updated_at": ts,
            "approved_by": None, "approved_at": None, "journal_id": None, "journal_no": None}
@@ -539,20 +559,33 @@ async def approve_transfer(org: str, transfer_id: str, actor: str) -> dict:
         raise ValueError(f"Transaksi sudah {tr['status']} — tidak bisa disetujui lagi.")
     if tr["created_by"] == actor:
         raise ValueError("Pembuat transaksi tidak boleh menyetujui transaksinya sendiri (SoD).")
-    lines = [{"account_code": tr["to_code"], "debit": tr["amount"], "credit": 0,
-              "memo": f"Masuk ke {tr['to_name']}"},
-             {"account_code": tr["from_code"], "debit": 0, "credit": tr["amount"] + tr["fee"],
-              "memo": f"Keluar dari {tr['from_name']}"}]
-    if tr["fee"]:
-        lines.append({"account_code": TRANSFER_FEE_ACCOUNT, "debit": tr["fee"], "credit": 0,
-                      "memo": "Biaya transfer/admin"})
-    je = await gl.post_journal(org, f"{tr['kind_label']} {tr['no']} — {tr['from_name']} → {tr['to_name']}",
-                               lines, date=tr["date"], source_type="cash_transfer", source_id=tr["id"],
-                               source_event=f"cashbank.transfer:{tr['id']}", posted_by=actor, auto=False)
-    ts = now_iso()
-    await db.cash_transfers.update_one({"id": transfer_id}, {"$set": {
-        "status": "posted", "approved_by": actor, "approved_at": ts, "updated_at": ts,
-        "journal_id": je["id"], "journal_no": je["entry_no"]}})
+    # PL-01: dana dicek di titik PEMBUKUAN (persetujuan), bukan hanya saat dibuat — tiga transfer yang
+    # masing-masing lolos saat dibuat tetap tidak boleh menjebol saldo saat disetujui. Kunci per rekening
+    # asal supaya persetujuan bersamaan antre (PL-03). Biaya transfer ikut dicek.
+    async with funds_guard(org, tr["amount"] + tr["fee"], code=tr["from_code"],
+                           kind=f"transfer {tr['no']}"):
+        # PL-02: klaim atomik pending → posting; setuju/tolak bersamaan tidak boleh sama-sama sukses.
+        ts = now_iso()
+        await idem.cas("cash_transfers", {"id": transfer_id, "org_id": org}, {"status": "pending"},
+                       {"$set": {"status": "posting", "approved_by": actor, "approved_at": ts, "updated_at": ts}},
+                       what="Transaksi internal")
+        try:
+            lines = [{"account_code": tr["to_code"], "debit": tr["amount"], "credit": 0,
+                      "memo": f"Masuk ke {tr['to_name']}"},
+                     {"account_code": tr["from_code"], "debit": 0, "credit": tr["amount"] + tr["fee"],
+                      "memo": f"Keluar dari {tr['from_name']}"}]
+            if tr["fee"]:
+                lines.append({"account_code": TRANSFER_FEE_ACCOUNT, "debit": tr["fee"], "credit": 0,
+                              "memo": "Biaya transfer/admin"})
+            je = await gl.post_journal(org, f"{tr['kind_label']} {tr['no']} — {tr['from_name']} → {tr['to_name']}",
+                                       lines, date=tr["date"], source_type="cash_transfer", source_id=tr["id"],
+                                       source_event=f"cashbank.transfer:{tr['id']}", posted_by=actor, auto=False)
+        except BaseException:
+            await db.cash_transfers.update_one({"id": transfer_id, "status": "posting"}, {"$set": {
+                "status": "pending", "approved_by": None, "approved_at": None}})
+            raise
+        await db.cash_transfers.update_one({"id": transfer_id, "status": "posting"}, {"$set": {
+            "status": "posted", "updated_at": now_iso(), "journal_id": je["id"], "journal_no": je["entry_no"]}})
     return await db.cash_transfers.find_one({"id": transfer_id}, {"_id": 0})
 
 
@@ -563,7 +596,8 @@ async def reject_transfer(org: str, transfer_id: str, actor: str, reason: str) -
     if tr["status"] != "pending":
         raise ValueError(f"Transaksi sudah {tr['status']}.")
     ts = now_iso()
-    await db.cash_transfers.update_one({"id": transfer_id}, {"$set": {
-        "status": "rejected", "rejected_by": actor, "rejected_at": ts,
-        "reject_reason": reason, "updated_at": ts}})
+    # PL-02: hanya yang MASIH pending yang bisa ditolak; yang kalah balapan dengan persetujuan mendapat 409.
+    await idem.cas("cash_transfers", {"id": transfer_id, "org_id": org}, {"status": "pending"},
+                   {"$set": {"status": "rejected", "rejected_by": actor, "rejected_at": ts,
+                             "reject_reason": reason, "updated_at": ts}}, what="Transaksi internal")
     return await db.cash_transfers.find_one({"id": transfer_id}, {"_id": 0})

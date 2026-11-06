@@ -19,7 +19,8 @@ import sequences as seq
 from db import db, ORG_ID
 from core_utils import new_id, now_iso, now
 from engine import emit, create_notification, add_activity
-from idempotency import Conflict
+from idempotency import Conflict, once
+from deal_state import assert_can_recognize_revenue
 import ar_carry  # noqa: E402
 
 logger = logging.getLogger("sipro.finance")
@@ -845,14 +846,12 @@ async def refund_deposit(deal_id, amount, note, actor, org_id=ORG_ID, cash_accou
     if amount > balance:
         raise ValueError(f"Nominal Rp {amount:,} melebihi saldo titipan Rp {balance:,}.")
     import cash_bank as _cb
-    from idempotency import once
     async with once("deposit.refund", org_id, deal_id, amount, cash_account_id, actor,
                     what="Pengembalian titipan ini"):
-        await _cb.assert_funds(org_id, amount, cash_account_id=cash_account_id, code="1-1200",
-                               kind="pengembalian titipan pembeli")
-        deposit = await _deposit_move(org_id, deal_id, inv, "refund", amount,
-                                      note or "Pengembalian titipan", actor,
-                                      cash_account_id=cash_account_id)
+        async with _cb.funds_guard(org_id, amount, cash_account_id=cash_account_id, code="1-1200",
+                                   kind="pengembalian titipan pembeli", flush_events=True):  # PL-03
+            deposit = await _deposit_move(org_id, deal_id, inv, "refund", amount, note or "Pengembalian titipan",
+                                          actor, cash_account_id=cash_account_id)
     await notify_finance(org_id, "Titipan dikembalikan",
                          f"Rp {amount:,} titipan dikembalikan ke pelanggan (unit "
                          f"{inv.get('unit_code') or '-'}).", "finance", "deal", deal_id)
@@ -929,6 +928,7 @@ async def recognize_revenue(deal: dict, org_id=ORG_ID, cogs=None, actor="system"
     existing = await db.revenue_recognitions.find_one({"org_id": org_id, "deal_id": deal_id}, {"_id": 0})
     if existing:
         return existing
+    assert_can_recognize_revenue(deal)  # PK3-05/FZ-03: deal batal / belum booking tidak boleh diakui pendapatannya
     inv = await db.ar_invoices.find_one({"org_id": org_id, "deal_id": deal_id},
                                         {"_id": 0, "total": 1, "items": 1})
     price = int((inv or {}).get("total") or deal.get("price") or 0)

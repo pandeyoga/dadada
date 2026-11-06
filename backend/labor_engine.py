@@ -31,7 +31,7 @@ from datetime import date
 import gl_engine as gl
 import sequences as seq
 import settings_store as cfg
-from core_utils import new_id, now_iso
+from core_utils import new_id, now_iso, today_wib
 from db import ORG_ID, db
 from engine import add_activity, create_notification, emit
 from idempotency import reserved
@@ -131,7 +131,7 @@ async def record_attendance(org: str, *, project_id: str, work_date: str, entrie
         raise ValueError("Proyek tidak ditemukan.")
     day = str(work_date)[:10]
     try:
-        if date.fromisoformat(day) > date.fromisoformat(now_iso()[:10]):
+        if date.fromisoformat(day) > date.fromisoformat(today_wib()):
             raise ValueError("Absensi tidak boleh diisi untuk tanggal yang belum terjadi.")
     except ValueError as e:
         if "belum terjadi" in str(e):
@@ -240,7 +240,20 @@ async def attendance(org: str = ORG_ID, *, project_id: str = None, work_date: st
 # ============================================================ rekap upah (payroll)
 async def build_payroll(org: str, *, project_id: str, period_start: str, period_end: str,
                         actor: str, budget_item_id: str = None, note: str = None) -> dict:
-    """Rekap upah satu periode dari ABSENSI (bukan angka yang diketik ulang)."""
+    """Rekap upah satu periode dari ABSENSI (bukan angka yang diketik ulang).
+
+    PK3-01: dibuat di bawah kunci per proyek — dulu cek "periode bertumpang" lalu `insert_one` tanpa penjaga,
+    jadi tiga permintaan bersamaan melahirkan tiga rekap atas absensi yang sama dan ketiganya DIBAYAR
+    (Rp 2,7 jt keluar untuk upah Rp 900 rb). Yang menunggu kunci akan melihat rekap pertama dan ditolak."""
+    from idempotency import mutex
+    async with mutex(f"labor.build:{org}:{project_id}", what="Penyusunan rekap upah proyek ini"):
+        return await _build_payroll_locked(org, project_id=project_id, period_start=period_start,
+                                           period_end=period_end, actor=actor,
+                                           budget_item_id=budget_item_id, note=note)
+
+
+async def _build_payroll_locked(org: str, *, project_id: str, period_start: str, period_end: str,
+                                actor: str, budget_item_id: str = None, note: str = None) -> dict:
     if str(period_end) < str(period_start):
         raise ValueError("Tanggal akhir periode tidak boleh sebelum tanggal mulai.")
     project = await db.projects.find_one({"id": project_id, "org_id": org}, {"_id": 0})
@@ -370,24 +383,28 @@ async def pay_payroll(org: str, payroll_id: str, actor: str, *, bank_txn_id: str
         raise ValueError("Nilai rekap upah nol — tidak ada yang bisa dibayar.")
     import cash_bank as _cb
     bank_code = await _cb.resolve_code(org, None, GL_BANK)
-    if not skip_funds_check:  # rekonsiliasi bank: uang sudah keluar, pembukuan mengikuti kenyataan
-        await _cb.assert_funds(org, amount, code=bank_code, kind=f"pembayaran upah {p['no']}")
+    # PL-03: kunci rekening + cek dana sampai jurnal upah terposting (rekonsiliasi bank: uang sudah keluar,
+    # pembukuan mengikuti kenyataan → tanpa cek/kunci).
+    from contextlib import nullcontext
+    guard = (_cb.funds_guard(org, amount, code=bank_code, kind=f"pembayaran upah {p['no']}")
+             if not skip_funds_check else nullcontext())
     # PK-02: klaim atomik approved → paying SEBELUM jurnal/emit (bayar upah bersamaan = satu efek;
     # dulu jurnal-nya idempoten tetapi riwayat, aktivitas, dan event labor.paid terbit dua kali).
-    async with reserved("labor_payrolls", {"id": payroll_id, "org_id": org}, {"state": "approved"},
-                        {"$set": {"state": "paying", "updated_at": now_iso()}},
-                        undo={"$set": {"state": "approved"}}, what="Rekap upah"):
-        je = await gl.post_journal(
-            org, f"Pembayaran upah harian {p['no']} — {p.get('project_name')}",
-            [{"account_code": GL_WIP, "debit": amount, "credit": 0,
-              "memo": f"{p['worker_count']} orang · {p['days_total']} hari kerja"},
-             {"account_code": GL_BANK, "debit": 0, "credit": amount}],
-            date=p.get("period_end"), source_type="labor_payroll", source_id=payroll_id,
-            source_event=f"labor.paid:{payroll_id}", posted_by=actor, auto=False)
-        out = await _advance(org, payroll_id, actor, state="paid", action="pay", reason=note,
-                             extra={"journal_id": je["id"], "journal_no": je["entry_no"],
-                                    "bank_txn_id": bank_txn_id, "paid_at": now_iso(),
-                                    "paid_by": actor})
+    async with guard:
+        async with reserved("labor_payrolls", {"id": payroll_id, "org_id": org}, {"state": "approved"},
+                            {"$set": {"state": "paying", "updated_at": now_iso()}},
+                            undo={"$set": {"state": "approved"}}, what="Rekap upah"):
+            je = await gl.post_journal(
+                org, f"Pembayaran upah harian {p['no']} — {p.get('project_name')}",
+                [{"account_code": GL_WIP, "debit": amount, "credit": 0,
+                  "memo": f"{p['worker_count']} orang · {p['days_total']} hari kerja"},
+                 {"account_code": GL_BANK, "debit": 0, "credit": amount}],
+                date=p.get("period_end"), source_type="labor_payroll", source_id=payroll_id,
+                source_event=f"labor.paid:{payroll_id}", posted_by=actor, auto=False)
+            out = await _advance(org, payroll_id, actor, state="paid", action="pay", reason=note,
+                                 extra={"journal_id": je["id"], "journal_no": je["entry_no"],
+                                        "bank_txn_id": bank_txn_id, "paid_at": now_iso(),
+                                        "paid_by": actor})
     await add_activity(entity_type="project", entity_id=p["project_id"], type="finance",
                        actor=actor, org_id=org,
                        body=(f"Upah {p['no']} dibayar Rp {amount:,} ({p['worker_count']} "

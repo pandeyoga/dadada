@@ -134,16 +134,19 @@ async def create_asset(payload, actor: str, org_id=ORG_ID) -> dict:
                          "(agar utangnya tercatat di daftar tagihan vendor).")
     ts = now_iso()
     acquired = payload.acquired_date or ts
+    from contextlib import nullcontext
+    guard = nullcontext()
     if payload.funding in ("kas", "bank"):
-        # PK-06: perolehan tunai/bank mengeluarkan kas → dana harus cukup (aset Rp 99 M dari bank
-        # ber-saldo Rp 7 M dulu lolos dan membuat rekening −Rp 92 M).
+        # PK-06 + PL-03: perolehan tunai/bank mengeluarkan kas → dana harus cukup, dan DUA pembelian berbeda
+        # yang bersamaan tidak boleh sama-sama lolos (terbukti: 2 aset @60% saldo → rekening −Rp 1,55 M).
         import cash_bank as _cb
-        await _cb.assert_funds(org_id, cost, code=FUNDING_ACCOUNT[payload.funding],
-                               kind=f"perolehan aset {payload.name}")
+        guard = _cb.funds_guard(org_id, cost, code=FUNDING_ACCOUNT[payload.funding],
+                                kind=f"perolehan aset {payload.name}")
     # PK-02/22: klik ganda / retry membuat aset kembar (uang keluar 2x) → kunci permintaan identik.
     async with once("asset.create", org_id, payload.name, cost, payload.acquired_date, payload.funding, actor,
                     what="Pencatatan aset ini"):
-        return await _create_asset_locked(payload, actor, org_id, cost, salvage, method, life, ts, acquired)
+        async with guard:
+            return await _create_asset_locked(payload, actor, org_id, cost, salvage, method, life, ts, acquired)
 
 
 async def _create_asset_locked(payload, actor, org_id, cost, salvage, method, life, ts, acquired) -> dict:

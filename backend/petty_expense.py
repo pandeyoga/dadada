@@ -17,7 +17,7 @@ import gl_engine as gl
 import reference_p27 as r27
 import sequences as seq
 import settings_store as cfg
-from core_utils import new_id, now_iso
+from core_utils import new_id, now_iso, today_wib
 from db import ORG_ID, db
 from idempotency import reserved
 
@@ -138,8 +138,8 @@ async def _create_expense(org: str, payload: dict, actor: str, actor_name: str =
         raise ValueError(f"Saldo {acc['name']} Rp {bal:,} tidak cukup untuk Rp {amount:,} — "
                          "ajukan pengisian kas kecil dulu.")
     ts = now_iso()
-    date = (payload.get("date") or ts[:10])[:10]
-    if date > ts[:10]:
+    date = (payload.get("date") or today_wib())[:10]
+    if date > today_wib():
         raise ValueError("Tanggal pengeluaran tidak boleh di masa depan.")
     project_id = payload.get("project_id") or None
     project = await db.projects.find_one({"id": project_id, "org_id": org}, {"_id": 0, "name": 1}) \

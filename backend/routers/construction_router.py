@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from db import db, ORG_ID
-from core_utils import new_id, now_iso, serialize_doc, due_in
+from core_utils import new_id, now_iso, serialize_doc, due_in, today_wib
 from rbac import require_permission, assert_project_access
 from org_scope import get_in_org
 from engine import (emit, add_activity, auto_create_task, recompute_project_progress,
@@ -101,7 +101,7 @@ async def update_progress(phase_id: str, payload: ProgressUpdate,
     curve = build_s_curve(phases)
     if curve["behind"]:
         await auto_create_task(
-            source_event=f"deviation:{phase['project_id']}:{ts[:10]}",
+            source_event=f"deviation:{phase['project_id']}:{today_wib()}",
             title=f"Deviasi Kurva-S {curve['deviation']}% — proyek {proj.get('code')}",
             type="review", related_entity_type="project", related_entity_id=phase["project_id"],
             assigned_to=await _project_pm(proj, org), due_date=due_in(days=1), priority="high", org_id=org)

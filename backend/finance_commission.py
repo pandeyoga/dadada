@@ -17,9 +17,9 @@ async def notify_finance(*a, **kw):  # impor tertunda (finance_engine mengimpor 
 
 async def _assert_deal_not_cancelled(com: dict, org_id: str) -> None:
     """PK-12: komisi tidak disetujui/dibayar untuk penjualan yang sudah dibatalkan."""
-    deal = await db.deals.find_one({"id": com.get("deal_id"), "org_id": org_id},
-                                   {"_id": 0, "status": 1, "cancellation_id": 1})
-    if deal and (deal.get("status") == "cancelled" or deal.get("cancellation_id")):
+    from deal_state import deal_of, is_cancelled
+    deal = await deal_of(org_id, com.get("deal_id"), {"_id": 0, "status": 1, "cancellation_id": 1})
+    if deal and is_cancelled(deal):
         raise ValueError("Deal komisi ini sudah DIBATALKAN — komisi tidak boleh disetujui atau dibayar "
                          "untuk penjualan yang batal.")
 
@@ -67,18 +67,20 @@ async def pay_commission(commission_id, payer, org_id=ORG_ID, cash_account_id=No
     cash_code = await _cb.resolve_code(org_id, cash_account_id, "1-1200")
     cash_acc = await _cb.account_by_code(org_id, cash_code)
     cash_account_id = (cash_acc or {}).get("id")
-    await _cb.assert_funds(org_id, int(com.get("amount", 0)), cash_account_id=cash_account_id,
-                           code=cash_code, kind="pembayaran komisi")
     ts = now_iso()
-    # PK-02/03: klaim atomik approved → paid SEBELUM emit commission.paid.
-    async with reserved("commissions", {"id": commission_id, "org_id": org_id}, {"status": "approved"},
-                        {"$set": {"status": "paid", "paid_by": payer, "paid_at": ts, "updated_at": ts,
-                                  "cash_account_id": cash_account_id,
-                                  "cash_account_name": (cash_acc or {}).get("name")}},
-                        undo={"$set": {"status": "approved"}}, what="Komisi"):
-        await emit("commission.paid", "commission", commission_id,
-                   {"amount": int(com.get("amount", 0)), "cash_account_id": cash_account_id},
-                   org_id=org_id)
+    # PL-03: kunci rekening + cek dana; jurnal komisi diposting lewat event, jadi antrean event dikosongkan
+    # sebelum kunci dilepas (flush_events) — kalau tidak, pembayaran berikutnya masih membaca saldo lama.
+    async with _cb.funds_guard(org_id, int(com.get("amount", 0)), cash_account_id=cash_account_id,
+                               code=cash_code, kind="pembayaran komisi", flush_events=True):
+        # PK-02/03: klaim atomik approved → paid SEBELUM emit commission.paid.
+        async with reserved("commissions", {"id": commission_id, "org_id": org_id}, {"status": "approved"},
+                            {"$set": {"status": "paid", "paid_by": payer, "paid_at": ts, "updated_at": ts,
+                                      "cash_account_id": cash_account_id,
+                                      "cash_account_name": (cash_acc or {}).get("name")}},
+                            undo={"$set": {"status": "approved"}}, what="Komisi"):
+            await emit("commission.paid", "commission", commission_id,
+                       {"amount": int(com.get("amount", 0)), "cash_account_id": cash_account_id},
+                       org_id=org_id)
     await notify_finance(org_id, "Komisi dibayar",
                          f"Komisi Rp {com.get('amount', 0):,} telah dibayarkan.", "finance",
                          "deal", com.get("deal_id"), extra_emails=[com.get("assigned_to")])

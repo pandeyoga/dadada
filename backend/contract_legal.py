@@ -18,7 +18,7 @@ import logging
 import reference as ref
 import sequences as seq
 import stage_clock as clock
-from core_utils import due_in, now_iso
+from core_utils import due_in, now_iso, today_wib
 from db import db
 from engine import add_activity, auto_create_task, dispatch_pending, emit
 from idempotency import Conflict, mutex
@@ -80,7 +80,7 @@ async def _advance_locked(org: str, contract_id: str, stage: str, payload: dict,
             "stage": stage.upper(), "project_id": c.get("project_id"), "unit_id": c.get("unit_id"),
             "customer_id": c.get("customer_id")})
     entry = {"stage": stage, "label": ref.label_of("contract_legal_stage", stage),
-             "number": number, "date": payload.get("date") or ts[:10],
+             "number": number, "date": payload.get("date") or today_wib(),
              "notary": payload.get("notary"), "place": payload.get("place"),
              "file_id": payload.get("file_id"), "note": payload.get("note"),
              "override": override,

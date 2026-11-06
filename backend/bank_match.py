@@ -366,6 +366,11 @@ async def _void_receipt_locked(org: str, receipt_id: str, actor: str, reason: st
     if int(rec.get("deposit_amount") or 0) > 0:
         raise ValueError("Kuitansi ini melahirkan TITIPAN pelanggan — batalkan dari layar "
                          "Titipan agar saldo titipan tetap benar.")
+    # FZ-02: pada deal yang sudah DIBATALKAN, uang pembeli sudah menjadi utang refund (2-1460) — membalik kuitansi
+    # di sini menghidupkan lagi AR batal dan membalik 2-1400 dua kali. Koreksinya lewat pengajuan pembatalan/refund.
+    from deal_state import assert_not_cancelled, deal_of
+    assert_not_cancelled(await deal_of(org, rec["deal_id"], {"_id": 0, "status": 1, "cancellation_id": 1}),
+                         "pembatalan kuitansi (koreksi lewat pengajuan pembatalan/refund)")
     inv = await db.ar_invoices.find_one({"org_id": org, "deal_id": rec["deal_id"]}, {"_id": 0})
     if not inv:
         raise ValueError("Jadwal AR tidak ditemukan untuk kuitansi ini.")
@@ -385,6 +390,13 @@ async def _void_receipt_locked(org: str, receipt_id: str, actor: str, reason: st
         # Balikkan PERSIS pembagian saat diterima (GL-01/02): kuitansi lama tanpa gl_split = semua 2-1400.
         split = rec.get("gl_split")
         liab_part = int(split["liability"]) if split else applied
+        # FZ-01: BAST sudah menutup kewajiban kontrak (2-1400 = 0). Kuitansi PRA-BAST yang dibatalkan SESUDAH BAST
+        # menaikkan piutang (Dr 1-1300), bukan menurunkan 2-1400 lagi (dulu: kewajiban kontrak −Rp 495 jt, piutang hilang).
+        if liab_part and await db.revenue_recognitions.find_one({"org_id": org, "deal_id": rec["deal_id"]},
+                                                                {"_id": 1}):
+            split = {"liability": 0, "ar": liab_part + int((split or {}).get("ar") or 0),
+                     "penalty": int((split or {}).get("penalty") or 0)}
+            liab_part = 0
         if liab_part:
             await db.contract_liabilities.update_one(
                 {"org_id": org, "deal_id": rec["deal_id"]},

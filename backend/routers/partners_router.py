@@ -21,7 +21,7 @@ import partner_engine as pengine
 import partner_fee as pfee
 import partner_report as prep
 import sequences as seq
-from core_utils import new_id, now_iso, parse_pagination, serialize_doc
+from core_utils import new_id, now_iso, parse_pagination, serialize_doc, today_wib
 from db import db, ORG_ID
 from engine import add_activity
 from fastapi import APIRouter, Depends, HTTPException
@@ -67,7 +67,7 @@ async def list_partners(q: str = None, partner_kind: str = None, status: str = N
     rows = await (db.agents.find(query, {"_id": 0})
                   .sort(lst.sort_spec(sort, direction, PARTNER_SORTS, ("created_at", -1)))
                   .skip(skip).limit(limit).to_list(limit))
-    today = now_iso()[:10]
+    today = today_wib()
     for row in rows:
         ok, why = pengine.contract_active(row, today)
         row["contract_ok"] = ok

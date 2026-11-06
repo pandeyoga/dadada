@@ -49,7 +49,7 @@ import reference as ref
 import sequences as seq
 import settings_store as cfg
 import stage_clock as clock
-from core_utils import new_id, now_iso
+from core_utils import new_id, now_iso, today_wib
 from db import ORG_ID, ORG_NAME, db
 from engine import add_activity, emit
 from finance_engine import notify_finance
@@ -378,7 +378,7 @@ async def _generate_document(org: str, cancel: dict, hitung: dict, actor: str) -
                           "Pengembalian dana dilakukan tanpa menunggu penjualan ulang unit."),
         "rule_label": hitung["rule_label"],
         "decided_by": actor,
-        "decided_at": now_iso()[:10],
+        "decided_at": today_wib(),
         "money_note": hitung["note"],
     }
     content = docgen.render(tpl["content"], ctx)
@@ -590,28 +590,31 @@ async def pay_refund(org: str, cid: str, actor: str, *, method: str, amount: int
         # PK-06: uang refund tidak boleh keluar dari rekening yang saldonya tidak cukup. Berada di
         # bawah kunci per pengajuan, jadi pembacaan saldo dan jurnal tidak terselip refund lain
         # dari pengajuan yang sama.
-        await _cb.assert_funds(org, amount, code=akun_kas, kind=f"refund pembatalan {cancel['number']}")
-        ts = now_iso()
-        pid = new_id()
-        entry = await gl.post_journal(
-            org, f"Pembayaran refund pembatalan {cancel['number']}", [
-                {"account_code": AKUN_UTANG_REFUND, "debit": amount, "credit": 0,
-                 "memo": f"Utang refund kepada {cancel.get('customer_name')}"},
-                {"account_code": akun_kas, "debit": 0, "credit": amount,
-                 "memo": ref.label_of("refund_method", method)},
-            ], source_type="cancellation_refund", source_id=pid,
-            source_event=f"cancel:{cid}:refund:{pid}", posted_by=actor, auto=True,
-            source_deal_id=cancel.get("deal_id"))
-        payment = {"id": pid, "amount": amount, "method": method,
-                   "method_label": ref.label_of("refund_method", method),
-                   "account_code": akun_kas, "note": note, "client_ref": client_ref,
-                   "override": bool(override), "override_reason": override_reason or None,
-                   "journal_id": entry["id"], "actor": actor, "at": ts}
-        total = paid + amount
-        state = "selesai" if total >= payable else "refund_sebagian"
-        await db.cancellations.update_one({"id": cid}, {
-            "$push": {"refund_payments": payment, "journal_ids": entry["id"]},
-            "$set": {"refund_paid_total": total, "state": state, "updated_at": ts}})
+        # PL-03: kunci menurut REKENING (bukan hanya per pengajuan): dua refund dari pengajuan berbeda tetapi
+        # rekening sama tidak boleh sama-sama lolos cek dana.
+        guard = _cb.funds_guard(org, amount, code=akun_kas, kind=f"refund pembatalan {cancel['number']}")
+        async with guard:
+            ts = now_iso()
+            pid = new_id()
+            entry = await gl.post_journal(
+                org, f"Pembayaran refund pembatalan {cancel['number']}", [
+                    {"account_code": AKUN_UTANG_REFUND, "debit": amount, "credit": 0,
+                     "memo": f"Utang refund kepada {cancel.get('customer_name')}"},
+                    {"account_code": akun_kas, "debit": 0, "credit": amount,
+                     "memo": ref.label_of("refund_method", method)},
+                ], source_type="cancellation_refund", source_id=pid,
+                source_event=f"cancel:{cid}:refund:{pid}", posted_by=actor, auto=True,
+                source_deal_id=cancel.get("deal_id"))
+            payment = {"id": pid, "amount": amount, "method": method,
+                       "method_label": ref.label_of("refund_method", method),
+                       "account_code": akun_kas, "note": note, "client_ref": client_ref,
+                       "override": bool(override), "override_reason": override_reason or None,
+                       "journal_id": entry["id"], "actor": actor, "at": ts}
+            total = paid + amount
+            state = "selesai" if total >= payable else "refund_sebagian"
+            await db.cancellations.update_one({"id": cid}, {
+                "$push": {"refund_payments": payment, "journal_ids": entry["id"]},
+                "$set": {"refund_paid_total": total, "state": state, "updated_at": ts}})
         await add_activity(entity_type="lead", entity_id=cancel.get("lead_id"), type="system",
                            body=(f"Refund pembatalan {cancel['number']} dibayar {_rp(amount)} "
                                  f"({ref.label_of('refund_method', method)})."

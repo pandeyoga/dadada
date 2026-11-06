@@ -6,7 +6,7 @@ berubah setelah terbit) → terbitkan ulang, jangan ditandatangani.
 """
 import contracts_engine as ce
 import docgen
-from core_utils import new_id, now_iso
+from core_utils import new_id, now_iso, today_wib
 from db import ORG_NAME, db
 
 ADENDUM_CODE = "ADENDUM_SPR"
@@ -248,7 +248,7 @@ def addendum_content(*, number: str, spr: dict, contract: dict, customer: dict, 
         "Ketentuan lain dalam SPR yang tidak diubah oleh adendum ini tetap berlaku sepenuhnya. "
         "Adendum ini merupakan satu kesatuan yang tidak terpisahkan dari SPR di atas dan mulai "
         "berlaku sejak ditandatangani kedua pihak.",
-        f"Tanggal dokumen : {now_iso()[:10]}",
+        f"Tanggal dokumen : {today_wib()}",
         f"Penerbit : {project.get('developer_name') or ORG_NAME}",
     ]
     return "\n".join(lines)

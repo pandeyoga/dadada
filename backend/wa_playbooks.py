@@ -15,7 +15,7 @@ belum ada) dan SELALU menghasilkan aktivitas pada lead + tugas tindak lanjut bil
 """
 import logging
 
-from core_utils import due_in, new_id, now_iso
+from core_utils import due_in, new_id, now_iso, today_wib
 from db import db, ORG_ID
 from engine import add_activity, dispatch_pending, send_template_message
 
@@ -160,7 +160,7 @@ async def run_playbook(org: str, key: str, *, actor: str = "system", limit: int 
             sent += 1
         if p.get("create_task") and p.get("jobdesk_code"):
             rows = await spawn(org, p["jobdesk_code"],
-                               source_event=f"playbook:{key}:{l['id']}:{now_iso()[:10]}",
+                               source_event=f"playbook:{key}:{l['id']}:{today_wib()}",
                                record_owner=l.get("assigned_to"), entity_type="lead",
                                entity_id=l["id"],
                                title=f"{p.get('name')}: {l.get('name')}",
