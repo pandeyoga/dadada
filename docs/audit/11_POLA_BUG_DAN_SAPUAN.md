@@ -19,7 +19,7 @@ terpisah. Label bukti: **TERBUKTI** (dijalankan, hasil terukur) · **KODE** (dib
 2. Akar masalahnya struktural (bagian 5): tidak ada **satu pintu transaksi uang**; tiap jalur menyusun sendiri
    gabungan `once/cas/mutex/assert_funds/SoD` dan memilih sebagian. Selama itu begitu, perbaikan per-jalur
    akan terus bocor di jalur berikutnya.
-3. Lima temuan **baru** dari sapuan ini, semuanya terbukti (PL-01…PL-05, bagian 3). Yang paling berat: saldo kas
+3. Lima temuan **baru** dari sapuan saya sendiri, semuanya terbukti (PL-01…PL-05, bagian 3); ditambah **dua celah Kritis keamanan** (AZ-11/AZ-12) dan 23 temuan konkurensi/status/yatim dari agen (bagian 8). Yang paling berat: saldo kas
    bisa dijebol lewat transfer internal (−Rp 12,5 jt dari Kas Besar Rp 17,5 jt) dan lewat dua pembelian aset
    bersamaan (Rekening Operasional Rp 7,75 M → **−Rp 1,55 M**).
 4. Dua dugaan saya sendiri **gugur** setelah diuji (bagian 6) — dicatat supaya tidak diulang.
@@ -204,7 +204,35 @@ badan fungsi — benar, tetapi pola "peran ditanam di kode" (P6). Hasil matriks 
 
 ## 8. Hasil penyapu dinamis (agen)
 
-*(diisi setelah laporan agen konkurensi/status/yatim, fuzz invarian, dan RBAC/lingkup-org selesai)*
+Dua dari tiga agen sudah melapor; laporan lengkap ada di `11a_…` (konkurensi/status/yatim) dan `11b_…` (otorisasi/lingkup org).
+Laporan agen ketiga (fuzz invarian lintas entitas) menyusul di bagian 8.3. **Klaim agen bukan fakta sampai saya verifikasi** — hasil
+verifikasi saya:
+
+### 8.1 Otorisasi & lingkup organisasi (`11b`)
+| Klaim agen | Hasil verifikasi saya |
+|---|---|
+| Owner dapat membuat `super_admin` → akses lintas-tenant (AZ-11) | **Terbukti** — pengguna baru login dan melihat 2 org |
+| Owner org lain mengganti sandi pengguna org SIPRO (AZ-12) | **Terbukti** — login dengan sandi baru berhasil |
+| Lead/deal org A terbaca & terubah oleh org B (AZ-01) | **Terbukti** untuk baca, ubah lead, dan booking deal; **tidak** terbukti untuk batal (409) dan hapus (no-op 200) |
+| OTP portal tanpa kunci percobaan (AZ-10) | Sebab terkonfirmasi di kode (`attempts` tidak pernah ditambah) |
+| 8 temuan lain (AZ-02…09) | Penyebab terkonfirmasi di kode; skenario penuh = klaim agen |
+
+### 8.2 Konkurensi, mesin status, yatim (`11a`) — 23 temuan baru, semua diklaim terbukti lewat API
+Yang saya konfirmasi di kode: `recognize_revenue` tidak memeriksa status deal (PK3-05, deal batal bisa "completed" dan menjurnal
+pendapatan Rp 600 jt); `materials_router.create_txn` baca-stok→insert tanpa penjaga (PK3-02); `toggle_unit_block(blocked=false)` tanpa syarat
+status (PK3-04). Pola yang diperluas oleh laporan ini:
+
+- **P1/P7 lebih luas dari dugaan statis saya**: dari 530 endpoint mutasi hanya **95 (18%)** punya penjaga atomik kuat, **179 (34%)** tanpa penjaga;
+  146 dari 171 penulisan status menimpa tanpa syarat; 11 dari 15 mesin status yang diuji bisa melompat/mundur.
+- **Dua jalur batal** (`deal_cancel` vs `cancellation_engine.decide`) dan **dua jalur hapus** (`force_delete` vs `master_delete`) dengan cakupan
+  pembersihan berbeda → yatim (P8 + P12 "orphan"): hapus deal menjangkau 21 dari 31 koleksi ber-`deal_id`, dan salah nama koleksi
+  (`pdc_cheques` ≠ `pdc_instruments`).
+- Paling berdampak uang: rekap upah ganda (Rp 2,7 jt keluar untuk upah Rp 900 rb), pajak deal batal terbayar Rp 113 jt, pendapatan semu Rp 600 jt,
+  satu unit terjual dua kali, stok negatif.
+- Dugaan gugur: persetujuan transfer ×3 **tidak** menjurnal ganda (jurnal 1×) — konsisten dengan PL-01: masalahnya cek dana, bukan jurnal ganda.
+
+### 8.3 Fuzz invarian
+*(menunggu laporan agen)*
 
 ## 9. Rencana perbaikan (usulan, belum dikerjakan — menunggu persetujuan)
 
