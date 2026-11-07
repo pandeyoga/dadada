@@ -14,6 +14,7 @@ import workhub as wh
 from core_utils import now_iso, serialize_doc
 from db import db, ORG_ID
 from engine import add_activity, create_notification
+from idempotency import cas
 from models_p29 import (JobdeskConfig, JobdeskRun, TaskAssign, TaskReject, TaskSubmit,
                         TaskVerify)
 from rbac import require_permission
@@ -298,7 +299,9 @@ async def submit_task(task_id: str, payload: TaskSubmit,
     else:
         upd.update({"status": "done", "review": "approved", "completed_at": ts,
                     "completed_by": user.get("email")})
-    await db.tasks.update_one({"id": task_id, "org_id": t["org_id"]}, {"$set": upd})
+    # PK3-16: CAS atas status yang dibaca (ajukan ‖ batal/selesai → satu pemenang; bukti tidak dobel).
+    await cas("tasks", {"id": task_id, "org_id": t["org_id"]}, {"status": t.get("status")},
+              {"$set": upd}, what="Tugas")
     result = {**t, **upd}
     await wh.log_task_activity(result, f"Tugas '{t.get('title')}' diajukan"
                                + (f": {payload.note}" if payload.note else ""), user.get("email"))
@@ -323,10 +326,10 @@ async def verify_task(task_id: str, payload: TaskVerify,
     if t.get("status") != "submitted":
         raise HTTPException(status_code=400, detail="Hanya tugas yang diajukan bisa diverifikasi.")
     ts = now_iso()
-    await db.tasks.update_one({"id": task_id, "org_id": t["org_id"]}, {"$set": {
+    await cas("tasks", {"id": task_id, "org_id": t["org_id"]}, {"status": "submitted"}, {"$set": {
         "status": "done", "review": "approved", "verified_by": user.get("email"),
         "verified_at": ts, "verify_note": payload.note, "completed_at": ts,
-        "completed_by": t.get("submitted_by") or t.get("assigned_to"), "updated_at": ts}})
+        "completed_by": t.get("submitted_by") or t.get("assigned_to"), "updated_at": ts}}, what="Tugas")
     await create_notification(
         user_email=t.get("assigned_to"), title="Tugas Anda disetujui",
         body=f"{t.get('title')} diverifikasi {user.get('name') or user.get('email')}",
@@ -347,9 +350,9 @@ async def reject_task(task_id: str, payload: TaskReject,
     if t.get("status") != "submitted":
         raise HTTPException(status_code=400, detail="Hanya tugas yang diajukan bisa dikembalikan.")
     ts = now_iso()
-    await db.tasks.update_one({"id": task_id, "org_id": t["org_id"]}, {"$set": {
+    await cas("tasks", {"id": task_id, "org_id": t["org_id"]}, {"status": "submitted"}, {"$set": {
         "status": "in_progress", "review": "rejected", "rejected_reason": payload.reason,
-        "rejected_by": user.get("email"), "rejected_at": ts, "updated_at": ts}})
+        "rejected_by": user.get("email"), "rejected_at": ts, "updated_at": ts}}, what="Tugas")
     await create_notification(
         user_email=t.get("assigned_to"), title="Tugas dikembalikan untuk diperbaiki",
         body=f"{t.get('title')}: {payload.reason}", type="task",

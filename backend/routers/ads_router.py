@@ -26,6 +26,7 @@ import reference as ref
 from core_utils import now_iso, parse_pagination, serialize_doc, today_iso_date
 from db import db, ORG_ID
 from fastapi import APIRouter, Depends, HTTPException
+from idempotency import Conflict
 from models_p43 import AdsSync, CampaignCreate, CampaignUpdate, SpendEntry, SpendImport
 from rbac import audit_log, require_permission
 
@@ -241,10 +242,31 @@ async def commit_import(import_id: str,
         raise HTTPException(status_code=400,
                             detail=f"Berkas ini ditolak saat validasi: {doc.get('error')}")
     already = doc.get("status") == "committed"
+    if not already:
+        # PK3-21: klaim atomik (preview → committing) sebelum baris ditulis — dua commit serentak untuk laporan yang
+        # sama dulu sama-sama menulis (indeks unik biaya iklan menjawab 500 / hitungan "diperbarui" ganda).
+        claimed = await db.ads_imports.find_one_and_update(
+            {"id": import_id, "org_id": org, "status": {"$nin": ["committed", "committing", "failed"]}},
+            {"$set": {"status": "committing", "committing_by": user.get("email"), "committing_at": now_iso()}})
+        if claimed is None:
+            cur = (await db.ads_imports.find_one({"id": import_id, "org_id": org}, {"_id": 0, "status": 1}) or {})
+            if cur.get("status") == "committed":
+                already = True
+            else:
+                raise Conflict("Laporan impor ini sedang atau baru saja di-commit proses lain. "
+                               "Muat ulang untuk melihat hasilnya.")
     try:
         fresh = await eng.apply_import(doc, org_id=org, actor=user.get("email"))
     except ValueError as exc:
+        if not already:
+            await db.ads_imports.update_one({"id": import_id, "org_id": org, "status": "committing"},
+                                            {"$set": {"status": doc.get("status") or "preview"}})
         raise HTTPException(status_code=400, detail=str(exc))
+    except BaseException:
+        if not already:
+            await db.ads_imports.update_one({"id": import_id, "org_id": org, "status": "committing"},
+                                            {"$set": {"status": doc.get("status") or "preview"}})
+        raise
     if not already:
         await audit_log(user, "import_commit", "ad_spend", import_id,
                         {"applied": fresh.get("applied")})

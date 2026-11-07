@@ -21,6 +21,7 @@ from db import db, ORG_ID
 from core_utils import new_id, now_iso, serialize_doc, parse_pagination
 from rbac import require_permission
 from engine import add_activity
+from idempotency import transition
 from models import TaskCreate, TaskUpdate, TaskComplete, TaskSnooze
 
 router = APIRouter(prefix="/work", tags=["work"])
@@ -246,10 +247,25 @@ async def _get_task_scoped(task_id: str, user: dict):
     raise HTTPException(status_code=403, detail="Akses ditolak: bukan task Anda")
 
 
+def _needs_gate(t: dict) -> bool:
+    """Tugas yang menuntut bukti kerja / verifikasi tidak boleh ditutup tanpa jalur 'Ajukan Hasil'."""
+    return (t.get("proof_kind") or "none") != "none" or (t.get("verify_mode") or "none") != "none"
+
+
+def _assert_can_close(t: dict) -> None:
+    if (t.get("meta") or {}).get("build_item_id"):
+        from routers.workhub_router import build_task_message
+        raise HTTPException(status_code=400, detail=build_task_message(t, "diselesaikan"))
+    if _needs_gate(t):
+        raise HTTPException(status_code=400, detail=(
+            "Tugas ini memerlukan bukti kerja. Gunakan tombol 'Ajukan Hasil' agar bukti "
+            "tercatat dan bisa diverifikasi."))
+
+
 @router.put("/tasks/{task_id}")
 async def update_task(task_id: str, payload: TaskUpdate,
                       user: dict = Depends(require_permission("work_tasks", "update"))):
-    await _get_task_scoped(task_id, user)
+    t = await _get_task_scoped(task_id, user)
     org = user.get("org_id", ORG_ID)
     updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
     if updates.get("assigned_to"):
@@ -257,8 +273,28 @@ async def update_task(task_id: str, payload: TaskUpdate,
         if not target:
             raise HTTPException(status_code=400, detail="Pengguna tujuan tidak ditemukan")
         updates["division"] = wh.division_of(target)
-    updates["updated_at"] = now_iso()
-    await db.tasks.update_one({"id": task_id, "org_id": org}, {"$set": updates})
+    ts = now_iso()
+    updates["updated_at"] = ts
+    expect = {}
+    to = updates.get("status")
+    if to is not None and to == t.get("status"):
+        updates.pop("status")            # status tak berubah → bukan transisi
+    elif to is not None:
+        # PK3-16: status berubah hanya menurut tabel transisi, lewat CAS, dan tidak melewati gerbang bukti.
+        if not wh.can_move(t, to):
+            raise HTTPException(status_code=400, detail=(
+                f"Status tugas tidak bisa diubah dari '{t.get('status')}' ke '{to}'. "
+                "Tugas yang sudah selesai/dibatalkan tidak dibuka kembali."))
+        if to == "submitted":
+            raise HTTPException(status_code=400, detail=(
+                "Status 'Menunggu verifikasi' hanya lewat tombol 'Ajukan Hasil' (bukti kerja wajib tercatat)."))
+        if to == "done":
+            _assert_can_close(t)
+            updates.update({"review": "approved", "completed_at": ts, "completed_by": user.get("email")})
+        if to == "cancelled":
+            updates.update({"cancelled_at": ts, "cancelled_by": user.get("email")})
+        expect = {"status": t.get("status")}
+    await transition("tasks", {"id": task_id, "org_id": org}, expect, {"$set": updates}, what="Tugas")
     fresh = await db.tasks.find_one({"id": task_id, "org_id": org}, {"_id": 0})
     return {"data": serialize_doc(fresh)}
 
@@ -272,20 +308,17 @@ async def complete_task(task_id: str, payload: TaskComplete,
     supaya bukti kerja benar-benar tercatat (anti "selesai tanpa dikerjakan").
     """
     t = await _get_task_scoped(task_id, user)
-    if (t.get("meta") or {}).get("build_item_id"):
-        from routers.workhub_router import build_task_message
-        raise HTTPException(status_code=400, detail=build_task_message(t, "diselesaikan"))
-    needs_proof = (t.get("proof_kind") or "none") != "none"
-    needs_verify = (t.get("verify_mode") or "none") != "none"
-    if needs_proof or needs_verify:
+    _assert_can_close(t)
+    if not wh.can_move(t, "done"):
         raise HTTPException(status_code=400, detail=(
-            "Tugas ini memerlukan bukti kerja. Gunakan tombol 'Ajukan Hasil' agar bukti "
-            "tercatat dan bisa diverifikasi."))
+            f"Tugas berstatus '{t.get('status')}' tidak bisa diselesaikan."
+            + (" Tugas yang dibatalkan tidak dihidupkan kembali." if t.get("status") == "cancelled" else "")))
     ts = now_iso()
-    await db.tasks.update_one({"id": task_id, "org_id": t["org_id"]}, {"$set": {
+    # PK3-16: CAS atas status yang dibaca — selesaikan ×3 hanya sekali (satu aktivitas, `outcome` tidak ditimpa).
+    await transition("tasks", {"id": task_id, "org_id": t["org_id"]}, {"status": t.get("status")}, {"$set": {
         "status": "done", "review": "approved", "outcome": payload.outcome,
         "completed_at": ts, "completed_by": user.get("email"), "updated_at": ts,
-    }})
+    }}, what="Tugas")
     if t.get("related_entity_type") and t.get("related_entity_id"):
         await add_activity(entity_type=t["related_entity_type"], entity_id=t["related_entity_id"],
                            type="system", body=f"Task selesai: {t.get('title')}",
@@ -298,9 +331,13 @@ async def complete_task(task_id: str, payload: TaskComplete,
 async def snooze_task(task_id: str, payload: TaskSnooze,
                       user: dict = Depends(require_permission("work_tasks", "update"))):
     t = await _get_task_scoped(task_id, user)
-    await db.tasks.update_one({"id": task_id, "org_id": t["org_id"]}, {"$set": {
+    if not wh.can_move(t, "snoozed"):
+        raise HTTPException(status_code=400, detail=(
+            f"Tugas berstatus '{t.get('status')}' tidak bisa ditunda — tugas yang sudah selesai/dibatalkan "
+            "tidak dibuka kembali."))
+    await transition("tasks", {"id": task_id, "org_id": t["org_id"]}, {"status": t.get("status")}, {"$set": {
         "status": "snoozed", "due_date": payload.until, "updated_at": now_iso(),
-    }})
+    }}, what="Tugas")
     fresh = await db.tasks.find_one({"id": task_id, "org_id": t["org_id"]}, {"_id": 0})
     return {"data": serialize_doc(fresh)}
 

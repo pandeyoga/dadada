@@ -20,9 +20,23 @@ import workhub as wh
 from core_utils import new_id, now_iso, today_iso_date
 from db import db, ORG_ID
 from engine import add_activity, create_notification, emit
+from idempotency import cas, transition
 from reference_p31 import DELAY_CAUSE_LABEL
 
 logger = logging.getLogger("sipro.build.actions")
+
+# PK3-18: tabel transisi status item jadwal. Aksi pemutus (verifikasi/kembalikan/override/ajukan) memakai CAS
+# atas status asalnya — verifikasi ×2 + kembalikan tidak lagi sama-sama sukses (dulu: event `item_verified`
+# terbit 2× dan item berakhir `rework`).
+ITEM_TRANSITIONS = {
+    "blocked": ("ready",),                       # override gerbang
+    "ready": ("in_progress", "submitted"),
+    "in_progress": ("submitted",),
+    "rework": ("in_progress", "submitted"),
+    "submitted": ("done", "rework"),             # verifikasi / kembalikan — saling eksklusif
+    "done": (),
+}
+WHAT = "Pekerjaan ini"
 
 
 def _hist(action: str, actor: str, note: str = None, extra: dict = None) -> dict:
@@ -176,11 +190,11 @@ async def _submit_item(org: str, item: dict, sched: dict, payload, user: dict,
         "started_at": item.get("started_at") or ts,
         "gate_reasons": [], "rejected_reason": None, "geo": geo,
     }
-    await db.build_items.update_one({"id": item["id"]}, {
+    await cas("build_items", {"id": item["id"]}, {"status": item.get("status")}, {
         "$set": upd,
         "$push": {"history": _hist("submit", actor, payload.note.strip()[:200],
                                    {"photos": len(photos), "documents": len(docs),
-                                    "geo": geo})}})
+                                    "geo": geo})}}, what=WHAT)
     # Jejak audit pengajuan (koleksi terpisah agar bukti tidak ikut terhapus/berubah saat
     # item diajukan ulang): siapa, kapan, di mana, dengan berkas & hash apa.
     audit = {
@@ -233,17 +247,17 @@ async def _submit_item(org: str, item: dict, sched: dict, payload, user: dict,
 async def verify_item(org: str, item: dict, sched: dict, note: str, user: dict) -> dict:
     """Verifikasi supervisor. Pengaju TIDAK boleh memverifikasi pekerjaannya sendiri."""
     actor = user.get("email")
-    if item.get("status") != "submitted":
+    if "done" not in ITEM_TRANSITIONS.get(item.get("status"), ()):
         raise ValueError("Hanya pekerjaan yang sudah DIAJUKAN bisa diverifikasi.")
     if item.get("submitted_by") == actor:
         raise PermissionError("Pemisahan tugas: Anda yang mengajukan pekerjaan ini, "
                              "jadi tidak boleh memverifikasinya sendiri. Minta supervisor "
                              "lain atau direksi yang memeriksa.")
     ts = now_iso()
-    await db.build_items.update_one({"id": item["id"]}, {
+    await transition("build_items", {"id": item["id"]}, {"status": "submitted"}, {
         "$set": {"status": "done", "verified_at": ts, "verified_by": actor,
                  "verify_note": note, "updated_at": ts},
-        "$push": {"history": _hist("verify", actor, note)}})
+        "$push": {"history": _hist("verify", actor, note)}}, what=WHAT)
     await be._close_item_tasks(org, item, "approved", note or "Diverifikasi supervisor.")
     fresh = await db.build_items.find_one({"id": item["id"]}, {"_id": 0})
     await be.refresh_gates(org, item["schedule_id"])
@@ -279,14 +293,14 @@ async def verify_item(org: str, item: dict, sched: dict, note: str, user: dict) 
 
 async def reject_item(org: str, item: dict, reason: str, user: dict) -> dict:
     actor = user.get("email")
-    if item.get("status") != "submitted":
+    if "rework" not in ITEM_TRANSITIONS.get(item.get("status"), ()):
         raise ValueError("Hanya pekerjaan yang sudah DIAJUKAN bisa dikembalikan.")
     ts = now_iso()
-    await db.build_items.update_one({"id": item["id"]}, {
+    await transition("build_items", {"id": item["id"]}, {"status": "submitted"}, {
         "$set": {"status": "rework", "rejected_reason": reason, "verified_at": None,
                  "verified_by": None, "updated_at": ts,
                  "rework_count": int(item.get("rework_count") or 0) + 1},
-        "$push": {"history": _hist("reject", actor, reason)}})
+        "$push": {"history": _hist("reject", actor, reason)}}, what=WHAT)
     await be._close_item_tasks(org, item, "rejected", reason)
     rows = await wh.spawn(org, "TK-12", source_event=f"build.item_rework:{item['id']}:"
                                                     f"{int(item.get('rework_count') or 0) + 1}",
@@ -321,15 +335,15 @@ async def reject_item(org: str, item: dict, reason: str, user: dict) -> dict:
 async def override_gate(org: str, item: dict, reason_code: str, note: str, user: dict) -> dict:
     """Menerobos gerbang: tetap DICATAT, dihitung, dan dilaporkan ke direksi."""
     actor = user.get("email")
-    if item.get("status") != "blocked":
+    if "ready" not in ITEM_TRANSITIONS.get(item.get("status"), ()):
         raise ValueError("Gerbang pekerjaan ini tidak sedang terkunci — override tidak perlu.")
     bypassed = item.get("gate_reasons") or []
     ts = now_iso()
     override = {"by": actor, "at": ts, "reason_code": reason_code, "note": note,
                 "bypassed": bypassed}
-    await db.build_items.update_one({"id": item["id"]}, {
+    await transition("build_items", {"id": item["id"]}, {"status": "blocked"}, {
         "$set": {"status": "ready", "override": override, "gate_reasons": [], "updated_at": ts},
-        "$push": {"history": _hist("override", actor, note, {"reason_code": reason_code})}})
+        "$push": {"history": _hist("override", actor, note, {"reason_code": reason_code})}}, what=WHAT)
     await db.build_schedules.update_one({"id": item["schedule_id"]},
                                       {"$inc": {"overrides": 1},
                                        "$set": {"updated_at": ts}})

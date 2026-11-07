@@ -17,7 +17,7 @@ import opname as op
 import sequences as seq
 import subcon_finance as sf
 from db import db, ORG_ID
-from idempotency import Conflict, reserved
+from idempotency import Conflict, cas, expect_of, reserved
 from core_utils import new_id, now_iso, serialize_doc, today_wib
 from rbac import has_role, require_permission, assert_project_access
 from engine import add_activity, emit, dispatch_pending
@@ -495,32 +495,62 @@ async def _get_co(org: str, coid: str, user: dict) -> dict:
     return co
 
 
+# PK3-10/PK3-18: tabel transisi status Change Order. Hanya CO `draft` yang bisa diputuskan, SEKALI.
+CO_TRANSITIONS = {"draft": ("approved", "rejected"), "approved": (), "rejected": ()}
+
+
+async def _apply_value_delta(org: str, spk_id: str, delta: int, ts: str) -> tuple:
+    """Tambah nilai kontrak SPK secara ATOMIK (`$inc` bersyarat atas nilai yang dibaca).
+
+    PK3-10: dulu `new = old + delta` lalu `$set contract_value` absolut — tiga CO +Rp 10 jt yang disetujui
+    serentak hanya menambah Rp 10 jt (dua pembaruan hilang). Sekarang pembaruan hanya berlaku bila nilai
+    kontrak & progres SPK masih seperti yang tadi dibaca; kalau tidak, baca ulang dan hitung lagi."""
+    for _ in range(15):
+        spk = await db.spk.find_one({"id": spk_id, "org_id": org}, {"_id": 0})
+        if not spk:
+            raise HTTPException(status_code=404, detail="SPK tidak ditemukan")
+        old = int(spk.get("contract_value", 0) or 0)
+        new = old + int(delta)
+        if new <= 0:
+            raise HTTPException(status_code=400, detail="Nilai kontrak baru harus lebih dari 0.")
+        billed = round(int(spk.get("progress_pct", 0) or 0) / 100 * old)
+        if new < billed:
+            raise HTTPException(status_code=400,
+                                detail=f"Nilai kontrak baru ({_rp(new)}) tidak boleh di bawah nilai tertagih ({_rp(billed)}).")
+        res = await db.spk.update_one(
+            {"id": spk_id, "org_id": org, **expect_of(spk, "contract_value", "progress_pct")},
+            {"$inc": {"contract_value": int(delta)}, "$set": {"updated_at": ts}})
+        if res.matched_count == 1:
+            return old, new
+    raise Conflict("Nilai kontrak SPK sedang diubah proses lain. Coba lagi sebentar lagi.")
+
+
 @router.post("/change-orders/{coid}/approve")
 async def approve_change_order(coid: str,
                                user: dict = Depends(require_permission("change_orders", "approve"))):
     org = user.get("org_id", ORG_ID)
     co = await _get_co(org, coid, user)
-    if co.get("status") != "draft":
+    if "approved" not in CO_TRANSITIONS.get(co.get("status"), ()):
         raise HTTPException(status_code=400, detail="Hanya Change Order draft yang bisa disetujui.")
     spk = await db.spk.find_one({"id": co["spk_id"], "org_id": org}, {"_id": 0})
     if not spk:
         raise HTTPException(status_code=404, detail="SPK tidak ditemukan")
-    old = int(spk.get("contract_value", 0) or 0)
-    new = old + int(co.get("value_delta", 0))
-    if new <= 0:
-        raise HTTPException(status_code=400, detail="Nilai kontrak baru harus lebih dari 0.")
-    billed = round(int(spk.get("progress_pct", 0) or 0) / 100 * old)
-    if new < billed:
-        raise HTTPException(status_code=400,
-                            detail=f"Nilai kontrak baru ({_rp(new)}) tidak boleh di bawah nilai tertagih ({_rp(billed)}).")
     ts = now_iso()
-    spk_set = {"contract_value": new, "updated_at": ts}
     ext = int(co.get("time_extension_days", 0) or 0)
-    await db.change_orders.update_one({"id": coid, "org_id": org}, {"$set": {
-        "status": "approved", "original_value": old, "new_value": new,
-        "approved_by": user.get("email"), "approved_at": ts, "updated_at": ts,
-    }})
-    await db.spk.update_one({"id": spk["id"], "org_id": org}, {"$set": spk_set})
+    delta = int(co.get("value_delta", 0))
+    # Klaim CO (draft → approved) SEBELUM nilai SPK disentuh: setuju ×2 atau setuju ‖ tolak = satu pemenang (409).
+    # Bila penambahan nilai SPK ditolak (mis. di bawah nilai tertagih), status CO dikembalikan ke draft.
+    async with reserved("change_orders", {"id": coid, "org_id": org}, {"status": "draft"}, {"$set": {
+            "status": "approved", "approved_by": user.get("email"), "approved_at": ts, "updated_at": ts}},
+            undo={"$set": {"status": "draft", "approved_by": None, "approved_at": None}},
+            what="Change Order"):
+        old, new = await _apply_value_delta(org, spk["id"], delta, ts)
+        try:
+            await db.change_orders.update_one({"id": coid, "org_id": org}, {"$set": {
+                "original_value": old, "new_value": new}})
+        except BaseException:
+            await db.spk.update_one({"id": spk["id"], "org_id": org}, {"$inc": {"contract_value": -delta}})
+            raise
     await add_activity(entity_type="project", entity_id=spk["project_id"], type="system",
                        body=f"Change Order {co.get('co_number')} disetujui: nilai kontrak {_rp(old)} → {_rp(new)}"
                             + (f" (+{ext} hari)." if ext else "."),
@@ -533,11 +563,12 @@ async def reject_change_order(coid: str, payload: StatusNote,
                               user: dict = Depends(require_permission("change_orders", "approve"))):
     org = user.get("org_id", ORG_ID)
     co = await _get_co(org, coid, user)
-    if co.get("status") != "draft":
+    if "rejected" not in CO_TRANSITIONS.get(co.get("status"), ()):
         raise HTTPException(status_code=400, detail="Hanya Change Order draft yang bisa ditolak.")
     ts = now_iso()
     setter = {"status": "rejected", "rejected_by": user.get("email"), "rejected_at": ts, "updated_at": ts}
     if payload.note:
         setter["reason"] = ((co.get("reason") or "") + f"\n[tolak {today_wib()}] {payload.note}").strip()
-    await db.change_orders.update_one({"id": coid, "org_id": org}, {"$set": setter})
+    await cas("change_orders", {"id": coid, "org_id": org}, {"status": "draft"}, {"$set": setter},
+              what="Change Order")
     return {"data": serialize_doc(await db.change_orders.find_one({"id": coid, "org_id": org}, {"_id": 0}))}

@@ -15,12 +15,19 @@ from db import db, ORG_ID
 from core_utils import now_iso, serialize_doc, parse_pagination, new_id, due_in
 from rbac import has_role, require_permission, audit_log, is_scoped_sales
 from engine import create_notification, auto_create_task
+from idempotency import Conflict
 from notifications import send_whatsapp
 from models import ComplaintRespond, ComplaintStatusUpdate, ComplaintAssign, ComplaintManualCreate
 
 router = APIRouter(prefix="/complaints", tags=["complaints"])
 
 STATUSES = ("open", "in_progress", "resolved")
+# PK3-18/PK3-23: tabel transisi status komplain — hanya MAJU; komplain `resolved` final (masalah baru = komplain baru).
+TRANSITIONS = {
+    "open": ("in_progress", "resolved"),
+    "in_progress": ("resolved",),
+    "resolved": (),
+}
 CHANNELS = ("whatsapp", "telepon", "walk_in", "email", "lainnya")
 
 
@@ -209,22 +216,29 @@ async def respond_complaint(cid: str, payload: ComplaintRespond,
     if not (payload.message or "").strip():
         raise HTTPException(status_code=400, detail="Pesan balasan tidak boleh kosong.")
     doc = await _get(cid, user)
+    cur = doc.get("status")
     ts = now_iso()
     resp = {"by": user.get("email"), "message": payload.message, "at": ts, "staff": True}
     if payload.resolve:
+        if "resolved" not in TRANSITIONS.get(cur, ()):
+            raise HTTPException(status_code=400, detail="Komplain ini sudah selesai — tidak bisa diselesaikan lagi.")
         new_status = "resolved"
-    elif doc.get("status") == "open":
+    elif cur == "open":
         new_status = "in_progress"
     else:
-        new_status = doc.get("status")
+        new_status = cur
     setter = {"status": new_status, "updated_at": ts}
-    if new_status != doc.get("status"):
+    if new_status != cur:
         setter.update(await clock.patch_for("complaint", new_status,
                                            org_id=doc["org_id"], at=ts))
     if payload.resolve:
         setter["resolved_at"] = ts
-    await db.complaints.update_one({"id": cid, "org_id": doc["org_id"]},
-                                   {"$push": {"responses": resp}, "$set": setter})
+    # PK3-18: CAS atas status yang dibaca — selesaikan ×2 atau selesaikan ‖ tugaskan tidak lagi sama-sama
+    # sukses (dulu: 2 WA "selesai", atau status akhir `in_progress` padahal pembeli diberi tahu selesai).
+    res = await db.complaints.update_one({"id": cid, "org_id": doc["org_id"], "status": cur},
+                                         {"$push": {"responses": resp}, "$set": setter})
+    if res.matched_count != 1:
+        raise Conflict("Komplain baru saja diubah oleh proses lain. Muat ulang lalu coba lagi.")
     cust = await db.customers.find_one({"id": doc.get("customer_id"), "org_id": doc["org_id"]}, {"_id": 0}) or {}
     await send_whatsapp(cust.get("phone"),
                         f"Update komplain '{doc.get('subject')}': {payload.message}")
@@ -239,18 +253,27 @@ async def update_status(cid: str, payload: ComplaintStatusUpdate,
     if payload.status not in STATUSES:
         raise HTTPException(status_code=400, detail="Status tidak valid.")
     doc = await _get(cid, user)
+    cur = doc.get("status")
+    if payload.status == cur:
+        raise HTTPException(status_code=400, detail=f"Komplain sudah berstatus '{cur}'.")
+    if payload.status not in TRANSITIONS.get(cur, ()):
+        raise HTTPException(status_code=400, detail=(
+            f"Status komplain tidak bisa diubah dari '{cur}' ke '{payload.status}'. "
+            "Komplain hanya bergerak maju (terbuka → diproses → selesai); bila masalah muncul lagi, "
+            "catat komplain baru."))
     ts = now_iso()
     setter = {"status": payload.status, "updated_at": ts}
-    if payload.status != doc.get("status"):
-        setter.update(await clock.patch_for("complaint", payload.status,
-                                           org_id=doc["org_id"], at=ts))
+    setter.update(await clock.patch_for("complaint", payload.status,
+                                       org_id=doc["org_id"], at=ts))
     if payload.status == "resolved":
         setter["resolved_at"] = ts
     upd = {"$set": setter}
     if payload.note:
         upd["$push"] = {"responses": {"by": user.get("email"), "message": payload.note,
                                        "at": ts, "staff": True, "system": True}}
-    await db.complaints.update_one({"id": cid, "org_id": doc["org_id"]}, upd)
+    res = await db.complaints.update_one({"id": cid, "org_id": doc["org_id"], "status": cur}, upd)
+    if res.matched_count != 1:
+        raise Conflict("Komplain baru saja diubah oleh proses lain. Muat ulang lalu coba lagi.")
     await audit_log(user, "status", "complaints", cid, {"status": payload.status})
     fresh = _mark_breach(await db.complaints.find_one({"id": cid, "org_id": doc["org_id"]}, {"_id": 0}), now_iso())
     return {"data": serialize_doc(fresh)}
@@ -261,10 +284,16 @@ async def assign_complaint(cid: str, payload: ComplaintAssign,
                            user: dict = Depends(require_permission("complaints", "update"))):
     doc = await _get(cid, user)
     ts = now_iso()
-    status = "in_progress" if doc.get("status") == "open" else doc.get("status")
-    await db.complaints.update_one(
-        {"id": cid, "org_id": doc["org_id"]},
-        {"$set": {"assigned_to": payload.assigned_to, "status": status, "updated_at": ts}})
+    # PK3-18: penugasan TIDAK pernah menimpa status secara membuta — `open → in_progress` hanya bila memang
+    # masih `open` (CAS); selain itu hanya PIC yang berubah. (Dulu: assign ‖ selesaikan → status `in_progress`.)
+    moved = await db.complaints.update_one(
+        {"id": cid, "org_id": doc["org_id"], "status": "open"},
+        {"$set": {"assigned_to": payload.assigned_to, "status": "in_progress", "updated_at": ts,
+                  **await clock.patch_for("complaint", "in_progress", org_id=doc["org_id"], at=ts)}})
+    if moved.matched_count != 1:
+        await db.complaints.update_one(
+            {"id": cid, "org_id": doc["org_id"]},
+            {"$set": {"assigned_to": payload.assigned_to, "updated_at": ts}})
     await create_notification(
         user_email=payload.assigned_to, title="Komplain ditugaskan ke Anda",
         body=f"{doc.get('customer_name')}: {doc.get('subject')}", type="complaint",

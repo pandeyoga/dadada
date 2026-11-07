@@ -7,6 +7,7 @@ from pathlib import Path
 from db import db
 from core_utils import new_id, now_iso
 from data_mgmt_backup import backup_dir, save_snapshot
+from idempotency import cas
 from data_mgmt_full_export import parse_full_workbook
 from data_mgmt_full_schema import EXCLUDED, org_filter
 from data_mgmt_full_validate import validate_sheet, parsed_values, key_query, row_key
@@ -167,7 +168,39 @@ async def commit(org: str, sid: str, actor: str, mode: str, sheets: list, skip_e
         raise ValueError("Tidak ada sheet yang bisa diimpor.")
     if not skip_errors and any(s["counts"]["error"] for s in chosen):
         raise ValueError("Masih ada baris error. Perbaiki dulu, atau centang 'lewati baris error'.")
-    snap = await save_snapshot(org, actor, True, "pra-impor-semua-data", kind="auto")
+    # PK3-21: klaim sesi secara ATOMIK (open → committing) sebelum apa pun ditulis. Dulu `commit` ×3 serentak
+    # sama-sama lolos dan menulis dokumen ber-`id` ganda (koleksi tanpa indeks unik `id`), dan sesi yang sudah
+    # `committed` bisa di-commit lagi. Sesudah klaim: gagal SEBELUM menulis → kembali `open`; gagal di tengah
+    # penulisan → `failed` (jangan diulang: sebagian sudah tertulis — pulihkan dari snapshot pra-impor, lalu buat sesi baru).
+    sess = await db.data_import_sessions.find_one({"id": sid, "org_id": org}, {"_id": 0, "status": 1})
+    cur = (sess or {}).get("status") or "open"
+    if cur == "committed":
+        raise ValueError("Sesi impor ini sudah pernah di-commit — unggah ulang berkasnya bila perlu mengimpor lagi.")
+    if cur == "failed":
+        raise ValueError("Sesi impor ini gagal di tengah jalan dan tidak boleh diulang (sebagian data mungkin "
+                         "sudah tertulis). Periksa snapshot pra-impor, lalu unggah ulang sebagai sesi baru.")
+    ts_claim = now_iso()
+    await cas("data_import_sessions", {"id": sid, "org_id": org}, {"status": {"$in": ["open", None]}},
+              {"$set": {"status": "committing", "committing_by": actor, "committing_at": ts_claim}},
+              what="Sesi impor")
+    try:
+        snap = await save_snapshot(org, actor, True, "pra-impor-semua-data", kind="auto")
+    except BaseException:
+        await db.data_import_sessions.update_one({"id": sid, "org_id": org, "status": "committing"},
+                                                 {"$set": {"status": "open"}})
+        raise
+    try:
+        return await _write_commit(org, sid, actor, mode, chosen, actor_user, snap)
+    except BaseException as e:
+        await db.data_import_sessions.update_one(
+            {"id": sid, "org_id": org, "status": "committing"},
+            {"$set": {"status": "failed", "failed_at": now_iso(), "error": str(e)[:300],
+                      "snapshot_before": snap["id"]}})
+        raise
+
+
+async def _write_commit(org: str, sid: str, actor: str, mode: str, chosen: list, actor_user: dict,
+                        snap: dict) -> dict:
     result, touched_projects = {}, False
     for s in chosen:
         coll, cols, types = s["collection"], s["columns"], s["types"]
@@ -225,7 +258,7 @@ async def commit(org: str, sid: str, actor: str, mode: str, sheets: list, skip_e
         async for p in db.projects.find({"org_id": org}, {"_id": 0, "id": 1}):
             await masterplan.recompute_stats(p["id"], org)
     total = {k: sum(r[k] for r in result.values()) for k in ("inserted", "updated", "unchanged", "skipped", "deleted")}
-    await db.data_import_sessions.update_one({"id": sid, "org_id": org}, {"$set": {
+    await db.data_import_sessions.update_one({"id": sid, "org_id": org, "status": "committing"}, {"$set": {
         "status": "committed", "committed_at": now_iso(), "committed_by": actor, "mode": mode,
         "result": result, "snapshot_before": snap["id"]}})
     _REPORTS.pop(sid, None)

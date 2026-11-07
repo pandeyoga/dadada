@@ -23,6 +23,7 @@ import permit_scope as ps
 import settings_store as cfg
 from core_utils import new_id, now_iso, serialize_doc, today_wib
 from db import ORG_ID, db
+from idempotency import cas
 from models import PermitCreate, PermitStatusUpdate, PermitUpdate
 from models_p46 import PermitRenew
 from rbac import has_role, assert_project_access, audit_log, project_query, require_permission
@@ -32,6 +33,18 @@ router = APIRouter(prefix="/permits", tags=["permits"])
 
 STATUSES = ("not_started", "in_progress", "submitted", "approved", "rejected", "expired")
 DONE = ("approved", "rejected", "expired")
+# PK3-17: tabel transisi status izin (dulu semua status bisa ke semua status: rejected → approved langsung).
+# `approved` hanya dari `submitted` (diputuskan instansi); izin yang sudah `approved` hanya bisa `expired`,
+# dan diperpanjang lewat `renew`. Izin ditolak/kedaluwarsa dapat diurus ulang (kembali ke in_progress/submitted).
+PERMIT_TRANSITIONS = {
+    "not_started": ("in_progress", "submitted"),
+    "in_progress": ("not_started", "submitted"),
+    "submitted": ("in_progress", "approved", "rejected"),
+    "approved": ("expired",),
+    "rejected": ("in_progress", "submitted"),
+    "expired": ("in_progress", "submitted"),
+}
+RENEWABLE = ("approved", "expired")
 SCOPE_COLL = {"cluster": "clusters", "block": "blocks", "unit": "units"}
 
 
@@ -200,6 +213,16 @@ async def permit_status(pid: str, payload: PermitStatusUpdate,
     if payload.status not in STATUSES:
         raise HTTPException(status_code=400, detail="Status tidak valid.")
     doc = await _get(pid, user)
+    cur = doc.get("status")
+    if payload.status == cur:
+        raise HTTPException(status_code=400, detail=f"Izin sudah berstatus '{cur}'.")
+    if payload.status not in PERMIT_TRANSITIONS.get(cur, ()):
+        raise HTTPException(status_code=400, detail=(
+            f"Status izin tidak bisa diubah dari '{cur}' ke '{payload.status}'. "
+            + ("Izin yang sudah disetujui hanya berubah saat kedaluwarsa; perpanjang lewat 'Perpanjang'."
+               if cur == "approved" else
+               "Persetujuan hanya setelah izin DIAJUKAN ke instansi (alur: belum mulai → diurus → diajukan "
+               "→ disetujui/ditolak).")))
     ts = now_iso()
     setter = {"status": payload.status, "updated_at": ts}
     if payload.status == "submitted" and not doc.get("submitted_at"):
@@ -208,7 +231,9 @@ async def permit_status(pid: str, payload: PermitStatusUpdate,
         setter["approved_at"] = ts
     if payload.note:
         setter["notes"] = ((doc.get("notes") or "") + f"\n[{today_wib()}] {payload.note}").strip()
-    await db.permits.update_one({"id": pid, "org_id": doc["org_id"]}, {"$set": setter})
+    # PK3-17: CAS atas status yang dibaca — setujui ‖ tolak (atau dua pembaruan) → satu pemenang, 409 untuk yang kalah.
+    await cas("permits", {"id": pid, "org_id": doc["org_id"]}, {"status": cur}, {"$set": setter},
+              what="Izin")
     await audit_log(user, "permit.status", "permit", pid, {"status": payload.status})
     return {"data": serialize_doc(_decorate(
         await db.permits.find_one({"id": pid, "org_id": doc["org_id"]}, {"_id": 0}), {}))}
@@ -219,6 +244,10 @@ async def renew_permit(pid: str, payload: PermitRenew,
                        user: dict = Depends(require_permission("permits", "update"))):
     """Perpanjangan izin: masa berlaku baru tercatat berikut riwayatnya (bukan ditimpa)."""
     doc = await _get(pid, user)
+    if doc.get("status") not in RENEWABLE:
+        raise HTTPException(status_code=400, detail=(
+            f"Izin berstatus '{doc.get('status')}' tidak bisa diperpanjang — perpanjangan hanya untuk izin yang "
+            "sudah DISETUJUI (atau sudah kedaluwarsa). Selesaikan dulu pengurusannya sampai disetujui instansi."))
     ts = now_iso()
     entry = {"at": ts, "by": user.get("email"), "from": doc.get("expiry_at"),
              "to": payload.expiry_at, "reference_no": payload.reference_no,
@@ -227,9 +256,8 @@ async def renew_permit(pid: str, payload: PermitRenew,
               "expiry_notified_on": None, "expiry_health": None}
     if payload.reference_no:
         setter["reference_no"] = payload.reference_no
-    await db.permits.update_one({"id": pid, "org_id": doc["org_id"]},
-                                {"$set": setter,
-                                 "$push": {"renewals": {"$each": [entry], "$slice": -20}}})
+    await cas("permits", {"id": pid, "org_id": doc["org_id"]}, {"status": doc.get("status")},
+              {"$set": setter, "$push": {"renewals": {"$each": [entry], "$slice": -20}}}, what="Izin")
     await audit_log(user, "permit.renew", "permit", pid, entry)
     return {"data": serialize_doc(_decorate(
         await db.permits.find_one({"id": pid, "org_id": doc["org_id"]}, {"_id": 0}), {})),

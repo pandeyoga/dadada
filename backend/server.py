@@ -426,6 +426,20 @@ async def conflict_as_409(_request, exc: _Conflict):
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
+from pymongo.errors import DuplicateKeyError as _DuplicateKeyError  # noqa: E402
+
+
+@app.exception_handler(_DuplicateKeyError)
+async def duplicate_key_as_409(_request, exc: _DuplicateKeyError):
+    """PK3-22: jalur yang dilindungi indeks unik dulu menjawab 500 bila kalah balapan (data selamat, pesan buruk).
+    Kini: 409 dengan pesan yang bisa dibaca — datanya sudah ada (dibuat permintaan lain yang lebih dulu)."""
+    key = ((getattr(exc, "details", None) or {}).get("keyValue") or {})
+    hint = f" ({', '.join(f'{k}={v}' for k, v in list(key.items())[:3] if k != 'org_id')})" if key else ""
+    return JSONResponse(status_code=409, content={"detail": (
+        "Data yang sama sudah tercatat" + hint + " — kemungkinan dibuat oleh permintaan lain yang bersamaan. "
+        "Muat ulang daftar lalu periksa sebelum mengulang.")})
+
+
 @app.exception_handler(RequestValidationError)
 async def readable_validation_error(_request, exc: RequestValidationError):
     """Fase 26: galat validasi SSOT tampil sebagai 400 + pesan Indonesia yang bisa dibaca.

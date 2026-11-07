@@ -168,6 +168,11 @@ UNIQUE_INDEXES = [
     # PK-15: nomor faktur vendor (opsional) tidak boleh kembar per vendor — faktur yang sama
     # tidak boleh dicatat & dibayar dua kali. Partial: tagihan tanpa nomor tidak dijaga.
     ("ap_invoices", [("org_id", 1), ("vendor", 1), ("vendor_invoice_no", 1)], "uq_ap_vendor_invoice"),
+    # PK3-20: satu fee TERBUKA (diajukan/disetujui/dibayar) per (agen, deal, pemicu). Parsial menurut status —
+    # fee yang ditolak/dibatalkan tidak menghalangi pengajuan ulang. Bila data lama sudah berisi kembaran,
+    # indeks ini dilaporkan sebagai `conflict` (tidak menggagalkan startup, tidak ada data yang dihapus);
+    # penjagaan aplikasi (`marketing_fee.fee_lock`) tetap berlaku sampai kembaran lama dibereskan manual.
+    ("marketing_fees", [("org_id", 1), ("agent_id", 1), ("deal_id", 1), ("trigger", 1)], "uq_mfee_open_dedup"),
 ]
 
 # Natural key yang boleh kosong (partial index: hanya baris yang punya nilai dijaga).
@@ -202,6 +207,12 @@ PARTIAL = {
 }
 
 
+# Index parsial dengan ekspresi sendiri (bukan sekadar "field bertipe string").
+PARTIAL_EXPR = {
+    "uq_mfee_open_dedup": {"status": {"$in": ["submitted", "approved", "paid"]}},
+}
+
+
 async def ensure_unique_indexes() -> dict:
     """Buat semua index unik. Kembalikan {created: [...], conflicts: [...]}
 
@@ -219,6 +230,8 @@ async def ensure_unique_indexes() -> dict:
         field = PARTIAL.get(name)
         if field:
             kwargs["partialFilterExpression"] = {field: {"$type": "string"}}
+        elif name in PARTIAL_EXPR:
+            kwargs["partialFilterExpression"] = PARTIAL_EXPR[name]
         try:
             await db[coll].create_index(keys, **kwargs)
             created.append(name)

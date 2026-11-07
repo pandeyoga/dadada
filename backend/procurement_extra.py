@@ -16,10 +16,14 @@ Tiga cacat nyata yang ditutup:
    MENOLAK tagihan yang melebihi barang diterima/nilai PO, dan hanya manajer keuangan yang
    boleh menerobos dengan alasan tertulis (jejak `override_by/override_reason`).
 """
+import copy
+from contextlib import AsyncExitStack
+
 import sequences as seq
 from db import db
 from core_utils import new_id, now_iso
 from engine import material_book_stock
+from idempotency import expect_of, mutex, reserved
 from reference_p48 import THREEWAY_TOLERANCE
 
 PO_RECEIVABLE = ("approved", "partially_received", "received")
@@ -126,9 +130,38 @@ async def to_po(org: str, req: dict, vendor: dict, items_in: list, *, due_date: 
 # ------------------------------------------------------------------ retur barang
 async def create_return(org: str, grn: dict, po: dict, kind: str, items_in: list,
                         reason: str, actor: str) -> dict:
+    """Retur barang ke vendor.
+
+    FZ-06 / PG-04 / PG-05: dulu "baca GRN → hitung sisa → tulis" tanpa kunci — dua retur serentak
+    sama-sama lolos (retur 200 dari GRN 100, stok −100, `returned_qty` kehilangan pembaruan), retur
+    boleh melebihi stok yang ada, dan retur menghidupkan kembali PO yang sudah dibatalkan.
+    Sekarang: kunci per GRN + kunci stok per material (urut tetap), GRN & PO dibaca ULANG di dalam
+    kunci, stok dicek, PO `cancelled` ditolak, dan PO diklaim dengan CAS sebelum apa pun ditulis."""
+    mats = sorted({gi.get("material_id") for gi in grn.get("items", []) if gi.get("material_id")})
+    async with AsyncExitStack() as stack:
+        await stack.enter_async_context(mutex(f"grn.return:{org}:{grn['id']}",
+                                              what="Retur untuk penerimaan barang ini"))
+        for mid in mats:
+            await stack.enter_async_context(mutex(f"stock:{org}:{po['project_id']}:{mid}",
+                                                  what="Stok material ini"))
+        fresh_grn = await db.grns.find_one({"id": grn["id"], "org_id": org}, {"_id": 0})
+        fresh_po = await db.purchase_orders.find_one({"id": po["id"], "org_id": org}, {"_id": 0})
+        if not fresh_grn or not fresh_po:
+            raise ValueError("Penerimaan barang atau PO-nya tidak ditemukan.")
+        return await _create_return_locked(org, fresh_grn, fresh_po, kind, items_in, reason, actor)
+
+
+async def _create_return_locked(org: str, grn: dict, po: dict, kind: str, items_in: list,
+                                reason: str, actor: str) -> dict:
+    if po.get("status") == "cancelled":
+        raise ValueError(f"PO {po.get('po_number')} sudah DIBATALKAN — retur tidak bisa dicatat atasnya "
+                         "(retur tidak boleh menghidupkan kembali PO yang batal).")
     gitems = grn.get("items", [])
     pitems = po.get("items", [])
+    po_before = {"items": copy.deepcopy(pitems), "received_value": int(po.get("received_value", 0)),
+                 "status": po.get("status"), "updated_at": po.get("updated_at")}
     lines, returned_value = [], 0
+    need_stock = {}
     for w in items_in:
         idx = int(w.grn_item_index if hasattr(w, "grn_item_index") else w["grn_item_index"])
         qty = float(w.qty_returned if hasattr(w, "qty_returned") else w["qty_returned"])
@@ -140,6 +173,8 @@ async def create_return(org: str, grn: dict, po: dict, kind: str, items_in: list
         if qty > avail + 1e-9:
             raise ValueError(f"Retur {qty:g} melebihi sisa yang bisa dikembalikan ({avail:g}) "
                              f"untuk '{gi.get('description')}'.")
+        if gi.get("material_id"):
+            need_stock[gi["material_id"]] = need_stock.get(gi["material_id"], 0.0) + qty
         amount = int(round(qty * int(gi.get("unit_price", 0) or 0)))
         returned_value += amount
         lines.append({"grn_item_index": idx, "po_item_index": gi.get("po_item_index"),
@@ -149,6 +184,13 @@ async def create_return(org: str, grn: dict, po: dict, kind: str, items_in: list
         gi["returned_qty"] = round(already + qty, 4)
     if not lines:
         raise ValueError("Tidak ada baris retur yang sah.")
+    # PG-05: barang yang sudah dipakai/dipindahkan tidak bisa dikembalikan ke vendor (stok tidak boleh negatif).
+    for mid, qty in need_stock.items():
+        stock = await material_book_stock(po["project_id"], mid, org)
+        if qty > stock + 1e-9:
+            name = next((ln["description"] for ln in lines if ln["material_id"] == mid), mid)
+            raise ValueError(f"Stok '{name}' hanya {stock:g} — tidak cukup untuk diretur {qty:g} "
+                             "(sebagian sudah dipakai/dipindahkan). Retur hanya sebanyak stok yang ada.")
     received_after = int(po.get("received_value", 0)) - int(returned_value)
     billed = int(po.get("billed_value", 0))
     if billed > received_after:
@@ -157,27 +199,7 @@ async def create_return(org: str, grn: dict, po: dict, kind: str, items_in: list
             f"daripada yang SUDAH ditagih (Rp {billed:,}). Terbitkan nota koreksi/kredit atas "
             "tagihan vendor lebih dulu — stok dan tagihan tidak boleh saling berbohong.")
     ts = now_iso()
-    doc = {
-        "id": new_id(), "org_id": org,
-        "return_number": await seq.next_number("grn_return", org, prefix="RTN", context={
-            "project_id": po.get("project_id"), "vendor_id": po.get("vendor_id")}),
-        "grn_id": grn["id"], "grn_number": grn.get("grn_number"), "po_id": po["id"],
-        "po_number": po.get("po_number"), "project_id": po["project_id"],
-        "vendor": po.get("vendor"), "vendor_id": po.get("vendor_id"),
-        "kind": kind, "items": lines, "returned_value": int(returned_value),
-        "reason": reason, "created_by": actor, "created_at": ts,
-    }
-    await db.grn_returns.insert_one(dict(doc))
-    # Stok keluar (barang benar-benar dikembalikan) + jejak nomor retur.
-    for ln in lines:
-        if ln.get("material_id"):
-            await db.material_txns.insert_one({
-                "id": new_id(), "org_id": org, "project_id": po["project_id"],
-                "material_id": ln["material_id"], "type": "out", "qty": ln["qty_returned"],
-                "unit_price": ln["unit_price"], "amount": ln["amount"],
-                "note": f"Retur ke vendor ({kind}): {reason}", "ref": doc["return_number"],
-                "return_id": doc["id"], "actor": actor, "created_at": ts})
-    # Turunkan penerimaan di PO + hitung ulang status.
+    # Turunkan penerimaan di PO + hitung ulang status (dihitung dulu, ditulis lewat klaim CAS di bawah).
     for ln in lines:
         pidx = ln.get("po_item_index")
         if pidx is None or pidx >= len(pitems):
@@ -187,12 +209,34 @@ async def create_return(org: str, grn: dict, po: dict, kind: str, items_in: list
     fully = all(float(i.get("received_qty", 0)) >= float(i.get("qty", 0)) - 1e-9 for i in pitems)
     any_recv = any(float(i.get("received_qty", 0)) > 0 for i in pitems)
     status = "received" if fully else ("partially_received" if any_recv else "approved")
-    await db.purchase_orders.update_one({"id": po["id"], "org_id": org}, {"$set": {
-        "items": pitems, "received_value": max(0, received_after), "status": status,
-        "updated_at": ts}})
-    await db.grns.update_one({"id": grn["id"], "org_id": org}, {"$set": {
-        "items": gitems, "returned_value": int(grn.get("returned_value", 0)) + int(returned_value),
-        "updated_at": ts}})
+    async with reserved("purchase_orders", {"id": po["id"], "org_id": org},
+                        expect_of(po, "updated_at", "status", "received_value"),
+                        {"$set": {"items": pitems, "received_value": max(0, received_after),
+                                  "status": status, "updated_at": ts}},
+                        undo={"$set": po_before}, what="PO"):
+        doc = {
+            "id": new_id(), "org_id": org,
+            "return_number": await seq.next_number("grn_return", org, prefix="RTN", context={
+                "project_id": po.get("project_id"), "vendor_id": po.get("vendor_id")}),
+            "grn_id": grn["id"], "grn_number": grn.get("grn_number"), "po_id": po["id"],
+            "po_number": po.get("po_number"), "project_id": po["project_id"],
+            "vendor": po.get("vendor"), "vendor_id": po.get("vendor_id"),
+            "kind": kind, "items": lines, "returned_value": int(returned_value),
+            "reason": reason, "created_by": actor, "created_at": ts,
+        }
+        await db.grn_returns.insert_one(dict(doc))
+        # Stok keluar (barang benar-benar dikembalikan) + jejak nomor retur.
+        for ln in lines:
+            if ln.get("material_id"):
+                await db.material_txns.insert_one({
+                    "id": new_id(), "org_id": org, "project_id": po["project_id"],
+                    "material_id": ln["material_id"], "type": "out", "qty": ln["qty_returned"],
+                    "unit_price": ln["unit_price"], "amount": ln["amount"],
+                    "note": f"Retur ke vendor ({kind}): {reason}", "ref": doc["return_number"],
+                    "return_id": doc["id"], "actor": actor, "created_at": ts})
+        await db.grns.update_one({"id": grn["id"], "org_id": org}, {"$set": {
+            "items": gitems, "returned_value": int(grn.get("returned_value", 0)) + int(returned_value),
+            "updated_at": ts}})
     doc.pop("_id", None)
     return doc
 

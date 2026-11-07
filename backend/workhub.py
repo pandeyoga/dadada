@@ -30,6 +30,23 @@ logger = logging.getLogger("sipro.workhub")
 OPEN_STATES = ["open", "in_progress", "snoozed", "submitted"]
 ACTIVE_STATES = ["open", "in_progress", "snoozed"]
 
+# PK3-16: tabel transisi status tugas — SATU kebenaran untuk `PUT /work/tasks`, `complete`, `snooze`, `submit`,
+# `verify`, `reject`. `done`/`cancelled` FINAL (tugas yang ditutup — termasuk oleh pembatalan deal — tidak bisa
+# dihidupkan lagi lewat `complete`/`snooze`); `submitted` hanya lewat "Ajukan Hasil" (bukti), `done` untuk tugas
+# ber-bukti/ber-verifikasi hanya lewat verifikasi.
+TASK_TRANSITIONS = {
+    "open": ("in_progress", "snoozed", "submitted", "done", "cancelled"),
+    "in_progress": ("snoozed", "submitted", "done", "cancelled"),
+    "snoozed": ("in_progress", "snoozed", "submitted", "done", "cancelled"),
+    "submitted": ("done", "in_progress", "cancelled"),
+    "done": (),
+    "cancelled": (),
+}
+
+
+def can_move(task: dict, to: str) -> bool:
+    return to in TASK_TRANSITIONS.get((task or {}).get("status"), ())
+
 
 # ----------------------------- domain: divisi & level -----------------------------
 def division_of(user: dict) -> str:
