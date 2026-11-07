@@ -66,6 +66,9 @@ async def update_record(record_id: str, payload: TaxRecordUpdate,
     rec = await db.tax_records.find_one({"id": record_id, "org_id": org}, {"_id": 0})
     if not rec:
         raise HTTPException(status_code=404, detail="Catatan pajak tidak ditemukan")
+    if rec.get("status") == "cancelled":   # PK3-08: ditutup oleh pembatalan penjualan
+        raise HTTPException(status_code=400, detail=(
+            "Catatan pajak ini DIBATALKAN karena penjualannya batal — tidak bisa diubah, dilaporkan, atau disetor."))
     updates = {"updated_at": now_iso()}
     for f in ("status", "report_date", "paid_date", "ntpn", "note", "cash_account_id"):
         v = getattr(payload, f)

@@ -198,15 +198,22 @@ async def candidates(org: str = ORG_ID) -> list:
 
     # ---------- 2 & 3. Termin jatuh tempo & tunggakan ----------
     hn = cfg["installment_days_before"]
+    # PK3-07: hanya tagihan yang MASIH berjalan; invoice `cancelled` (deal batal) dulu ikut terambil karena
+    # filternya `!= paid`, lalu pembeli yang sudah membatalkan ditagih "DP jatuh tempo" lewat WA.
     invs = await db.ar_invoices.find(
-        {"org_id": org, "status": {"$ne": "paid"}}, {"_id": 0}).to_list(2000)
+        {"org_id": org, "status": {"$in": ["unpaid", "partial"]}}, {"_id": 0}).to_list(2000)
+    from deal_state import is_cancelled
+    deals_of = await db.deals.find({"org_id": org, "id": {"$in": [i["deal_id"] for i in invs if i.get("deal_id")]}},
+                                   {"_id": 0, "id": 1, "status": 1, "cancellation_id": 1}).to_list(2000)
+    batal = {d["id"] for d in deals_of if is_cancelled(d)}
+    invs = [i for i in invs if i.get("deal_id") not in batal]
     for inv in invs:
         buyer = await _buyer_of_invoice(org, inv)
         for item in (inv.get("items") or []):
             # Item termin menyimpan `paid_amount` (finance_engine.compute_scheme_items);
             # `paid` hanya ada di level invoice. Lihat memory/FIELD_MAP.md.
             sisa_bayar = int(item.get("amount") or 0) - int(item.get("paid_amount") or 0)
-            if sisa_bayar <= 0 or item.get("status") == "paid" or not item.get("due_date"):
+            if sisa_bayar <= 0 or item.get("status") in ("paid", "cancelled") or not item.get("due_date"):
                 continue
             selisih = (_d(item["due_date"]) - today).days
             base = {

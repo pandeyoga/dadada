@@ -445,7 +445,7 @@ async def legal_gates(org: str, contract: dict, breakdown: dict = None) -> dict:
     kpr = await kprmod.kpr_of(org, contract)
     handover = await db.unit_handovers.find_one(
         {"org_id": org, "unit_id": contract.get("unit_id"),
-         "state": {"$nin": ["dibatalkan"]}}, {"_id": 0})
+         "state": {"$nin": ["dibatalkan", "cancelled"]}}, {"_id": 0})   # PK3-15: BAST batal = `cancelled`
     paid = int((inv or {}).get("paid") or 0)
     dp_amount = int(((inv or {}).get("items") or [{}])[0].get("amount") or 0) if inv else 0
     out = {}

@@ -34,6 +34,9 @@ class CancellationDecisionIn(BaseModel):
     """Keputusan Manajer Keuangan. Menolak pun WAJIB beralasan."""
     approved: bool
     note: str
+    # FN-03: titipan biaya (2-1470) / invoice biaya terbuka harus DIAKUI sebelum pembatalan disetujui.
+    acknowledge_costs: bool = False
+    cost_note: Optional[str] = None
 
     @field_validator("note")
     @classmethod

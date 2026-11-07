@@ -26,12 +26,45 @@ async def _cleanup_entity(org: str, entity_type: str, entity_id: str) -> None:
                                         "related_entity_id": entity_id})
 
 
+# ------------------------------------------------------------------ jejak keuangan deal batal (PK3-13)
+# Dokumen yang menandakan UANG pernah bergerak pada sebuah deal. Deal batal/hilang yang memilikinya TIDAK boleh
+# dibuang mentah oleh hapus lead/unit/proyek biasa (kuitansi, titipan, jurnal jadi yatim): diblokir, dan hanya
+# hapus-paksa (akses penuh + alasan) yang menghapusnya lewat kaskade.
+_MONEY_TRACE = (
+    ("receipts", {}), ("cost_receipts", {}), ("cost_disbursements", {}), ("cost_expenses", {}),
+    ("kpr_disbursements", {}), ("payment_intakes", {}), ("refund_debts", {}), ("revenue_recognitions", {}),
+    ("cancellations", {}), ("pdc_instruments", {}), ("customer_deposits", {"received_total": {"$gt": 0}}),
+    ("booking_fee_invoices", {"paid": {"$gt": 0}}), ("commissions", {"status": {"$in": ["approved", "paid"]}}),
+    ("marketing_fees", {"status": {"$in": ["approved", "paid"]}}),
+    ("tax_records", {"status": {"$in": ["reported", "paid"]}}),
+)
+
+
+async def deal_money_trace(org: str, deal_q: dict) -> int:
+    """Banyaknya dokumen keuangan pada deal-deal (status apa pun) yang cocok dengan `deal_q`."""
+    ids = [d["id"] for d in await db.deals.find({"org_id": org, **deal_q}, {"_id": 0, "id": 1}).to_list(5000)]
+    if not ids:
+        return 0
+    n = await _count("journal_entries", {"org_id": org, "source_deal_id": {"$in": ids}})
+    for coll, extra in _MONEY_TRACE:
+        n += await _count(coll, {"org_id": org, "deal_id": {"$in": ids}, **extra})
+    return n
+
+
+async def _cascade_deals(org: str, deal_q: dict, removed: dict) -> None:
+    """Deal batal TANPA jejak uang dibuang lewat kaskade yang sama dengan `DELETE /deals` (bukan `delete_many` mentah)."""
+    import force_delete as fd
+    for k, v in (await fd.delete_deals_of(org, deal_q, "sistem:hapus-master")).items():
+        removed[k] = removed.get(k, 0) + v
+
+
 # ------------------------------------------------------------------ lead
 async def lead_blockers(org: str, lead_id: str) -> dict:
     return {
         "deal": await _count("deals", {"org_id": org, "lead_id": lead_id, "status": {"$nin": ["cancelled", "lost"]}}),
         "customer": await _count("customers", {"org_id": org, "lead_id": lead_id}),
         "unit terikat": await _count("units", {"org_id": org, "lead_id": lead_id}),
+        "catatan keuangan deal batal": await deal_money_trace(org, {"lead_id": lead_id}),
     }
 
 
@@ -42,11 +75,13 @@ async def delete_lead(org: str, lead: dict) -> dict:
         raise ValueError(f"Lead sudah punya {_fmt(blockers)} — tidak bisa dihapus. "
                          "Batalkan transaksinya dulu atau tandai lead sebagai lost.")
     removed = {}
+    await _cascade_deals(org, {"lead_id": lid}, removed)   # PK3-13: bukan delete_many mentah
     for coll, field in (("appointments", "lead_id"), ("surveys", "lead_id"), ("messages", "lead_id"),
-                        ("conversations", "lead_id"), ("deals", "lead_id")):
+                        ("conversations", "lead_id"), ("deals", "lead_id"), ("quotations", "lead_id"),
+                        ("broadcast_recipients", "lead_id"), ("wa_reminders", "lead_id")):
         res = await db[coll].delete_many({"org_id": org, field: lid})
         if res.deleted_count:
-            removed[coll] = res.deleted_count
+            removed[coll] = removed.get(coll, 0) + res.deleted_count
     await _cleanup_entity(org, "lead", lid)
     await db.leads.delete_one({"id": lid, "org_id": org})
     return {"id": lid, "name": lead.get("name"), "deleted": True, "removed": removed}
@@ -97,6 +132,9 @@ async def unit_blockers(org: str, unit_id: str) -> dict:
                                                                 "status": {"$in": ["done", "submitted"]}}) if sched_ids else 0,
         "serah terima": await _count("unit_handovers", {"org_id": org, "unit_id": unit_id}),
         "KPR": await _count("financing_apps", {"org_id": org, "unit_id": unit_id}),
+        "klaim garansi": await _count("warranty_claims", {"org_id": org, "unit_id": unit_id}),
+        "absensi upah": await _count("labor_attendance", {"org_id": org, "unit_id": unit_id}),
+        "catatan keuangan deal batal": await deal_money_trace(org, {"unit_id": unit_id}),
     }
 
 
@@ -112,10 +150,13 @@ async def delete_unit(org: str, unit: dict) -> dict:
     if sched_ids:
         removed["build_items"] = (await db.build_items.delete_many({"org_id": org, "schedule_id": {"$in": sched_ids}})).deleted_count
         removed["build_schedules"] = (await db.build_schedules.delete_many({"org_id": org, "unit_id": uid})).deleted_count
-    for coll in ("inspections", "punch_items", "complaints", "deals"):
+    await _cascade_deals(org, {"unit_id": uid}, removed)   # PK3-13: bukan delete_many mentah
+    for coll in ("inspections", "punch_items", "complaints", "deals", "quotations", "wa_reminders",
+                 "construction_logs", "build_item_submissions"):
         res = await db[coll].delete_many({"org_id": org, "unit_id": uid})
         if res.deleted_count:
-            removed[coll] = res.deleted_count
+            removed[coll] = removed.get(coll, 0) + res.deleted_count
+    await db.leads.update_many({"org_id": org, "unit_id": uid}, {"$unset": {"unit_id": ""}})
     await db.site_plan_shapes.update_many({"org_id": org, "unit_id": uid}, {"$unset": {"unit_id": ""}})
     await _cleanup_entity(org, "unit", uid)
     await db.units.delete_one({"id": uid, "org_id": org})
@@ -136,13 +177,30 @@ async def project_blockers(org: str, project_id: str) -> dict:
         "SPK": await _count("spk", {"org_id": org, "project_id": project_id}),
         "PO": await _count("purchase_orders", {"org_id": org, "project_id": project_id}),
         "jurnal": await _count("journal_entries", {"org_id": org, "project_id": project_id}),
+        # PK3-14: stok, permintaan material, absensi/rekap upah, kas bon, aset, klaim subkon, GRN, tagihan AP —
+        # dulu tak diblokir sehingga persediaan & upah terutang hilang dari semua tampilan namun tetap di buku.
+        "mutasi stok material": await _count("material_txns", {"org_id": org, "project_id": project_id}),
+        "permintaan material": await _count("material_requisitions", {
+            "org_id": org, "project_id": project_id, "status": {"$nin": ["rejected", "cancelled"]}}),
+        "absensi upah": await _count("labor_attendance", {"org_id": org, "project_id": project_id}),
+        "rekap upah": await _count("labor_payrolls", {"org_id": org, "project_id": project_id}),
+        "kas bon terbuka": await _count("cash_advances", {
+            "org_id": org, "project_id": project_id, "status": {"$in": ["submitted", "approved", "disbursed"]}}),
+        "kas kecil": await _count("petty_expenses", {"org_id": org, "project_id": project_id,
+                                                      "status": {"$ne": "void"}}),
+        "aset tetap": await _count("fixed_assets", {"org_id": org, "project_id": project_id,
+                                                    "status": {"$ne": "disposed"}}),
+        "klaim subkon": await _count("progress_claims", {"org_id": org, "project_id": project_id}),
+        "GRN": await _count("grns", {"org_id": org, "project_id": project_id}),
+        "tagihan AP": await _count("ap_invoices", {"org_id": org, "project_id": project_id}),
+        "catatan keuangan deal batal": await deal_money_trace(org, {"project_id": project_id}),
     }
 
 
 PROJECT_CHILD_COLLECTIONS = (
     "units", "clusters", "blocks", "construction_phases", "build_schedules", "build_templates",
     "site_plans", "site_plan_shapes", "permits", "inspections", "punch_items", "budget_items",
-    "budget_manual_entries", "project_targets",
+    "budget_manual_entries", "project_targets", "boq_items", "materials",
 )
 
 
@@ -157,6 +215,7 @@ async def delete_project(org: str, project: dict) -> dict:
         {"org_id": org, "project_id": pid}, {"_id": 0, "id": 1}).to_list(5000)]
     if sched_ids:
         removed["build_items"] = (await db.build_items.delete_many({"org_id": org, "schedule_id": {"$in": sched_ids}})).deleted_count
+    await _cascade_deals(org, {"project_id": pid}, removed)   # PK3-13/14: deal batal lewat kaskade, bukan terlantar
     for coll in PROJECT_CHILD_COLLECTIONS:
         try:
             res = await db[coll].delete_many({"org_id": org, "project_id": pid})

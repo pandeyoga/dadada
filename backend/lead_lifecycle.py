@@ -117,6 +117,15 @@ async def requirements(lead: dict) -> dict:
 async def gate(lead: dict, target: str) -> tuple:
     """Boleh pindah ke `target`? Kembalikan (ok, alasan_penolakan, bukti_terpakai)."""
     if target in CLOSED:
+        # PK3-19: lead tidak boleh "hilang/daur ulang" selagi punya deal hidup — funnel & KPI salah, sementara
+        # penagihan dan komisi deal itu tetap berjalan. Batalkan reservasi/kontraknya dulu.
+        live = await db.deals.find({"org_id": lead.get("org_id", ORG_ID), "lead_id": lead["id"],
+                                    "status": {"$in": ["reserved", "booked", "completed"]}},
+                                   {"_id": 0, "unit_code": 1, "status": 1}).to_list(5)
+        if live:
+            units = ", ".join(f"{d.get('unit_code') or '-'} ({d.get('status')})" for d in live)
+            return False, (f"Lead masih punya deal aktif pada unit {units}. Batalkan reservasi/kontraknya lebih "
+                           "dulu (Deal & Unit → Batalkan) sebelum menandai lead sebagai Hilang atau Daur Ulang."), {}
         return True, None, {}
     reqs = (await requirements(lead)).get(target) or []
     unmet = [r for r in reqs if not r["met"]]

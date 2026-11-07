@@ -333,11 +333,41 @@ async def _match_locked(org: str, txn: dict, kind: str, target_id: str, actor: s
             "message": out.get("detail")}
 
 
-async def void_receipt(org: str, receipt_id: str, actor: str, reason: str) -> dict:
+async def release_match_for_receipt(org: str, receipt_id: str, actor: str, reason: str, kinds=None) -> list:
+    """PK3-12: kuitansi yang dihapus/dibatalkan TIDAK boleh meninggalkan mutasi bank `matched` ke target hantu
+    (dulu `unmatch` → 400 "Kuitansi tidak ditemukan" dan mutasi tersangkut selamanya). Pencocokannya dilepas:
+    mutasi kembali "belum cocok". Bersyarat (`state == matched`) sehingga idempoten dan tidak menimpa proses lain."""
+    ts, out = now_iso(), []
+    q = {"org_id": org, "state": "matched", "result.receipt_id": receipt_id}
+    if kinds:
+        q["kind"] = {"$in": list(kinds)}
+    async for m in db.bank_matches.find(q, {"_id": 0}):
+        res = await db.bank_matches.update_one({"id": m["id"], "state": "matched"}, {"$set": {
+            "state": "reversed", "reversed_at": ts, "reversed_by": actor,
+            "reverse_reason": f"Kuitansi dihapus/dibatalkan: {reason}"[:300], "reverse_detail": {"via": "receipt_gone"}}})
+        if res.modified_count:
+            await db.bank_transactions.update_one({"id": m["txn_id"], "match_id": m["id"]}, {"$set": {
+                "match_state": "unmatched", "match_id": None, "match_kind": None, "matched_at": None,
+                "matched_by": None, "updated_at": ts},
+                "$push": {"history": {"at": ts, "by": actor, "action": "unmatch", "reason": reason[:200],
+                                      "kind": m["kind"]}}})
+            out.append(m["id"])
+    return out
+
+
+async def void_receipt(org: str, receipt_id: str, actor: str, reason: str, release_match: bool = True) -> dict:
     """Pintu pembatalan kuitansi — diserialkan per kuitansi (dua pembatalan bersamaan dulu sama-sama
-    lolos cek `status == void` dan membalik uang DUA kali). Badan fungsinya di `_void_receipt_locked`."""
+    lolos cek `status == void` dan membalik uang DUA kali). Badan fungsinya di `_void_receipt_locked`.
+    FZ-07b: dikerjakan di bawah mutex per-deal yang SAMA dengan hapus-paksa & penerimaan (`deal_money`), sebab
+    `dispatch_pending()` di dalamnya menerbitkan jurnal — tak boleh terjadi di tengah penghapusan deal."""
+    from deal_money import deal_money
     async with locked("receipt.void", receipt_id, what="Pembatalan kuitansi ini"):
-        return await _void_receipt_locked(org, receipt_id, actor, reason)
+        pre = await db.receipts.find_one({"id": receipt_id, "org_id": org}, {"_id": 0, "deal_id": 1})
+        async with deal_money(org, (pre or {}).get("deal_id")):
+            out = await _void_receipt_locked(org, receipt_id, actor, reason)
+        if release_match:
+            await release_match_for_receipt(org, receipt_id, actor, (reason or "").strip(), kinds=("ar_deal",))
+        return out
 
 
 async def _void_receipt_locked(org: str, receipt_id: str, actor: str, reason: str) -> dict:
@@ -442,8 +472,12 @@ async def _unmatch_locked(org: str, txn_id: str, actor: str, reason: str) -> dic
     detail = {}
     if m["kind"] in ("ar_deal", "payment_intake"):
         rid = (m.get("result") or {}).get("receipt_id")
-        if rid:
-            detail = await void_receipt(org, rid, actor, reason)
+        # PK3-12: kuitansi sudah dihapus/dibatalkan → pencocokan tetap bisa dilepas (dulu 400 dan mutasi tersangkut).
+        rec = await db.receipts.find_one({"id": rid, "org_id": org}, {"_id": 0, "status": 1}) if rid else None
+        if rid and rec and rec.get("status") != "void":
+            detail = await void_receipt(org, rid, actor, reason, release_match=False)
+        elif rid:
+            detail = {"receipt": "sudah dibatalkan" if rec else "sudah dihapus"}
         if m["kind"] == "payment_intake":
             import payment_intake as intake
             await intake.revert_verification(org, m["target_id"], actor, reason)

@@ -24,19 +24,11 @@ import CashAccountSelect from "@/components/cashBank/CashAccountSelect";
 import ReferenceItems from "@/components/patterns/ReferenceItems";
 
 /**
- * CancellationPanel — PEMBATALAN KONTRAK & REFUND (Fase 56C).
- *
- * Layar untuk janji yang sudah tercetak di dokumen SPR: potongan 35%/50%, pengembalian dana
- * menyusul penjualan ulang unit. Tiga tangan yang berbeda dengan sengaja — dan layar ini
- * TIDAK menyembunyikan tangan yang bukan miliknya, ia MENJELASKANNYA:
- *
- *   • Manajer Sales/Marketing: tombol "Ajukan Pembatalan" (+ pratinjau hitungan);
- *   • Manajer Keuangan: kartu keputusan (setujui/tolak, alasan wajib);
- *   • Keuangan: tombol bayar refund, dengan PENAHANAN yang menyebutkan sebabnya.
- *
- * Aturan kejujuran yang dipegang: hitungan ditampilkan APA ADANYA beserta dasar aturannya
- * (dari Pusat Konfigurasi), dan "belum ada penerimaan" ditulis sebagai kalimat — bukan
- * "refund Rp 0" yang membuat pembeli menyangka sistemnya salah hitung.
+ * CancellationPanel — PEMBATALAN KONTRAK & REFUND (Fase 56C). Tiga tangan yang berbeda dengan sengaja:
+ * Manajer Sales/Marketing mengajukan (+ pratinjau hitungan), Manajer Keuangan memutuskan (alasan wajib),
+ * Keuangan membayar refund (penahanan disebut sebabnya). Hitungan ditampilkan APA ADANYA beserta dasar aturannya;
+ * "belum ada penerimaan" ditulis sebagai kalimat, bukan "refund Rp 0". FN-03: titipan/invoice biaya yang masih
+ * menggantung harus DIAKUI penyetuju (perlakuan uangnya keputusan pemilik, tidak dijurnal otomatis).
  */
 export default function CancellationPanel({ contract, onChanged }) {
   const { can, user } = useAuth();
@@ -50,10 +42,9 @@ export default function CancellationPanel({ contract, onChanged }) {
   const [reason, setReason] = useState("");
   const [decideFor, setDecideFor] = useState(null);
   const [note, setNote] = useState("");
+  const [costAck, setCostAck] = useState({ on: false, note: "" });
   const [refundFor, setRefundFor] = useState(null);
-  // Penanda refund dibuat SEKALI per dialog yang dibuka (bukan per klik): klik ganda / kirim ulang
-  // karena sinyal buruk membawa penanda yang SAMA, jadi backend menjawab "sudah tercatat" — tidak
-  // melahirkan pembayaran refund kedua (audit IN-04; dulu memakai Date.now() sehingga selalu beda).
+  // Penanda refund dibuat SEKALI per dialog (bukan per klik): kirim ulang membawa penanda SAMA → "sudah tercatat" (IN-04).
   const refundRef = useRef(null);
   useEffect(() => {
     refundRef.current = refundFor
@@ -82,8 +73,7 @@ export default function CancellationPanel({ contract, onChanged }) {
 
   const refresh = () => { load(); onChanged && onChanged(); };
 
-  // PDF diambil LEWAT SESI (blob), bukan tautan mentah: endpoint dokumen memakai
-  // Authorization header, jadi `window.open(url)` akan menghasilkan 401 di tab baru.
+  // PDF diambil LEWAT SESI (blob): endpoint dokumen memakai Authorization header (tautan mentah = 401).
   const openDoc = async (r) => {
     try {
       await downloadFile(`/documents/${r.document_id}/pdf`,
@@ -109,7 +99,8 @@ export default function CancellationPanel({ contract, onChanged }) {
     setBusy(true);
     try {
       await api.post(`/cancellations/${decideFor.id}/decision`,
-        { approved, note: note.trim() });
+        { approved, note: note.trim(), acknowledge_costs: costAck.on || undefined,
+          cost_note: costAck.on ? costAck.note.trim() : undefined });
       toast.success(approved
         ? "Pembatalan disetujui — jurnal potongan & utang refund terbit, unit kembali ke stok."
         : "Pengajuan pembatalan ditolak beralasan.");
@@ -128,8 +119,7 @@ export default function CancellationPanel({ contract, onChanged }) {
         cash_account_id: form.cash_account_id || undefined,
         amount: form.amount ? Number(String(form.amount).replace(/[^\d]/g, "")) : undefined,
         note: form.note.trim() || undefined,
-        // Penanda sekali-pakai: tombol yang ditekan dua kali (atau jaringan yang mengirim
-        // ulang) TIDAK boleh melahirkan pembayaran kedua.
+        // Penanda sekali-pakai: klik ganda / kirim ulang TIDAK melahirkan pembayaran kedua.
         client_ref: refundRef.current,
         override: form.override || undefined,
         override_reason: form.override ? form.override_reason.trim() : undefined,
@@ -255,7 +245,7 @@ export default function CancellationPanel({ contract, onChanged }) {
                   <div className="flex flex-wrap items-center gap-2">
                     {r.state === "diajukan" && mayDecide && !pengaju ? (
                       <Button data-testid={P56.decideBtn} size="sm"
-                        onClick={() => { setNote(""); setDecideFor(r); }}>
+                        onClick={() => { setNote(""); setCostAck({ on: false, note: "" }); setDecideFor(r); }}>
                         Putuskan
                       </Button>
                     ) : null}
@@ -333,7 +323,6 @@ export default function CancellationPanel({ contract, onChanged }) {
         </div>
       ) : null}
 
-      {/* ---------------- dialog pengajuan ---------------- */}
       <Dialog open={askOpen} onOpenChange={setAskOpen}>
         <DialogContent data-testid={P56.requestDialog} className="max-w-lg bg-background">
           <DialogHeader>
@@ -373,7 +362,6 @@ export default function CancellationPanel({ contract, onChanged }) {
         </DialogContent>
       </Dialog>
 
-      {/* ---------------- dialog keputusan ---------------- */}
       <Dialog open={!!decideFor} onOpenChange={(v) => !v && setDecideFor(null)}>
         <DialogContent data-testid={P56.decideDialog} className="max-w-lg bg-background">
           <DialogHeader>
@@ -391,6 +379,19 @@ export default function CancellationPanel({ contract, onChanged }) {
               <p>Alasan pengaju: {decideFor?.reason}</p>
               <p className="mt-1">{(decideFor?.basis_at_request || {}).note}</p>
             </div>
+            {(decideFor?.basis_at_request || {}).cost_holds?.has_holds ? (
+              <div data-testid={P56.costHold} className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs">
+                <p>Masih ada titipan biaya <MoneyText value={decideFor.basis_at_request.cost_holds.titipan_balance} /> dan
+                  invoice biaya terbuka <MoneyText value={decideFor.basis_at_request.cost_holds.open_invoice_total} />.
+                  Perlakuannya keputusan pemilik dan TIDAK dijurnal otomatis oleh pembatalan.</p>
+                <label className="flex items-center gap-2">
+                  <Checkbox checked={costAck.on} onCheckedChange={(v) => setCostAck({ ...costAck, on: !!v })} />
+                  Saya mengakui dan akan menanganinya terpisah
+                </label>
+                {costAck.on ? <Input value={costAck.note} placeholder="Catatan penanganan biaya (min. 10 huruf)"
+                  onChange={(e) => setCostAck({ ...costAck, note: e.target.value })} /> : null}
+              </div>
+            ) : null}
             <div className="space-y-1.5">
               <Label htmlFor="cancel-note">Catatan keputusan (minimal 10 huruf)</Label>
               <Textarea id="cancel-note" data-testid={P56.decideNote} rows={3}
@@ -411,7 +412,6 @@ export default function CancellationPanel({ contract, onChanged }) {
         </DialogContent>
       </Dialog>
 
-      {/* ---------------- dialog refund ---------------- */}
       <Dialog open={!!refundFor} onOpenChange={(v) => !v && setRefundFor(null)}>
         <DialogContent data-testid={P56.refundDialog} className="max-w-lg bg-background">
           <DialogHeader>

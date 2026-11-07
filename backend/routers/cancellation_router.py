@@ -99,13 +99,16 @@ async def decide(cid: str, payload: CancellationDecisionIn,
     """Keputusan Manajer Keuangan — di sinilah jurnal potongan & utang refund lahir."""
     try:
         doc = await cx.decide(_org(user), cid, user.get("email"), payload.approved,
-                              payload.note)
+                              payload.note, cost_ack={"acknowledge": payload.acknowledge_costs,
+                                                      "reason": payload.cost_note})
     except Conflict:
         raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    # FN-03: pengakuan atas titipan/invoice biaya yang menggantung ikut tercatat di audit.
+    ack = ((doc.get("settlement") or {}).get("cost_ack") or {}) if payload.approved else {}
     await audit_log(user, "approve" if payload.approved else "reject", "cancellation", cid,
-                    {"note": payload.note})
+                    {"note": payload.note, **({"cost_ack": ack} if ack else {})})
     return {"data": serialize_doc(await cx.enrich(_org(user), doc))}
 
 

@@ -54,7 +54,7 @@ async def ppn_input(org_id=ORG_ID, period=None) -> dict:
 
 # ----------------------------- Summary / SPT Masa PPN -----------------------------
 async def tax_summary(org_id=ORG_ID, period=None) -> dict:
-    recs = await db.tax_records.find({"org_id": org_id}, {"_id": 0}).to_list(10000)
+    recs = await db.tax_records.find({"org_id": org_id, "status": {"$ne": "cancelled"}}, {"_id": 0}).to_list(10000)   # PK3-08
     out = {"ppn": 0, "pph": 0, "bphtb": 0}
     counts = {t: 0 for t in TAX_TYPES}
     status_agg = {t: {"pending": 0, "reported": 0, "paid": 0} for t in TAX_TYPES}
