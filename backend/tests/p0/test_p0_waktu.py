@@ -46,3 +46,23 @@ def test_giro_diterima_hari_ini_wib_tidak_ditolak_sebagai_masa_depan():
             "kind": "cek", "amount": 1_000_000, "due_date": "2026-11-20", "received_date": WIB_TODAY,
             "deal_id": "tidak-ada-uji-waktu"}, "uji@x"))
     assert "masa depan" not in str(e.value), f"tanggal hari ini (WIB) ditolak: {e.value}"
+
+
+# ------------------------------------------------------------------ P9 — tanggal tak terbaca tidak boleh ditelan diam-diam
+def test_tanggal_tak_terbaca_dicatat_bukan_ditelan(caplog):
+    import logging
+    from core_utils import parse_iso_or
+    with caplog.at_level(logging.WARNING, logger="sipro.core"):
+        assert parse_iso_or("bukan-tanggal", "CADANGAN", "tanggal uji") == "CADANGAN"
+    assert any("tanggal uji" in r.message for r in caplog.records), "kegagalan harus meninggalkan jejak log"
+    assert parse_iso_or("2026-11-07", None).year == 2026
+    assert parse_iso_or("2026-11-07T10:00:00", None, assume_utc=True).tzinfo is not None
+
+
+def test_hari_terlambat_jatuh_tempo_rusak_dicatat_dan_nol(caplog):
+    import logging
+    import finance_engine as fe
+    with caplog.at_level(logging.WARNING, logger="sipro.core"):
+        assert fe._days_overdue("jatuh-tempo-rusak") == 0
+    assert any("jatuh tempo" in r.message for r in caplog.records)
+    assert fe._days_overdue("2000-01-01T00:00:00+00:00") > 9000

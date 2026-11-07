@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 
 import sequences as seq
 from db import db, ORG_ID
-from core_utils import new_id, now_iso, now
+from core_utils import new_id, now_iso, now, parse_iso_or
 from engine import emit, create_notification, add_activity
 from idempotency import Conflict, once
 from deal_state import assert_can_recognize_revenue
@@ -120,10 +120,7 @@ def compute_scheme_items(scheme: dict, price: int, base_date_iso: str) -> list:
     (sisa harga setelah termin lain) — `remaining` adalah satu-satunya cara jujur menutup
     selisih pada skema campuran tanpa mengarang angka.
     """
-    try:
-        base = datetime.fromisoformat(base_date_iso)
-    except Exception:
-        base = now()
+    base = parse_iso_or(base_date_iso, now(), "tanggal dasar jadwal tagihan")
     src = scheme.get("items", [])
     all_percent = bool(src) and all(i.get("basis", "percent") == "percent" for i in src)
     pct_sum = sum(i.get("value", 0) for i in src if i.get("basis", "percent") == "percent")
@@ -299,10 +296,7 @@ def addon_items(deal: dict, base_date_iso: str, due_days: int) -> list:
     """Baris tagihan add-on: per add-on, `kpr_excluded` (pencairan KPR tidak boleh melunasinya)."""
     if addon_net_of(deal) <= 0:
         return []
-    try:
-        base = datetime.fromisoformat(base_date_iso)
-    except Exception:
-        base = now()
+    base = parse_iso_or(base_date_iso, now(), "tanggal dasar jadwal tagihan")
     due = (base + timedelta(days=int(due_days or 0))).isoformat()
     lines = (deal.get("pricing") or {}).get("discount_lines") or []
     out = []
@@ -977,15 +971,8 @@ from finance_commission import approve_commission, pay_commission  # noqa: E402,
 def _days_overdue(due_iso) -> int:
     if not due_iso:
         return 0
-    try:
-        due = datetime.fromisoformat(due_iso)
-        # Ensure due is timezone-aware (assume UTC if naive)
-        if due.tzinfo is None:
-            from datetime import timezone
-            due = due.replace(tzinfo=timezone.utc)
-    except Exception:
-        return 0
-    return (now() - due).days
+    due = parse_iso_or(due_iso, None, "tanggal jatuh tempo", assume_utc=True)
+    return (now() - due).days if due else 0
 
 
 def bucketize(entries) -> dict:

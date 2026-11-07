@@ -93,6 +93,19 @@ def to_wib_iso(value):
     return dt.astimezone(WIB).isoformat()
 
 
+def parse_iso_or(value, fallback, what: str = "tanggal", *, assume_utc: bool = False):
+    """Urai tanggal/waktu ISO; bila tak terbaca KEMBALIKAN `fallback` TETAPI catat peringatan (P9: dulu `except Exception`
+    menelan diam-diam — tanggal dasar jadwal tagihan jatuh ke "sekarang" dan jatuh tempo tak terbaca = 0 hari terlambat,
+    denda hilang, tanpa jejak). `assume_utc=True` memberi zona UTC pada nilai tanpa zona."""
+    import logging
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        logging.getLogger("sipro.core").warning("%s tidak terbaca (%r) — memakai nilai cadangan %r", what, value, fallback)
+        return fallback
+    return dt.replace(tzinfo=timezone.utc) if (assume_utc and dt.tzinfo is None) else dt
+
+
 def today_wib() -> str:
     """Hari ini (YYYY-MM-DD) menurut zona waktu bisnis (WIB) — pasangan `to_wib_iso` untuk 'per hari ini'."""
     return datetime.now(WIB).strftime("%Y-%m-%d")
