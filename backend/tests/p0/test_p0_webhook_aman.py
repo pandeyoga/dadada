@@ -54,8 +54,14 @@ def sign_hub(secret, body):
     return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
 
+def fake_ip():
+    """IP klien acak: uvicorn memercayai X-Forwarded-For dari 127.0.0.1, jadi tiap panggilan mendapat ember
+    pembatas-percobaan-gagal sendiri (tes tidak saling menghabiskan jatah 30 gagal/menit satu sama lain)."""
+    return f"203.0.113.{uuid.uuid4().int % 250 + 1}"
+
+
 def post_raw(path, body, headers=None):
-    h = {"Content-Type": "application/json", **(headers or {})}
+    h = {"Content-Type": "application/json", "X-Forwarded-For": fake_ip(), **(headers or {})}
     return requests.post(f"{API}/webhooks{path}", data=body, headers=h, timeout=60)
 
 
@@ -249,7 +255,8 @@ def test_tiktok_rahasia_bersama_atau_tanda_tangan_bercap_waktu():
         assert post_raw("/tiktok-lead", b3, {"TikTok-Signature": "ngawur"}).status_code == 401
         # query string TIDAK dipakai sebagai kanal rahasia (access log mencetak query string)
         assert requests.post(f"{API}/webhooks/tiktok-lead", params={"secret": sec}, data=lead_body(),
-                             headers={"Content-Type": "application/json"}, timeout=30).status_code == 401
+                             headers={"Content-Type": "application/json", "X-Forwarded-For": fake_ip()},
+                             timeout=30).status_code == 401
 
 
 def test_tiktok_cap_waktu_basi_ditolak_dan_replay_persis_dalam_jendela_tak_diproses_ulang():
