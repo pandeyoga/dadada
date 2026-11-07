@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from db import db, ORG_ID
+from org_scope import exists_in_org
 from core_utils import serialize_doc, parse_pagination
 from rbac import require_permission, audit_log
 import finance_engine as fe
@@ -58,6 +59,8 @@ async def ap_aging(user: dict = Depends(require_permission("finance", "view"))):
 @router.post("/bills")
 async def create_bill(payload: ApBillCreate,
                       user: dict = Depends(require_permission("finance", "create"))):
+    if payload.project_id:
+        await exists_in_org(db.projects, payload.project_id, user, name="Proyek")
     if payload.claimed <= 0:
         raise HTTPException(status_code=400, detail="Nilai klaim harus lebih dari 0")
     try:
@@ -129,6 +132,7 @@ async def _assert_payer_separate(user: dict, bill_id: str, org: str) -> None:
 async def approve_bill(bill_id: str,
                        user: dict = Depends(require_permission("finance", "approve"))):
     org = user.get("org_id", ORG_ID)
+    await exists_in_org(db.ap_invoices, bill_id, user, name="Tagihan AP")
     try:
         cur = await db.ap_invoices.find_one({"id": bill_id, "org_id": org}, {"_id": 0, "created_by": 1})
         # PK-07: pembuat tagihan tidak boleh menyetujui tagihannya sendiri (maker-checker di API).
@@ -148,6 +152,7 @@ async def pay_bill(bill_id: str, payload: ApPayDated,
                    user: dict = Depends(require_permission("finance", "approve"))):
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="Jumlah bayar harus lebih dari 0")
+    await exists_in_org(db.ap_invoices, bill_id, user, name="Tagihan AP")
     org = user.get("org_id", ORG_ID)
     value_date = await _value_date(org, payload.value_date, payload.cash_account_id)
     try:

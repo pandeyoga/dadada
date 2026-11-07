@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import fund_requests as fr
 from core_utils import parse_pagination, serialize_doc
 from db import ORG_ID, db
+from org_scope import exists_in_org
 from idempotency import Conflict
 from models_fund_request import (FundRequestCreate, FundRequestDecision, FundRequestDisburse,
                                  FundRequestProof, FundRequestSettle)
@@ -72,6 +73,10 @@ async def detail(rid: str, user: dict = Depends(require_permission(RES, "view"))
 @router.post("")
 async def create(payload: FundRequestCreate,
                  user: dict = Depends(require_permission(RES, "create"))):
+    if payload.project_id:
+        await exists_in_org(db.projects, payload.project_id, user, name="Proyek")
+    if payload.ap_bill_id:
+        await exists_in_org(db.ap_invoices, payload.ap_bill_id, user, name="Tagihan AP")
     try:
         doc = await fr.create(payload, user.get("email"), user.get("name"),
                               user.get("org_id", ORG_ID))
@@ -84,6 +89,7 @@ async def create(payload: FundRequestCreate,
 @router.post("/{rid}/approve")
 async def approve(rid: str, payload: FundRequestDecision,
                   user: dict = Depends(require_permission(RES, "approve"))):
+    await exists_in_org(db[fr.COLL], rid, user, name="Pengajuan")
     try:
         doc = await fr.approve(rid, user.get("email"), payload.note, payload.approved_amount,
                                user.get("org_id", ORG_ID))
@@ -96,6 +102,7 @@ async def approve(rid: str, payload: FundRequestDecision,
 @router.post("/{rid}/reject")
 async def reject(rid: str, payload: FundRequestDecision,
                  user: dict = Depends(require_permission(RES, "approve"))):
+    await exists_in_org(db[fr.COLL], rid, user, name="Pengajuan")
     try:
         doc = await fr.reject(rid, user.get("email"), payload.note, user.get("org_id", ORG_ID))
     except ValueError as e:
@@ -127,6 +134,7 @@ async def cancel(rid: str, user: dict = Depends(require_permission(RES, "update"
 @router.post("/{rid}/disburse")
 async def disburse(rid: str, payload: FundRequestDisburse,
                    user: dict = Depends(require_permission(RES, "approve"))):
+    await exists_in_org(db[fr.COLL], rid, user, name="Pengajuan")
     try:
         doc = await fr.disburse(rid, payload, user.get("email"), user.get("org_id", ORG_ID))
     except ValueError as e:
@@ -138,6 +146,7 @@ async def disburse(rid: str, payload: FundRequestDisburse,
 @router.post("/{rid}/payment-proof")
 async def add_payment_proof(rid: str, payload: FundRequestProof,
                             user: dict = Depends(require_permission(RES, "approve"))):
+    await exists_in_org(db[fr.COLL], rid, user, name="Pengajuan")
     try:
         doc = await fr.add_payment_proof(rid, payload.proof_ids, user.get("email"), user.get("org_id", ORG_ID))
     except ValueError as e:

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import loans as ln
 from core_utils import parse_pagination, serialize_doc
 from db import db, ORG_ID
+from org_scope import exists_in_org
 from idempotency import Conflict
 from models_p27 import InstallmentPay, LoanActivate, LoanCreate
 from rbac import audit_log, require_permission
@@ -82,6 +83,7 @@ async def create(payload: LoanCreate,
 @router.post("/loans/{loan_id}/activate")
 async def activate(loan_id: str, payload: LoanActivate,
                    user: dict = Depends(require_permission("loans", "approve"))):
+    await exists_in_org(db.loans, loan_id, user, name="Fasilitas pembiayaan")
     try:
         doc = await ln.activate_loan(loan_id, payload.source, payload.date, payload.note,
                                      user.get("email"), user.get("org_id", ORG_ID),
@@ -96,6 +98,7 @@ async def activate(loan_id: str, payload: LoanActivate,
 @router.post("/loans/{loan_id}/pay")
 async def pay(loan_id: str, payload: InstallmentPay,
               user: dict = Depends(require_permission("loans", "approve"))):
+    await exists_in_org(db.loans, loan_id, user, name="Fasilitas pembiayaan")
     try:
         doc = await ln.pay_installment(loan_id, payload.installment_no, payload.amount,
                                        payload.source, payload.date, payload.note,

@@ -20,6 +20,9 @@ from test_p0_masuk import FINANCE, OWNER, SALES, World, call, ok
 
 TAG = uuid.uuid4().hex[:6].upper()
 NUSA = "owner@nusaproperti.co.id"
+# Bank khusus tes ini: skema pencairan KPR yang dibuat di sini TIDAK boleh menjadi skema bawaan pengajuan bank
+# lain (tes KPR lain memakai BTN; skema 70/30 uji ini pernah membuat pencairan 500 jt hanya 350 jt).
+BANK_UJI = f"Bank Uji GC {TAG}"
 _n = [0]
 
 
@@ -302,7 +305,7 @@ def tahap(code, pct, amount=0, cond="akad"):
     {"name": "   "},
 ])
 def test_skema_pencairan_kpr_rentang_angka_ditolak(ubah):
-    body = {"code": kode("KPR"), "bank": "BTN", "name": "Skema KPR uji", "tolerance_pct": 1,
+    body = {"code": kode("KPR"), "bank": BANK_UJI, "name": "Skema KPR uji", "tolerance_pct": 1,
             "tranches": [tahap("T1", 100)]}
     body.update(ubah)
     r = call(OWNER, "POST", "/kpr-disbursement-schemes", json=body)
@@ -310,7 +313,7 @@ def test_skema_pencairan_kpr_rentang_angka_ditolak(ubah):
 
 
 def test_skema_pencairan_kpr_sah_dan_update_cacat_ditolak():
-    body = {"code": kode("KPR"), "bank": "BTN", "name": "Skema KPR uji", "tolerance_pct": 1,
+    body = {"code": kode("KPR"), "bank": BANK_UJI, "name": "Skema KPR uji", "tolerance_pct": 1,
             "tranches": [tahap("T1", 70), tahap("T2", 30, cond="serah_terima")]}
     s = ok(call(OWNER, "POST", "/kpr-disbursement-schemes", json=body))["data"]
     r = call(OWNER, "PUT", f"/kpr-disbursement-schemes/{s['id']}",
@@ -319,6 +322,7 @@ def test_skema_pencairan_kpr_sah_dan_update_cacat_ditolak():
     now = [x for x in ok(call(OWNER, "GET", "/kpr-disbursement-schemes", params={"include_inactive": True}))["data"]
            if x["id"] == s["id"]][0]
     assert [t["pct"] for t in now["tranches"]] == [70, 30]
+    ok(call(OWNER, "PUT", f"/kpr-disbursement-schemes/{s['id']}", json={"is_active": False}))   # bersih-bersih
 
 
 @pytest.mark.parametrize("ubah", [{"ppn_rate": -5}, {"bphtb_rate": 500}, {"pph_rate": 999}, {"npoptkp": -1}])

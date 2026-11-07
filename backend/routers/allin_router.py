@@ -12,6 +12,7 @@ import kpr_disburse as kd
 import kpr_engine as kprmod
 from core_utils import new_id, now_iso, serialize_doc
 from db import db, ORG_ID
+from org_scope import exists_in_org
 from idempotency import Conflict, mutex, once
 from rbac import audit_log, require_permission
 
@@ -273,6 +274,7 @@ async def issue_cost_invoice(cid: str, user: dict = Depends(require_permission("
 
 @router.post("/cost-invoices/{iid}/pay")
 async def pay_cost_invoice(iid: str, p: PayIn, user: dict = Depends(require_permission("finance", "create"))):
+    await exists_in_org(db.cost_invoices, iid, user, name="Invoice biaya")
     try:
         async with once("allin.cost_pay", iid, p.amount, p.method, user.get("email"),
                         client_ref=p.client_ref, what="Pembayaran invoice biaya yang sama"):

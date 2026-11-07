@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from db import db, ORG_ID
+from org_scope import exists_in_org
 from idempotency import Conflict, once
 from core_utils import serialize_doc, parse_pagination
 from rbac import require_permission, is_scoped_sales
@@ -96,6 +97,7 @@ async def approve_commission(commission_id: str,
 @router.post("/{commission_id}/pay")
 async def pay_commission(commission_id: str, payload: dict = Body(default=None),
                          user: dict = Depends(require_permission("commissions", "approve"))):
+    await exists_in_org(db.commissions, commission_id, user, name="Komisi")
     try:
         cur = await db.commissions.find_one({"id": commission_id, "org_id": user.get("org_id", ORG_ID)},
                                             {"_id": 0, "approved_by": 1, "status": 1})

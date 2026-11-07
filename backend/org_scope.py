@@ -47,3 +47,14 @@ async def get_in_org(coll, doc_id, user: Optional[dict], *, projection: Optional
     if not doc:
         raise HTTPException(status_code=404, detail=f"{name} tidak ditemukan")
     return doc
+
+
+async def exists_in_org(coll, doc_id, user: Optional[dict], *, name: str = "Data", id_field: str = "id",
+                        extra: Optional[dict] = None) -> None:
+    """Gerbang 404 ringan: pastikan dokumen ada DI DALAM organisasi pemakai sebelum engine uang dipanggil.
+
+    Engine uang menjawab "tidak ditemukan" sebagai `ValueError` -> router memetakannya ke 400, sehingga pemakai
+    org lain bisa membedakan "ada di org lain" dari "tidak ada" lewat kode status. Gerbang ini mengembalikan 404
+    yang sama untuk keduanya (audit AZ-01), tanpa mengubah engine.
+    """
+    await get_in_org(coll, doc_id, user, projection={"_id": 0, id_field: 1}, name=name, id_field=id_field, extra=extra)

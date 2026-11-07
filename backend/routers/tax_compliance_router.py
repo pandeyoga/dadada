@@ -27,6 +27,7 @@ import tax_faktur_export as tfx
 import withholding_engine as wh
 from core_utils import serialize_doc
 from db import db, ORG_ID
+from org_scope import exists_in_org
 from models_p49 import (FakturCancel, FakturReplace, WithholdingCancel, WithholdingCorrect,
                         WithholdingIssue)
 from rbac import audit_log, require_permission
@@ -69,6 +70,7 @@ async def faktur_periods(user: dict = Depends(require_permission("tax", "view"))
 async def replace_faktur(faktur_id: str, payload: FakturReplace,
                          user: dict = Depends(require_permission("tax", "update"))):
     org = user.get("org_id", ORG_ID)
+    await exists_in_org(db.faktur_pajak, faktur_id, user, name="Faktur pajak")
     try:
         doc = await tfx.replace_faktur(org, faktur_id, user.get("email"), payload.reason,
                                        buyer_npwp=payload.buyer_npwp,
@@ -84,6 +86,7 @@ async def replace_faktur(faktur_id: str, payload: FakturReplace,
 async def cancel_faktur(faktur_id: str, payload: FakturCancel,
                         user: dict = Depends(require_permission("tax", "update"))):
     org = user.get("org_id", ORG_ID)
+    await exists_in_org(db.faktur_pajak, faktur_id, user, name="Faktur pajak")
     try:
         doc = await tfx.cancel_faktur(org, faktur_id, user.get("email"), payload.reason)
     except ValueError as e:
@@ -207,6 +210,7 @@ async def issue_withholding_for_fee(fee_id: str, object_code: str = None,
                                         require_permission("tax", "withholding_issue"))):
     """Terbitkan bukti potong atas PPh fee mitra yang SUDAH dipotong saat fee disetujui."""
     org = user.get("org_id", ORG_ID)
+    await exists_in_org(db.marketing_fees, fee_id, user, name="Pengajuan marketing fee")
     try:
         doc = await wh.issue_for_fee(org, user.get("email"), fee_id, object_code)
     except ValueError as e:
@@ -221,6 +225,7 @@ async def issue_withholding_for_fee(fee_id: str, object_code: str = None,
 async def correct_withholding(doc_id: str, payload: WithholdingCorrect,
                               user: dict = Depends(require_permission("tax", "update"))):
     org = user.get("org_id", ORG_ID)
+    await exists_in_org(db.withholding_docs, doc_id, user, name="Bukti potong")
     try:
         doc = await wh.correct(org, doc_id, user.get("email"), payload.model_dump())
     except ValueError as e:
@@ -235,6 +240,7 @@ async def correct_withholding(doc_id: str, payload: WithholdingCorrect,
 async def cancel_withholding(doc_id: str, payload: WithholdingCancel,
                              user: dict = Depends(require_permission("tax", "update"))):
     org = user.get("org_id", ORG_ID)
+    await exists_in_org(db.withholding_docs, doc_id, user, name="Bukti potong")
     try:
         doc = await wh.cancel(org, doc_id, user.get("email"), payload.reason)
     except ValueError as e:

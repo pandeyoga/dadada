@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import marketing_fee as mf
 from core_utils import parse_pagination, serialize_doc
 from db import db, ORG_ID
+from org_scope import exists_in_org
 from idempotency import Conflict
 from models_p27 import (AgentCreate, AgentUpdate, MarketingFeeCreate, MarketingFeePay,
                         NoteOnly)
@@ -71,6 +72,7 @@ async def create_agent(payload: AgentCreate,
 @router.put("/agents/{agent_id}")
 async def update_agent(agent_id: str, payload: AgentUpdate,
                        user: dict = Depends(require_permission("marketing_fee", "update"))):
+    await exists_in_org(db.agents, agent_id, user, name="Agen")
     try:
         doc = await mf.update_agent(agent_id, payload, user.get("email"),
                                     user.get("org_id", ORG_ID))
@@ -159,6 +161,8 @@ async def fee_detail(fee_id: str,
 @router.post("/fees")
 async def create_fee(payload: MarketingFeeCreate,
                      user: dict = Depends(require_permission("marketing_fee", "create"))):
+    await exists_in_org(db.agents, payload.agent_id, user, name="Agen")
+    await exists_in_org(db.deals, payload.deal_id, user, name="Deal")
     try:
         doc = await mf.create_fee(payload, user.get("email"), user.get("org_id", ORG_ID))
     except ValueError as e:
@@ -170,6 +174,7 @@ async def create_fee(payload: MarketingFeeCreate,
 @router.post("/fees/{fee_id}/approve")
 async def approve_fee(fee_id: str, payload: NoteOnly,
                       user: dict = Depends(require_permission("marketing_fee", "approve"))):
+    await exists_in_org(db.marketing_fees, fee_id, user, name="Pengajuan marketing fee")
     try:
         doc = await mf.approve_fee(fee_id, user.get("email"), payload.note,
                                    user.get("org_id", ORG_ID))
@@ -182,6 +187,7 @@ async def approve_fee(fee_id: str, payload: NoteOnly,
 @router.post("/fees/{fee_id}/reject")
 async def reject_fee(fee_id: str, payload: NoteOnly,
                      user: dict = Depends(require_permission("marketing_fee", "approve"))):
+    await exists_in_org(db.marketing_fees, fee_id, user, name="Pengajuan marketing fee")
     try:
         doc = await mf.reject_fee(fee_id, user.get("email"), payload.note,
                                   user.get("org_id", ORG_ID))
@@ -194,6 +200,7 @@ async def reject_fee(fee_id: str, payload: NoteOnly,
 @router.post("/fees/{fee_id}/pay")
 async def pay_fee(fee_id: str, payload: MarketingFeePay,
                   user: dict = Depends(require_permission("marketing_fee", "approve"))):
+    await exists_in_org(db.marketing_fees, fee_id, user, name="Pengajuan marketing fee")
     try:
         doc = await mf.pay_fee(fee_id, payload.amount, payload.source, payload.note,
                                user.get("email"), user.get("org_id", ORG_ID),
