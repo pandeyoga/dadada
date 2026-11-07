@@ -61,6 +61,7 @@ EXTRA_PAIRS: dict = {
         ("financing_apps", "disbursement_scheme_id", "disbursement_scheme_name", "name"),
     ],
     "leads": [
+        ("wa_contacts", "match_lead_id", "match_lead_name", "name"),
         ("build_schedules", "lead_id", "lead_name", "name"),
         ("coupon_redemptions", "lead_id", "lead_name", "name"),
         ("quotations", "lead_id", "lead_name", "name"),
