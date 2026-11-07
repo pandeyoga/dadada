@@ -14,7 +14,6 @@ Sekarang setiap kegagalan:
   * kegagalan SEMENTARA (gangguan DB/server) dicoba ulang OTOMATIS maksimal 3 kali,
     sedangkan kegagalan DATA menunggu manusia — supaya tidak berputar sia-sia.
 """
-import json
 import logging
 
 from core_utils import new_id, normalize_phone_e164, now_iso
@@ -32,21 +31,42 @@ MAX_AUTO_ATTEMPTS = 3
 EDITABLE = ("name", "phone", "email", "source", "campaign", "message", "interest")
 
 
+def parse_json_bytes(raw: bytes) -> tuple:
+    """Parse badan webhook TANPA melempar. -> (payload, error_text, fatal).
+
+    `fatal=True` untuk badan patologis (bersarang terlalu dalam / angka di luar batas): dulu
+    `RecursionError`/`ValueError` lolos dan menjadi HTTP 500. Sekarang penelepon menjawab 400 bersih
+    dan badan itu TIDAK diantrekan (tidak ada lead di dalamnya yang layak diselamatkan)."""
+    import webhook_security as ws
+    return ws.parse_json(raw)
+
+
 async def read_json(request) -> tuple:
     """Baca body JSON webhook. Kembalikan (payload, error_text) tanpa pernah melempar."""
     try:
         raw = await request.body()
     except Exception as e:  # noqa: BLE001
         return None, f"Body permintaan tidak bisa dibaca: {e}"
-    if not raw:
-        return None, "Body kosong: provider tidak mengirim data apa pun."
-    try:
-        data = json.loads(raw)
-    except (json.JSONDecodeError, UnicodeDecodeError) as e:
-        return {"_raw_text": raw[:2000].decode("utf-8", "replace")}, f"JSON tidak valid: {e}"
-    if not isinstance(data, dict):
-        return {"_raw_text": str(data)[:2000]}, "Payload harus berupa objek JSON."
-    return data, None
+    data, err, _fatal = parse_json_bytes(raw)
+    return data, err
+
+
+# Nama kolom yang TIDAK boleh ikut tersimpan di antrean/log (rahasia kiriman provider, mis. `google_key`).
+SENSITIVE_KEYS = ("google_key", "secret", "app_secret", "access_token", "token", "password", "authorization",
+                  "x-hub-signature-256", "tiktok-signature", "api_key")
+REDACTED = "[disembunyikan]"
+
+
+def redact(value, _depth: int = 0):
+    """Salinan payload dengan nilai kolom rahasia diganti penanda (rekursif, kedalaman dibatasi)."""
+    if _depth > 8:
+        return value
+    if isinstance(value, dict):
+        return {k: (REDACTED if str(k).lower() in SENSITIVE_KEYS else redact(v, _depth + 1))
+                for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact(v, _depth + 1) for v in value[:200]]
+    return value
 
 
 def validate(payload: dict) -> tuple:
@@ -87,6 +107,7 @@ async def record(provider: str, payload: dict, reason: str, *, kind: str = KIND_
                  org_id: str = ORG_ID) -> dict:
     """Simpan kegagalan + picu event/tugas/notifikasi. Tidak pernah menggagalkan webhook."""
     ts = now_iso()
+    payload = redact(payload or {})   # rahasia kiriman provider tidak boleh menetap di antrean
     doc = {
         "id": new_id(), "org_id": org_id, "provider": provider,
         "raw_payload": payload or {}, "payload": dict(payload or {}),
