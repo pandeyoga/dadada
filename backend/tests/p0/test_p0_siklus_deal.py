@@ -70,6 +70,15 @@ def seed_dependents(deal_id: str) -> dict:
     return ids
 
 
+def drop_seeds(ids: dict) -> None:
+    """Hapus dokumen semai: komisi/fee `approved` tanpa jurnal membuat rekonsiliasi (2-1600/2-1500) merah bagi tes lain."""
+    db = mdb()
+    for coll, keys in (("commissions", ("c_pend", "c_appr", "c_paid")), ("marketing_fees", ("f_sub", "f_appr")),
+                       ("tax_records", ("t_pend", "t_rep")), ("financing_apps", ("fin",)),
+                       ("coupon_redemptions", ("red",)), ("coupons", ("coupon",))):
+        db[coll].delete_many({"id": {"$in": [ids[k] for k in keys]}})
+
+
 def assert_dependents_closed(deal_id: str, ids: dict) -> None:
     db = mdb()
     st = lambda coll, k: db[coll].find_one({"id": ids[k]})   # noqa: E731
@@ -100,30 +109,39 @@ def assert_dependents_closed(deal_id: str, ids: dict) -> None:
 def test_pk308_batal_formal_menutup_semua_turunan(world):
     d = cancel_case(world, paid=100_000_000)            # kontrak + tugas KYC/biaya terbuka + 100 jt diterima
     ids = seed_dependents(d["deal_id"])
-    doc = approve(d["cancel_id"])
-    assert doc["state"] == "disetujui"
-    assert_dependents_closed(d["deal_id"], ids)
-    dep = doc["settlement"]["dependents"]
-    assert dep["commissions_cancelled"] >= 1 and dep["fees_cancelled"] == 1 and dep["tax_cancelled"] >= 1
+    try:
+        doc = approve(d["cancel_id"])
+        assert doc["state"] == "disetujui"
+        assert_dependents_closed(d["deal_id"], ids)
+        dep = doc["settlement"]["dependents"]
+        assert dep["commissions_cancelled"] >= 1 and dep["fees_cancelled"] == 1 and dep["tax_cancelled"] >= 1
+    finally:
+        drop_seeds(ids)
 
 
 def test_pk308_batal_formal_pajak_batal_tak_bisa_diubah_dan_tak_masuk_rekap(world):
     d = cancel_case(world, paid=100_000_000)
     ids = seed_dependents(d["deal_id"])
-    approve(d["cancel_id"])
-    r = call(FINANCE, "PUT", f"/tax/records/{ids['t_pend']}", json={"status": "paid", "ntpn": "NTPN-SIKLUS-1"})
-    assert r.status_code == 400 and "DIBATALKAN" in r.text, (r.status_code, r.text[:200])
-    summ = ok(call(FINANCE, "GET", "/tax/summary"))["data"]
-    assert summ["ppn_keluaran"] >= 0
-    rows = ok(call(FINANCE, "GET", "/tax/records", params={"status": "cancelled", "limit": 500}))["data"]
-    assert ids["t_pend"] in [x["id"] for x in rows], "catatan batal tetap terlihat (bukan dihapus)"
+    try:
+        approve(d["cancel_id"])
+        r = call(FINANCE, "PUT", f"/tax/records/{ids['t_pend']}", json={"status": "paid", "ntpn": "NTPN-SIKLUS-1"})
+        assert r.status_code == 400 and "DIBATALKAN" in r.text, (r.status_code, r.text[:200])
+        summ = ok(call(FINANCE, "GET", "/tax/summary"))["data"]
+        assert summ["ppn_keluaran"] >= 0
+        rows = ok(call(FINANCE, "GET", "/tax/records", params={"status": "cancelled", "limit": 500}))["data"]
+        assert ids["t_pend"] in [x["id"] for x in rows], "catatan batal tetap terlihat (bukan dihapus)"
+    finally:
+        drop_seeds(ids)
 
 
 def test_pk308_batal_sederhana_pakai_fungsi_yang_sama(world):
     d = world.new_deal()
     ids = seed_dependents(d["deal_id"])
-    ok(call(OWNER, "POST", f"/deals/{d['deal_id']}/cancel", json={"reason": "uji siklus batal sederhana"}))
-    assert_dependents_closed(d["deal_id"], ids)
+    try:
+        ok(call(OWNER, "POST", f"/deals/{d['deal_id']}/cancel", json={"reason": "uji siklus batal sederhana"}))
+        assert_dependents_closed(d["deal_id"], ids)
+    finally:
+        drop_seeds(ids)
 
 
 def test_pk308_penutup_turunan_idempoten(world):
@@ -135,17 +153,20 @@ def test_pk308_penutup_turunan_idempoten(world):
     db = mdb()
     d = world.new_deal()
     ids = seed_dependents(d["deal_id"])
-    ok(call(OWNER, "POST", f"/deals/{d['deal_id']}/cancel", json={"reason": "uji siklus idempoten"}))
-    deal = db.deals.find_one({"id": d["deal_id"]}, {"_id": 0})
+    try:
+        ok(call(OWNER, "POST", f"/deals/{d['deal_id']}/cancel", json={"reason": "uji siklus idempoten"}))
+        deal = db.deals.find_one({"id": d["deal_id"]}, {"_id": 0})
 
-    async def twice():
-        import deal_cancel_cleanup as dcc
-        return await dcc.close_deal_dependents(deal["org_id"], deal, actor="uji", reason="ulang", source="uji")
-    out = asyncio.run(twice())
-    assert out["commissions_cancelled"] == 0 and out["fees_cancelled"] == 0 and out["tax_cancelled"] == 0
-    assert out["financing_cancelled"] == 0 and out["coupons_released"] == 0 and not out.get("finance_followup")
-    assert db.tasks.count_documents({"source_event": f"deal.cancel_followup:{d['deal_id']}"}) == 1
-    assert db.commissions.find_one({"id": ids["c_pend"]})["status"] == "cancelled"
+        async def twice():
+            import deal_cancel_cleanup as dcc
+            return await dcc.close_deal_dependents(deal["org_id"], deal, actor="uji", reason="ulang", source="uji")
+        out = asyncio.run(twice())
+        assert out["commissions_cancelled"] == 0 and out["fees_cancelled"] == 0 and out["tax_cancelled"] == 0
+        assert out["financing_cancelled"] == 0 and out["coupons_released"] == 0 and not out.get("finance_followup")
+        assert db.tasks.count_documents({"source_event": f"deal.cancel_followup:{d['deal_id']}"}) == 1
+        assert db.commissions.find_one({"id": ids["c_pend"]})["status"] == "cancelled"
+    finally:
+        drop_seeds(ids)
 
 
 # ================================================================== FN-03 — titipan biaya & invoice biaya
@@ -249,7 +270,7 @@ def test_pk307_pengingat_wa_tidak_menyasar_deal_batal(world):
     inv = mdb().ar_invoices.find_one({"deal_id": d["deal_id"]})
     assert inv["status"] == "cancelled" and any(int(i["amount"]) - int(i.get("paid_amount") or 0) > 0 for i in inv["items"])
     rows = ok(call(OWNER, "GET", "/reminders/candidates"))["data"]
-    mine = [r for r in rows if r.get("unit_code") == d["unit_code"]]
+    mine = [r for r in rows if r.get("entity_id") == inv["id"]]   # id invoice (kode unit bisa kembar antar-World)
     assert not mine, f"pembeli yang sudah batal masih ditagih: {[(r['kind'], r['reason']) for r in mine]}"
 
 
@@ -264,7 +285,8 @@ def test_pk307_pengingat_deal_aktif_tetap_disiapkan(world):
     d = world.new_deal()
     _geser_jatuh_tempo(d["deal_id"])
     rows = ok(call(OWNER, "GET", "/reminders/candidates"))["data"]
-    assert [r for r in rows if r.get("unit_code") == d["unit_code"] and r["kind"] == "installment_due"], \
+    inv_id = mdb().ar_invoices.find_one({"deal_id": d["deal_id"]})["id"]
+    assert [r for r in rows if r.get("entity_id") == inv_id and r["kind"] == "installment_due"], \
         "deal aktif dengan termin jatuh tempo tetap menjadi kandidat pengingat"
 
 

@@ -469,8 +469,12 @@ async def decide(org: str, cid: str, actor: str, approved: bool, note: str, cost
                                    f"{cancel.get('reason')}",
                             evidence={"cancellation_id": cid}, source="cancellation")
         deal = await db.deals.find_one({"id": cancel["deal_id"]}, {"_id": 0}) or {"id": cancel["deal_id"]}
-        dependents = await dcc.close_deal_dependents(org, deal, actor=actor, source=cancel["number"],
-                                                     reason=cancel.get("reason") or "-", lead_closing=True)
+        try:   # penutup turunan tak boleh membuat keputusan setengah jadi (jurnal & status sudah berubah)
+            dependents = await dcc.close_deal_dependents(org, deal, actor=actor, source=cancel["number"],
+                                                         reason=cancel.get("reason") or "-", lead_closing=True)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Penutupan turunan deal %s gagal", cancel["deal_id"])
+            dependents = {"error": str(e)[:200]}
         doc = await _generate_document(org, cancel, hitung, actor)
         settlement = {**hitung, "ar_invoice_id": ar["invoice"], "ar_terms_cancelled": ar["dibatalkan"],
                       "unit_released": released, "dependents": dependents, "cost_ack": cost_ok}

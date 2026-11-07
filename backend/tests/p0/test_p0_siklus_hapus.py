@@ -309,6 +309,8 @@ def test_pk312_unmatch_toleran_bila_kuitansi_sudah_hilang(world):
     r = call(OWNER, "POST", f"/bank/transactions/{txn}/unmatch", json={"reason": "uji siklus lepas pencocokan hantu"})
     assert r.status_code == 200, (r.status_code, r.text[:300])
     assert _txn(txn)["match_state"] == "unmatched"
+    # bereskan keadaan yatim buatan tes ini (kuitansi dihapus lewat DB, subledger masih membawa uangnya) → rekonsiliasi hijau
+    ok(call(OWNER, "DELETE", f"/deals/{d}", params={"reason": "uji siklus bereskan deal uji"}))
 
 
 # ================================================================== PK3-13 — hapus lead/unit dengan deal batal
