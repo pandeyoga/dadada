@@ -111,10 +111,10 @@ export default function PriceComponentPanel() {
   return (
     <div data-testid={CONFIG.pricePanel} className="space-y-3">
       <div className="rounded-md border bg-secondary p-3 text-sm">
-        <strong>Perlakuan keuangan</strong> menentukan jurnal: <em>Pendapatan</em> masuk penjualan,
-        <em> Titipan pelanggan</em> (BPHTB/notaris/biaya bank) tidak diakui sebagai pendapatan,
-        <em> Potongan</em> mengurangi penjualan, <em>Informasi</em> hanya keterangan (mis. plafon KPR).
-        Ubah di sini bila kebijakan akuntansi berbeda — tidak perlu ubah kode.
+        <strong>Katalog referensi — belum mengubah tagihan maupun jurnal.</strong> Kolom perlakuan keuangan di
+        sini (<em>Pendapatan</em>, <em>Titipan pelanggan</em>, <em>Potongan</em>, <em>Informasi</em>) hanya
+        keterangan. Cara hitung, perlakuan (titipan pembeli / ditanggung developer) dan akun GL biaya transaksi
+        yang BENAR-BENAR dipakai tagihan & jurnal diatur di tab <strong>Biaya All-in</strong>.
       </div>
       <DataTable
         testId="config-price-table"
