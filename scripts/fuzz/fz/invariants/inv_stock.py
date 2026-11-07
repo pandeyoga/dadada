@@ -26,12 +26,13 @@ def s01(s):
     return out
 
 
-@invariant("S02", "Stok", "materials.consumed_qty (tersimpan) = Σ mutasi 'out'; over_budget = consumed > budget", known="PG-21")
+@invariant("S02", "Stok", "materials.consumed_qty (tersimpan) = Σ mutasi 'out' PEMAKAIAN (bukan transfer/retur); over_budget = consumed > budget", known="PG-21")
 def s02(s):
     out = []
     outq = defaultdict(float)
     for t in s.rows("material_txns"):
-        if t.get("type") == "out":
+        # PG-21: transfer antar proyek & retur ke vendor adalah `out` di buku stok tetapi BUKAN pemakaian proyek.
+        if t.get("type") == "out" and not t.get("transfer_id") and not t.get("return_id"):
             outq[(t.get("project_id"), t.get("material_id"))] += float(t.get("qty") or 0)
     for m in s.rows("materials"):
         got = round(outq.get((m.get("project_id"), m["id"]), 0.0), 2)
