@@ -1,7 +1,7 @@
 """Validasi MASTER komponen biaya, skema all-in, skema pencairan KPR & konfigurasi pajak (audit FN-02, FN-12c).
 
 Latar belakang: `POST/PUT /cost-components` dan `/allin-schemes` dulu menerima apa saja — nominal negatif,
-persen 500%, akun GL "9-9999", cara hitung "xyz", butir skema yang merujuk komponen yang tidak ada. Satu
+persen 500%, akun GL fiktif, cara hitung "xyz", butir skema yang merujuk komponen yang tidak ada. Satu
 salah ketik di master mengubah tagihan SEMUA reservasi baru (Rp 4,25 M per unit pada uji audit), dan akun
 GL yang tak ada melahirkan tagihan AP `approved` tanpa jurnal. Validasi sebelumnya hanya ada di layar (UI);
 API harus menolaknya sendiri.
@@ -13,6 +13,7 @@ membereskan seluruh isinya dulu.
 import math
 import re
 
+import allin_engine as ae
 import coa_rules
 import gl_engine as gl
 from db import db
@@ -21,8 +22,8 @@ MAX_NOMINAL = 1_000_000_000_000          # Rp 1 triliun: batas kewajaran satu ko
 CALC_METHODS = ("nominal_tetap", "persen_harga", "rumus_bphtb")
 TREATMENTS = ("developer_borne", "customer_pass_through")
 CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{1,31}$")
-GL_AP_CODE = "2-1100"                    # pembayaran AP selalu mendebet 2-1100 → akun utang komponen harus ini
-DEFAULTS = {"gl_expense": "6-1700", "gl_liability": "2-1470", "gl_ap": GL_AP_CODE}
+GL_AP_CODE = ae.GL_AP                    # pembayaran AP selalu mendebet utang usaha → akun utang komponen harus ini
+DEFAULTS = {"gl_expense": ae.GL_BEBAN_PENJUALAN, "gl_liability": ae.GL_TITIPAN_BIAYA, "gl_ap": GL_AP_CODE}
 GL_ROLES = {   # kolom → (label pesan, tipe akun yang sah)
     "gl_expense": ("beban", ("expense",)),
     "gl_liability": ("titipan/kewajiban", ("liability",)),

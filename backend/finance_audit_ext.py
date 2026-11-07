@@ -17,6 +17,10 @@ Bentuk tiap pemeriksaan sama dengan `finance_audit.reconcile`. Bila sebuah pemer
 `indicator=True` ia TIDAK menggagalkan `ok` (hanya peringatan) — dipakai untuk angka yang secara
 akuntansi memang bisa berbeda tanpa ada yang salah (lihat catatan di tiap fungsi).
 """
+import allin_engine as ae
+import fixed_assets as fa
+import late_fee_engine as lf
+import loans as ln
 from db import db
 from revrec_cogs import account_balance
 
@@ -61,7 +65,7 @@ async def piutang_usaha(org: str) -> dict:
             elif after_bast and it.get("status") != "cancelled":
                 unit_open += out
     return await _check(
-        org, "1-1300", "Piutang Usaha vs Σ sisa tagih AR pasca-BAST + denda belum lunas", unit_open + penalty_open,
+        org, lf.AKUN_PIUTANG, "Piutang Usaha vs Σ sisa tagih AR pasca-BAST + denda belum lunas", unit_open + penalty_open,
         "Pendapatan BAST/pelunasan piutang/denda dibukukan tanpa subledger (atau sebaliknya), atau jurnal "
         "manual langsung ke 1-1300.", credit_normal=False,
         sources={"sisa_unit_pasca_bast": unit_open, "denda_belum_lunas": penalty_open,
@@ -76,7 +80,7 @@ async def titipan_biaya(org: str) -> dict:
     async for d in db.cost_disbursements.find({"org_id": org}, {"_id": 0, "amount": 1}):
         paid_out += _i(d.get("amount"))
     return await _check(
-        org, "2-1470", "Titipan Biaya Customer vs Σ kuitansi biaya − Σ penyaluran", received - paid_out,
+        org, ae.GL_TITIPAN_BIAYA, "Titipan Biaya Customer vs Σ kuitansi biaya − Σ penyaluran", received - paid_out,
         "Kuitansi biaya/penyaluran titipan tanpa jurnal (atau jurnal tanpa catatan), atau data biaya dihapus "
         "tanpa membalik jurnalnya.", credit_normal=True,
         sources={"kuitansi_biaya": received, "penyaluran": paid_out})
@@ -93,10 +97,10 @@ async def aset_tetap(org: str) -> list:
         if d.get("asset_id") in live:
             depr += _i(d.get("amount"))
     return [
-        await _check(org, "1-2100", "Aset Tetap vs Σ harga perolehan aset belum dilepas", cost,
+        await _check(org, fa.ASSET_ACC, "Aset Tetap vs Σ harga perolehan aset belum dilepas", cost,
                      "Perolehan/pelepasan aset tanpa jurnal, atau jurnal manual langsung ke 1-2100.",
                      credit_normal=False),
-        await _check(org, "1-2200", "Akumulasi Penyusutan vs Σ riwayat penyusutan aset belum dilepas", depr,
+        await _check(org, fa.ACCUM_ACC, "Akumulasi Penyusutan vs Σ riwayat penyusutan aset belum dilepas", depr,
                      "Penyusutan diposting tanpa catatan riwayat (atau sebaliknya), atau pelepasan aset tidak "
                      "menghapus akumulasinya.", credit_normal=True),
     ]
@@ -105,11 +109,11 @@ async def aset_tetap(org: str) -> list:
 async def utang_bank(org: str) -> dict:
     """2-2100 = Σ (pokok − pokok terbayar menurut JADWAL) fasilitas yang sudah dicairkan (aktif/lunas)."""
     total = 0
-    async for ln in db.loans.find({"org_id": org, "status": {"$in": ["active", "paid_off"]}},
-                                  {"_id": 0, "principal": 1, "schedule": 1}):
-        total += _i(ln.get("principal")) - sum(_i(r.get("paid_principal")) for r in ln.get("schedule") or [])
+    async for fas in db.loans.find({"org_id": org, "status": {"$in": ["active", "paid_off"]}},
+                                   {"_id": 0, "principal": 1, "schedule": 1}):
+        total += _i(fas.get("principal")) - sum(_i(r.get("paid_principal")) for r in fas.get("schedule") or [])
     return await _check(
-        org, "2-2100", "Utang Bank / Leasing vs Σ pokok belum terbayar menurut jadwal", total,
+        org, ln.LOAN_ACC, "Utang Bank / Leasing vs Σ pokok belum terbayar menurut jadwal", total,
         "Pencairan/angsuran pembiayaan dibukukan tanpa mengubah jadwal (atau sebaliknya).", credit_normal=True)
 
 
