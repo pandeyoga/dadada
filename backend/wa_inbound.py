@@ -175,7 +175,7 @@ async def _process_message(org_id: str, m: dict, profile_names: dict, adapter, m
     ctwa_new = {"conversation": False, "lead": False}
     if referral:
         ctwa_new = await ctwa.attach(org_id, conv_id=conv["id"], lead_id=(lead or {}).get("id"), doc=referral)
-    elif lead and not ((lead.get("attribution") or {}).get("ctwa")):
+    elif lead and (conv.get("attribution") or {}).get("ctwa") and not ((lead.get("attribution") or {}).get("ctwa")):
         await ctwa.sync_to_lead(org_id, lead["id"], phone)   # lead sudah ada, percakapan lama punya atribusi
     opt_out = wcomp.detect_opt_out(desc["body"])
     contact = await wa_contacts.upsert_from_inbound(org_id, phone=phone, name=name, body=desc["body"],

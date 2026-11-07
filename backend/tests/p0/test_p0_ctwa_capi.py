@@ -212,15 +212,12 @@ def test_event_lead_ctwa_dikirim_sebagai_business_messaging_dalam_simulasi():
     res = call("POST", f"/ads/capi/events/{ev['id']}/resend")
     assert res.status_code == 400, "simulasi tidak punya apa pun untuk dikirim ulang"
     assert len(capi_rows(lid)) == 1
-
-
-def test_lead_whatsapp_tanpa_ctwa_tetap_event_klasik_bukan_business_messaging():
-    ph = phone()
-    send(ph)                                   # tanpa referral
-    lid = capture(ph)
-    rows = _await_rows(lid)
-    assert rows and all(r.get("action_source") != "business_messaging" for r in rows)
-    assert all("ctwa_clid" not in r or not r.get("ctwa_clid") for r in rows)
+    # lead WhatsApp TANPA ctwa tetap event klasik (bukan Business Messaging) — penjaga regresi
+    ph2 = phone()
+    send(ph2)
+    lid2 = capture(ph2)
+    rows2 = _await_rows(lid2)
+    assert rows2 and all(r.get("action_source") != "business_messaging" and not r.get("ctwa_clid") for r in rows2)
 
 
 # ================================================================== 3. unit/in-process (pengirim palsu, tanpa jaringan)
