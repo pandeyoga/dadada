@@ -180,7 +180,8 @@ async def read_body(request, limit: int = None) -> tuple:
             if total > limit:
                 return None, too_big
             chunks.append(chunk)
-    except Exception:  # noqa: BLE001 — klien memutus koneksi di tengah kiriman
+    except Exception as exc:  # noqa: BLE001 — klien memutus koneksi di tengah kiriman
+        logger.warning("Webhook: badan permintaan tidak terbaca (%s)", type(exc).__name__)
         return None, _deny(400, "Badan permintaan tidak bisa dibaca.")
     return b"".join(chunks), None
 

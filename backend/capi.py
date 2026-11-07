@@ -39,6 +39,7 @@ import httpx
 from pymongo.errors import DuplicateKeyError
 
 import ctwa as ctwa_mod
+import idempotency
 import wa_gateway as gw
 from core_utils import new_id, normalize_phone_e164, now_iso
 from db import db, ORG_ID
@@ -188,6 +189,7 @@ async def _send_bm(doc: dict) -> tuple:
     try:
         code, body = await _post_json(f"{GRAPH}/{dataset}/events", payload, os.environ["META_CAPI_TOKEN"])
     except Exception as exc:  # noqa: BLE001 — jaringan: laporkan apa adanya
+        logger.warning("CAPI Business Messaging gagal menghubungi Meta (%s)", type(exc).__name__)
         return "failed", f"Gagal menghubungi Meta: {exc}"
     if code == 200:
         return "sent", "Diterima Meta Conversions API (Business Messaging)."
@@ -303,9 +305,10 @@ async def record_conversion(*, event_name, lead=None, deal=None, value=0,
     if live:
         status, message = await _send_live(doc)
         doc.update({"status": status, "message": message, "attempts": 1, "last_attempt_at": now_iso()})
-        await db.conversion_events.update_one({"id": doc["id"]}, {"$set": {
+        # CAS: hanya baris yang masih 'pending' (milik kita, baru disisipkan) yang boleh diisi hasil kirim
+        await idempotency.cas("conversion_events", {"id": doc["id"]}, {"status": "pending"}, {"$set": {
             k: doc[k] for k in ("status", "message", "attempts", "last_attempt_at", "user_data", "payload")
-            if k in doc}})
+            if k in doc}}, what="Event konversi")
     doc.pop("_id", None)
     logger.info("[CAPI %s/%s] platform=%s event=%s value=%s campaign=%s lead=%s",
                 doc["transport"], doc["status"], platform, event_name, value,
