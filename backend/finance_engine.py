@@ -563,10 +563,10 @@ async def _deal_closed_reason(org_id, deal_id, inv: dict = None) -> str:
     return None
 
 
-async def apply_receipt(deal_id, amount, method, note, actor, org_id=ORG_ID,
-                        allow_overpay=False, cash_account_id=None, targets: dict = None,
-                        proof_file_ids: list = None, allow_bank_portion: bool = False,
-                        kpr_disbursement: bool = False, value_date: str = None) -> dict:
+async def _apply_receipt_unlocked(deal_id, amount, method, note, actor, org_id=ORG_ID,
+                                  allow_overpay=False, cash_account_id=None, targets: dict = None,
+                                  proof_file_ids: list = None, allow_bank_portion: bool = False,
+                                  kpr_disbursement: bool = False, value_date: str = None) -> dict:
     """Terima pembayaran -> alokasi ke item termin (pilihan kasir dulu, lalu jatuh tempo terlama) ->
     recalc outstanding -> naikkan contract_liability -> update unit.payment_status.
 
@@ -971,7 +971,7 @@ async def recognize_revenue(deal: dict, org_id=ORG_ID, cogs=None, actor="system"
 # ----------------------------- Thin AP: lihat finance_ap.py -----------------------------
 from finance_ap import create_ap_bill, approve_ap_bill, pay_ap_bill, ap_retention_release_sweeper  # noqa: E402,F401
 from finance_commission import approve_commission, pay_commission  # noqa: E402,F401
-
+from deal_money import apply_receipt  # noqa: E402,F401  (FZ-07: apply_receipt di bawah mutex per-deal)
 
 # ----------------------------- Aging + Summary -----------------------------
 def _days_overdue(due_iso) -> int:

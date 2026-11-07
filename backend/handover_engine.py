@@ -347,6 +347,7 @@ async def _issue_locked(org: str, unit_id: str, actor: str, *, handed_over_at: s
         "deal_id": (deal or {}).get("id"), "customer_id": buyer.get("customer_id"),
         "buyer_name": buyer.get("buyer_name"), "buyer_phone": buyer.get("buyer_phone"),
         "state": ISSUED, "state_label": ref.label_of("handover_state", ISSUED),
+        "prev_unit_status": unit.get("status"),   # PK3-15: status unit SEBELUM serah terima, dipulihkan saat BAST batal
         "handed_over_at": day, "received_by": received_by or buyer.get("buyer_name"),
         "note": note, "meter_air": meter_air, "meter_listrik": meter_listrik,
         "keys_handed": keys_handed,
@@ -407,12 +408,21 @@ async def cancel(org: str, hid: str, actor: str, reason: str) -> dict:
         raise ValueError(f"Masih ada {open_claims} klaim garansi berjalan pada serah terima ini — "
                          "tuntaskan atau tolak klaimnya lebih dulu.")
     ts = now_iso()
-    await db.unit_handovers.update_one({"id": hid, "org_id": org}, {"$set": {
+    # PK3-15: klaim atomik issued → cancelled (tiga pembatalan bersamaan dulu semuanya 200).
+    from idempotency import transition
+    await transition("unit_handovers", {"id": hid, "org_id": org}, {"state": ISSUED}, {"$set": {
         "state": CANCELLED, "state_label": ref.label_of("handover_state", CANCELLED),
         "cancel_reason": reason.strip(), "cancelled_by": actor, "cancelled_at": ts,
-        "updated_at": ts}})
-    prev = "sold" if (doc.get("deal_id")) else "available"
-    await db.units.update_one({"id": doc["unit_id"], "org_id": org}, {"$set": {
+        "updated_at": ts}}, what="Berita acara serah terima ini")
+    # Unit kembali ke status SEBELUM BAST (dulu selalu `sold`: unit `booked` melompat jadi terjual). BAST lama tanpa
+    # catatan itu dipulihkan dari status deal-nya.
+    prev = doc.get("prev_unit_status")
+    if not prev or prev == "handed_over":
+        d = await db.deals.find_one({"id": doc.get("deal_id"), "org_id": org}, {"_id": 0, "status": 1}) \
+            if doc.get("deal_id") else None
+        prev = {"completed": "sold", "booked": "booked", "reserved": "reserved"}.get((d or {}).get("status"), "available")
+    await db.units.update_one({"id": doc["unit_id"], "org_id": org,
+                               "$or": [{"handover_id": hid}, {"status": "handed_over"}]}, {"$set": {
         "status": prev, "handover_id": None, "handover_number": None,
         "handed_over_at": None, "updated_at": ts}})
     await auto_create_task(

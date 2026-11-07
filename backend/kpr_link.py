@@ -9,7 +9,7 @@ belum selesai". Plafon yang diisi di komponen biaya kontrak tidak pernah sampai 
 from core_utils import now_iso
 from db import db
 
-TERMINAL_STATUS = ("rejected",)
+TERMINAL_STATUS = ("rejected", "cancelled")   # PK3-08: deal batal menutup pengajuan
 TERMINAL_STAGE = ("ditolak", "batal")
 
 

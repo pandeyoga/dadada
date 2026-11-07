@@ -176,7 +176,7 @@ GROUPS_P27: dict = {
     "marketing_fee_status": {
         "label": "Status Marketing Fee", "strict": True, "options": [
             _o("draft", "Draf"), _o("submitted", "Diajukan"), _o("approved", "Disetujui"),
-            _o("paid", "Dibayar"), _o("rejected", "Ditolak"),
+            _o("paid", "Dibayar"), _o("rejected", "Ditolak"), _o("cancelled", "Dibatalkan"),
         ],
     },
     "marketing_fee_trigger": {

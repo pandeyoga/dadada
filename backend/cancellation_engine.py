@@ -4,12 +4,9 @@
 
 Dokumen SPR yang dicetak sistem ini sudah **menjanjikan** aturan pembatalan kepada pembeli
 (potongan 35% sebelum pembangunan, 50% saat pembangunan berjalan, refund menyusul penjualan
-ulang unit). Sampai Fase 55, tidak ada satu pun jalan menjalankan janji itu:
-
-  * `POST /deals/{id}/cancel` melepas unit tetapi **membiarkan uang pembeli** tercatat di
-    `2-1400 Uang Muka Penjualan` — pembukuan menyimpan kewajiban kepada orang yang
-    kontraknya sudah tidak ada, dan tidak ada dokumen yang bisa ditunjukkan kepadanya.
-  * Penolakan KPR hanya MENGUSULKAN nominal refund di layar; tidak ada yang membukukannya.
+ulang unit). Sampai Fase 55, tidak ada satu pun jalan menjalankan janji itu: `POST /deals/{id}/cancel`
+melepas unit tetapi **membiarkan uang pembeli** tercatat di `2-1400 Uang Muka Penjualan`, dan penolakan
+KPR hanya MENGUSULKAN nominal refund di layar tanpa membukukannya.
 
 ## Aturan yang dipegang berkas ini
 
@@ -18,19 +15,13 @@ ulang unit). Sampai Fase 55, tidak ada satu pun jalan menjalankan janji itu:
    (`cancellation:update`). Satu orang tidak boleh menjalankan ketiganya.
 2. **Dasar potongan dibaca dari KEADAAN NYATA**, bukan dari yang diketik pengaju: keadaan
    pembangunan unit menentukan 35% atau 50%, dan uang yang diterima dibaca dari saldo
-   kewajiban kontrak (`contract_liabilities`, cermin akun `2-1400`) — bukan dari penjumlahan
-   ulang yang bisa berbeda dengan jurnal.
-3. **Angka yang belum diketahui tidak pernah menjadi 0 diam-diam.** Bila belum ada uang yang
-   diterima, layar & dokumen menyebut faktanya ("belum ada penerimaan"), bukan "refund
-   Rp 0" tanpa penjelasan.
-4. **Jurnal lahir SAAT KEPUTUSAN, bukan saat pengajuan.** Pengajuan adalah niat; keputusan
-   adalah peristiwa akuntansi. Idempoten lewat `source_event`.
-5. **Titipan pelanggan (kelebihan bayar, `2-1450`) dikembalikan PENUH.** Uang itu tidak
-   pernah menjadi bagian harga, jadi tidak boleh ikut dipotong.
-6. **Pembayaran refund idempoten** lewat `client_ref` (pelajaran antrean perangkat Fase 50B)
-   dan berhenti pada nominal yang disetujui — tidak bisa dibayar dua kali.
-7. **Unit kembali ke stok secara ATOMIK** dan jejaknya tercatat di riwayat unit; rumah tidak
-   boleh "hilang" dari ketersediaan hanya karena satu pembeli mundur.
+   kewajiban kontrak (`contract_liabilities`, cermin akun `2-1400`).
+3. **Angka yang belum diketahui tidak pernah menjadi 0 diam-diam** ("belum ada penerimaan", bukan "refund Rp 0").
+4. **Jurnal lahir SAAT KEPUTUSAN, bukan saat pengajuan.** Idempoten lewat `source_event`.
+5. **Titipan pelanggan (kelebihan bayar, `2-1450`) dikembalikan PENUH** — bukan bagian harga, tidak dipotong.
+6. **Pembayaran refund idempoten** lewat `client_ref` dan berhenti pada nominal yang disetujui.
+7. **Unit kembali ke stok secara ATOMIK** dan jejaknya tercatat di riwayat unit.
+8. **Turunan deal ditutup** (`deal_cancel_cleanup`, PK3-08) dan **titipan/invoice biaya** wajib diakui (`cancellation_costs`, FN-03).
 
 ## Jurnal yang dihasilkan
 
@@ -42,6 +33,8 @@ ulang unit). Sampai Fase 55, tidak ada satu pun jalan menjalankan janji itu:
 """
 import logging
 
+import cancellation_costs as cc
+import deal_cancel_cleanup as dcc
 import docgen
 import gl_engine as gl
 import lead_lifecycle as lc
@@ -120,6 +113,7 @@ async def compute(org: str, contract: dict) -> dict:
     refund = received - cut
     requires_resale = bool(await cfg.get("cancellation.refund_requires_resale", org_id=org))
     return {
+        "cost_holds": await cc.holds(org, contract),   # FN-03: titipan/invoice biaya yang menggantung
         "received_total": received,
         "deposit_balance": deposit,
         "basis": basis,
@@ -173,7 +167,7 @@ async def blocks(org: str, contract: dict) -> list:
                         "aplikasi ini."))
     bast = await db.unit_handovers.find_one(
         {"org_id": org, "deal_id": contract.get("deal_id"),
-         "status": {"$ne": "cancelled"}}, {"_id": 0, "number": 1})
+         "state": {"$ne": "cancelled"}}, {"_id": 0, "number": 1})   # PK3-15: field BAST = `state`
     if bast:
         out.append(_blk("sudah_bast",
                         f"Rumah sudah diserahterimakan ({bast.get('number')}). Batalkan BAST "
@@ -400,7 +394,7 @@ async def _generate_document(org: str, cancel: dict, hitung: dict, actor: str) -
     return doc
 
 
-async def decide(org: str, cid: str, actor: str, approved: bool, note: str) -> dict:
+async def decide(org: str, cid: str, actor: str, approved: bool, note: str, cost_ack: dict = None) -> dict:
     """Keputusan Manajer Keuangan. Di sinilah uang berpindah keadaan (jurnal lahir).
 
     Audit IN-01/IN-04: dikerjakan di bawah KUNCI per pengajuan dan `state` dibaca di bawah kunci itu.
@@ -436,6 +430,7 @@ async def decide(org: str, cid: str, actor: str, approved: bool, note: str) -> d
             raise ValueError("Kontrak pengajuan ini tidak ditemukan.")
         # Uang bisa bergerak antara pengajuan dan keputusan — hitung ULANG pada saat memutuskan.
         hitung = await compute(org, contract)
+        cost_ok = cc.assert_ack(hitung["cost_holds"], cost_ack, actor, ts)   # FN-03: sebelum ada efek apa pun
         journal_ids = await _post_decision_journal(org, cancel, hitung, actor)
         ar = await _void_ar(org, cancel)
         released = await _release_unit(org, cancel, actor)
@@ -473,12 +468,12 @@ async def decide(org: str, cid: str, actor: str, approved: bool, note: str) -> d
                             reason=f"Kontrak dibatalkan ({cancel['number']}): "
                                    f"{cancel.get('reason')}",
                             evidence={"cancellation_id": cid}, source="cancellation")
+        deal = await db.deals.find_one({"id": cancel["deal_id"]}, {"_id": 0}) or {"id": cancel["deal_id"]}
+        dependents = await dcc.close_deal_dependents(org, deal, actor=actor, source=cancel["number"],
+                                                     reason=cancel.get("reason") or "-", lead_closing=True)
         doc = await _generate_document(org, cancel, hitung, actor)
-        settlement = {
-            **hitung,
-            "ar_invoice_id": ar["invoice"], "ar_terms_cancelled": ar["dibatalkan"],
-            "unit_released": released,
-        }
+        settlement = {**hitung, "ar_invoice_id": ar["invoice"], "ar_terms_cancelled": ar["dibatalkan"],
+                      "unit_released": released, "dependents": dependents, "cost_ack": cost_ok}
         await db.cancellations.update_one({"id": cid}, {"$set": {
             "state": "disetujui", "updated_at": ts,
             "decision": {"approved": True, "by": actor, "at": ts, "note": note},

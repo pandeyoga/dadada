@@ -24,6 +24,7 @@ import handover_engine as he
 import warranty_engine as we
 from core_utils import serialize_doc
 from db import db, ORG_ID
+from idempotency import Conflict
 from models_p50 import (HandoverCancel, HandoverIssue, WarrantyClaimClose,
                         WarrantyClaimComplete, WarrantyClaimCreate, WarrantyClaimDecision,
                         WarrantyClaimVerify)
@@ -321,6 +322,8 @@ async def cancel(hid: str, payload: HandoverCancel,
                  user: dict = Depends(require_permission("handover", "cancel"))):
     try:
         doc = await he.cancel(_org(user), hid, user.get("email"), payload.reason)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "update", "unit_handover", hid,

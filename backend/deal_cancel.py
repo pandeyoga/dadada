@@ -187,8 +187,9 @@ async def cancel(org: str, deal: dict, user: dict, *, reason: str, refund_mode: 
         await db.contracts.update_one({"id": pv["contract"]["id"]}, {"$set": {
             "state": "cancelled", "cancelled_at": ts, "cancelled_by": actor,
             "cancel_reason": reason, "updated_at": ts}})
-    import pricing_engine as pe
-    await pe.release_coupon(org, ref_type="deal", ref_id=deal["id"], actor=actor)
+    # PK3-08: SATU fungsi penutup turunan (tugas, komisi, fee, KPR, kupon, pajak) dipakai bersama pembatalan formal.
+    import deal_cancel_cleanup as dcc
+    cleanup = await dcc.close_deal_dependents(org, deal, actor=actor, reason=reason, source="reservasi")
     refund = None
     if defer_refund:
         await notify_finance(
@@ -219,4 +220,4 @@ async def cancel(org: str, deal: dict, user: dict, *, reason: str, refund_mode: 
     await dispatch_pending()
     fresh = await db.deals.find_one({"id": deal["id"]}, {"_id": 0})
     return {"deal": fresh, "refund": refund, "refund_mode": refund_mode if refundable > 0 else None,
-            "refund_deferred": bool(defer_refund)}
+            "refund_deferred": bool(defer_refund), "cleanup": cleanup}

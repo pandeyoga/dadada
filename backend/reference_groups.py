@@ -453,6 +453,7 @@ GROUPS: dict = {
     "commission_status": {
         "label": "Status Komisi", "strict": True, "options": [
             _o("pending", "Menunggu"), _o("approved", "Disetujui"), _o("paid", "Dibayar"),
+            _o("cancelled", "Dibatalkan"),   # PK3-08: penjualannya batal sebelum disetujui
         ],
     },
     "collection_bucket": {

@@ -153,6 +153,11 @@ async def send_reminder(deal_id, actor, org_id=ORG_ID) -> dict:
     inv = await db.ar_invoices.find_one({"org_id": org_id, "deal_id": deal_id}, {"_id": 0})
     if not inv:
         raise ValueError("Jadwal AR tidak ditemukan untuk deal ini.")
+    # PK3-07: tidak ada penagihan untuk tagihan yang dibatalkan / deal yang sudah batal.
+    from deal_state import deal_of, is_cancelled
+    if inv.get("status") in ("cancelled", "paid") or is_cancelled(await deal_of(org_id, deal_id, {"_id": 0, "status": 1,
+                                                                                               "cancellation_id": 1})):
+        raise ValueError("Tagihan ini sudah dibatalkan atau lunas — tidak ada yang perlu ditagih.")
     ts = now_iso()
     unit = inv.get("unit_code") or "-"
     assignee = inv.get("assigned_to")

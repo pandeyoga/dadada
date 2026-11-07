@@ -84,6 +84,8 @@ async def _refresh_agent_totals(agent_id: str, org_id: str):
 def _assert_deal_active(deal: dict) -> None:
     """PK-12: fee/komisi tidak diproses untuk penjualan yang sudah dibatalkan."""
     from deal_state import is_cancelled
+    if not deal:   # PK3-09: deal sudah dihapus-paksa → fee yatim tidak boleh disetujui/dibayar
+        raise ValueError("Deal fee ini sudah tidak ada (dihapus) — marketing fee tidak boleh diproses.")
     if is_cancelled(deal):
         raise ValueError("Deal ini sudah DIBATALKAN — marketing fee/komisi tidak boleh diajukan, "
                          "disetujui, atau dibayar untuk penjualan yang batal.")

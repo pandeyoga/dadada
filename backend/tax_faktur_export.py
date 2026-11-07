@@ -281,7 +281,8 @@ async def vat_return(org_id=ORG_ID, period: str = None) -> dict:
     inp = await te.ppn_input(org_id, period)
     masukan = int(inp["ppn"])
     net = keluaran - masukan
-    recs = await db.tax_records.find({"org_id": org_id, "type": "ppn"}, {"_id": 0}).to_list(5000)
+    recs = await db.tax_records.find({"org_id": org_id, "type": "ppn", "status": {"$ne": "cancelled"}},
+                                     {"_id": 0}).to_list(5000)   # PK3-08: catatan deal batal tidak masuk rekap
     recs = [r for r in recs if te.period_of(r.get("created_at")) == period]
     setor = sum(int(r.get("amount", 0) or 0) for r in recs if r.get("status") == "paid")
     belum = sum(int(r.get("amount", 0) or 0) for r in recs if r.get("status") != "paid")
