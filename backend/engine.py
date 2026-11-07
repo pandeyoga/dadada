@@ -765,6 +765,8 @@ def start_scheduler():
     sched_p68.register(_scheduler)
     # Fase 79: pengingat harian tahap pencairan KPR yang syaratnya terpenuhi tapi belum cair.
     sched_p79.register(_scheduler)
+    import denorm as sched_denorm  # PL-04: salinan nama master disamakan otomatis
+    sched_denorm.register(_scheduler)
     _scheduler.start()
     logger.info("APScheduler started (dispatcher + expiry + sla + retention + no_response + "
                 "pengingat + work hub + retry lead + snapshot BI + target/anggaran Fase 45 "

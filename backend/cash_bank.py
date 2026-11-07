@@ -488,6 +488,8 @@ async def update_account(org: str, account_id: str, payload: dict, actor: str) -
         await db.accounts.update_one({"org_id": org, "code": fresh["gl_account_code"]},
                                      {"$set": {"name": nm[:80]}})
         await db.bank_accounts.update_one({"id": account_id}, {"$set": {"gl_account_name": nm[:80]}})
+        from denorm import cascade_master_change  # PL-04: kuitansi/voucher/dll. ikut bernama baru segera
+        await cascade_master_change("bank_accounts", account_id, {"name": fresh["name"]})
     _DEFAULT_CACHE.clear()
     await _post_opening(org, fresh)
     return await db.bank_accounts.find_one({"id": account_id}, {"_id": 0})

@@ -586,6 +586,17 @@ api.include_router(data_mgmt_router)
 api.include_router(data_mgmt_full_router)
 app.include_router(api)
 
+
+@app.middleware("http")
+async def _tandai_denorm_kotor(request, call_next):
+    """PL-04: PUT/PATCH yang berhasil bisa mengganti nama/kode master → jadwalkan penyamaan salinan (denorm.sync_if_dirty)."""
+    response = await call_next(request)
+    if request.method in ("PUT", "PATCH") and response.status_code < 400:
+        import denorm
+        denorm.mark_dirty()
+    return response
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,

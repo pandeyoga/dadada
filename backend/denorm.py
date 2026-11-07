@@ -79,6 +79,94 @@ DENORM_MAP: dict = {
 }
 
 
+def _merge_extra() -> None:
+    """Gabungkan `denorm_map_extra.EXTRA_PAIRS` (PL-04) ke DENORM_MAP tanpa menggandakan pasangan."""
+    from denorm_map_extra import EXTRA_PAIRS
+    for master, pairs in EXTRA_PAIRS.items():
+        cur = DENORM_MAP.setdefault(master, [])
+        have = {(c, fk, cf) for c, fk, cf, _ in cur}
+        cur.extend(p for p in pairs if (p[0], p[1], p[2]) not in have)
+
+
+_merge_extra()
+
+# ---- Sinkronisasi otomatis (PL-04) ---------------------------------------------------------------------
+# Dulu `cascade_master_change` hanya dipanggil dari 6 router; mengganti nama rekening, vendor, mitra, pekerja, dst.
+# membuat 31+ dokumen tetap bernama lama. Sekarang: (a) setiap PUT/PATCH yang berhasil menandai "kotor" (middleware di
+# server.py), (b) penjadwal menjalankan `sync_if_dirty` tiap beberapa detik dan `resync_stale` penuh tiap jam. Menyapu
+# SEMUA pasangan sekaligus berarti jalur rename baru di masa depan otomatis tercakup tanpa harus mengingat memanggil cascade.
+import time as _time
+
+_dirty = False
+_last_run = 0.0
+MIN_INTERVAL_S = 10.0
+
+
+def mark_dirty() -> None:
+    global _dirty
+    _dirty = True
+
+
+async def sync_if_dirty() -> dict:
+    """Dijalankan penjadwal: sapu hanya bila ada perubahan sejak sapuan terakhir (dan tidak lebih sering dari MIN_INTERVAL_S)."""
+    global _dirty, _last_run
+    if not _dirty or _time.monotonic() - _last_run < MIN_INTERVAL_S:
+        return {}
+    _dirty = False
+    _last_run = _time.monotonic()
+    try:
+        return await resync_stale()
+    except Exception:  # noqa: BLE001 — sapuan gagal jangan mematikan penjadwal; tandai kotor lagi agar dicoba ulang
+        logger.exception("denorm: sapuan otomatis gagal")
+        _dirty = True
+        return {}
+
+
+async def resync_stale(batch: int = 1000) -> dict:
+    """Samakan SEMUA salinan yang basi dengan satu agregasi per pasangan ($lookup), bukan satu `update_many` per master.
+
+    Biaya ~ jumlah dokumen anak (bukan master × pasangan); idempoten; hanya menulis dokumen yang memang berbeda."""
+    from pymongo import UpdateOne
+    fixed = {}
+    existing = set(await db.list_collection_names())
+    for master, pairs in DENORM_MAP.items():
+        if master not in existing:
+            continue
+        for child, fk, copy_field, src_field in pairs:
+            if child not in existing:
+                continue
+            want = {"$arrayElemAt": [f"$_m.{src_field}", 0]}
+            pipe = [
+                {"$match": {fk: {"$type": "string"}}},
+                {"$lookup": {"from": master, "localField": fk, "foreignField": "id", "as": "_m"}},
+                {"$match": {"$expr": {"$and": [{"$gt": [{"$size": "$_m"}, 0]},
+                                               {"$eq": [{"$type": want}, "string"]},
+                                               {"$ne": [f"${copy_field}", want]}]}}},
+                {"$project": {"_id": 1, "want": want}},
+            ]
+            ops, n = [], 0
+            async for r in db[child].aggregate(pipe):
+                ops.append(UpdateOne({"_id": r["_id"]}, {"$set": {copy_field: r["want"]}}))
+                if len(ops) >= batch:
+                    n += (await db[child].bulk_write(ops, ordered=False)).modified_count
+                    ops = []
+            if ops:
+                n += (await db[child].bulk_write(ops, ordered=False)).modified_count
+            if n:
+                fixed[f"{child}.{copy_field}<-{master}.{src_field}"] = n
+    if fixed:
+        logger.info("denorm resync_stale: %s", fixed)
+    return fixed
+
+
+def register(scheduler) -> None:
+    """Pola `scheduler_*.register`: sapuan bila kotor (tiap 10 dtk) + sapuan penuh tiap jam sebagai jaring pengaman."""
+    scheduler.add_job(sync_if_dirty, "interval", seconds=10, id="denorm_sync_if_dirty",
+                      max_instances=1, coalesce=True)
+    scheduler.add_job(resync_stale, "interval", seconds=3600, id="denorm_resync_hourly",
+                      max_instances=1, coalesce=True)
+
+
 async def cascade_master_change(master: str, master_id: str, master_doc: dict) -> int:
     """Setelah master di-update, samakan semua field kopi di koleksi anak."""
     total = 0
