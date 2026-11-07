@@ -82,6 +82,7 @@ EXTRA_PAIRS: dict = {
         ("warranty_claims", "project_id", "project_name", "name"),
     ],
     "purchase_orders": [
+        ("grn_returns", "po_id", "po_number", "po_number"),
         ("ap_invoices", "po_id", "po_number", "po_number"),
     ],
     "spk": [
@@ -104,6 +105,7 @@ EXTRA_PAIRS: dict = {
         ("units", "unit_type_id", "unit_type_code", "code"),
     ],
     "units": [
+        ("build_item_submissions", "unit_id", "unit_code", "code"),
         ("booking_fee_invoices", "unit_id", "unit_code", "code"),
         ("build_items", "unit_id", "unit_code", "code"),
         ("build_schedules", "unit_id", "unit_code", "code"),
@@ -127,5 +129,12 @@ EXTRA_PAIRS: dict = {
     ],
     "workers": [
         ("labor_attendance", "worker_id", "worker_name", "name"),
+    ],
+    "grns": [
+        ("grn_returns", "grn_id", "grn_number", "grn_number"),
+    ],
+    "materials": [
+        ("material_transfers", "material_id", "material_name", "name"),
+        ("material_transfers", "material_id", "material_code", "code"),
     ],
 }

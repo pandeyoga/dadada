@@ -395,6 +395,11 @@ async def _generate_document(org: str, cancel: dict, hitung: dict, actor: str) -
 
 
 async def decide(org: str, cid: str, actor: str, approved: bool, note: str, cost_ack: dict = None) -> dict:
+    from deal_money import deal_money  # di bawah mutex per-deal yang sama dengan booking_fee.pay, void, hapus
+    async with deal_money(org, ((await db.cancellations.find_one({"id": cid, "org_id": org}, {"_id": 0, "deal_id": 1})) or {}).get("deal_id")):
+        return await _decide_locked(org, cid, actor, approved, note, cost_ack)
+
+async def _decide_locked(org: str, cid: str, actor: str, approved: bool, note: str, cost_ack: dict = None) -> dict:
     """Keputusan Manajer Keuangan. Di sinilah uang berpindah keadaan (jurnal lahir).
 
     Audit IN-01/IN-04: dikerjakan di bawah KUNCI per pengajuan dan `state` dibaca di bawah kunci itu.

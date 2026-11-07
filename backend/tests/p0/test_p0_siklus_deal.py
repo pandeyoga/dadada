@@ -50,16 +50,26 @@ def seed_dependents(deal_id: str) -> dict:
     org, ts, tag = deal["org_id"], now(), uuid.uuid4().hex[:6]
     base = {"org_id": org, "deal_id": deal_id, "created_at": ts, "updated_at": ts}
     ids = {k: str(uuid.uuid4()) for k in ("c_pend", "c_appr", "c_paid", "f_sub", "f_appr", "t_pend", "t_rep", "fin", "coupon", "red")}
+    try:
+        _seed(db, deal, deal_id, org, ts, tag, base, ids)
+    except BaseException:
+        drop_seeds(ids)   # semai setengah jalan (mis. galat indeks) tidak boleh membuat rekonsiliasi merah bagi tes lain
+        raise
+    return ids
+
+
+def _seed(db, deal, deal_id, org, ts, tag, base, ids) -> None:
     db.commissions.insert_many([
         {**base, "id": ids["c_pend"], "status": "pending", "amount": 15_000_000, "assigned_to": SALES},
         {**base, "id": ids["c_appr"], "status": "approved", "amount": 7_000_000, "assigned_to": SALES},
         {**base, "id": ids["c_paid"], "status": "paid", "amount": 3_000_000, "assigned_to": SALES}])
     agent = {"agent_id": "agen-uji", "agent_name": "Agen Uji", "unit_code": deal.get("unit_code")}
+    # `trigger` berbeda: indeks unik parsial `uq_mfee_open_dedup` (org, agen, deal, trigger) menolak dua fee terbuka yang sama
     db.marketing_fees.insert_many([
         {**base, **agent, "id": ids["f_sub"], "no": f"MF-T-{tag}-1", "status": "submitted", "amount_gross": 6_000_000,
-         "amount_net": 6_000_000, "paid_amount": 0},
+         "amount_net": 6_000_000, "paid_amount": 0, "trigger": "booked"},
         {**base, **agent, "id": ids["f_appr"], "no": f"MF-T-{tag}-2", "status": "approved", "amount_gross": 4_000_000,
-         "amount_net": 4_000_000, "paid_amount": 0}])
+         "amount_net": 4_000_000, "paid_amount": 0, "trigger": "handover"}])
     db.tax_records.insert_many([
         {**base, "id": ids["t_pend"], "type": "ppn", "amount": 72_000_000, "status": "pending"},
         {**base, "id": ids["t_rep"], "type": "pph", "amount": 15_000_000, "status": "reported"}])
@@ -69,7 +79,6 @@ def seed_dependents(deal_id: str) -> dict:
                            "created_at": ts})
     db.coupon_redemptions.insert_one({"id": ids["red"], "org_id": org, "coupon_id": ids["coupon"], "ref_type": "deal",
                                       "ref_id": deal_id, "state": "used", "used_at": ts})
-    return ids
 
 
 def drop_seeds(ids: dict) -> None:

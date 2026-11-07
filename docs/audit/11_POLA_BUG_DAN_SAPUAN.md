@@ -255,14 +255,26 @@ kelasnya (G7 + G8 di bagian 7).
 
 ## 9. Status perbaikan (diperbarui)
 
-Dikerjakan dan **terbukti** (tes regresi merah pada kode lama, hijau pada kode baru; suite penuh 232 lulus): AZ-11, AZ-12, PL-01, PL-02, PL-03,
-PL-05, AZ-01…10, PK3-05/FZ-03, FZ-01, FZ-02, FZ-08, PK3-04, PK3-01, PK3-02, PK3-03; PK3-06 sebagian (setor pajak deal batal ditolak). Rincian dan perubahan
-perilaku: `06_STATUS_PERBAIKAN.md` bagian 8. Ratchet sapuan (`scripts/pattern_sweep.py`) turun: tanggal-UTC 31→0, cek-dana-tanpa-kunci 9→0,
-set-status-tanpa-syarat 115→112, baca-lalu-tulis 191→188, kode akun literal 175→174.
+**Terbukti** (tes regresi merah pada kode lama, hijau pada kode baru; suite penuh `tests/p0` ±570 tes lulus pada kode gabungan; rincian per ID di
+`06_STATUS_PERBAIKAN.md` bagian 8): AZ-01…12, PL-01…05, PK3-01…23 (kecuali sisa di bawah), FZ-01…08, WH-01/02, CT-01/02, FN-02, G3 (rekonsiliasi 7→12),
+uji lintas-org koleksi keuangan, pencatatan tanggal tak terbaca (P9). Ratchet sapuan (`scripts/pattern_sweep.py`) hanya turun: tanggal-UTC 31→0,
+cek-dana-tanpa-kunci 9→0, pencari-by-id tanpa `org_id` 191→17, set-status-tanpa-syarat 115→±85, baca-lalu-tulis 191→±165.
 
-Lingkup organisasi dan celah otorisasi lain (AZ-01/02/04/05/06/07/08/09/10, `11b`) juga sudah dikerjakan dan terbukti (sapuan `P11` 188→17; suite penuh bertambah 49 tes).
+**Belum / sebagian — butuh keputusan pemilik (⚖):**
+- Pembalikan akrual komisi/fee/pajak yang SUDAH disetujui/dibayar pada deal batal (hanya ditandai + tugas Keuangan); perlakuan akuntansi titipan biaya 2-1470
+  dan invoice biaya saat batal (gerbang pengakuan sudah ada, tanpa jurnal baru); FN-01/FN-11/FN-12 (satu master biaya, ganti skema ke KPR, NPOPTKP per proyek,
+  tarif BPHTB, BANK_FEE); PG-01 (valuasi persediaan); 10 keputusan di `06_STATUS_PERBAIKAN.md` bagian 4.
 
-Belum dikerjakan: PL-04 (salinan nama tak tersinkron; 52 pasangan tak terdaftar), pembersihan otomatis dependen saat deal batal (tugas, komisi, fee
-marketing, KPR, kupon, catatan pajak — PK3-08), hapus-paksa deal yang bocor (PK3-09, FZ-04, FZ-07), retur GRN serentak (FZ-06), FN-02/03, HMAC/rate-limit
-webhook, invarian rekonsiliasi tambahan (G3), dan `money_op()` sebagai pintu tunggal (G1; `funds_guard` adalah langkah pertamanya).
-Perlu keputusan pemilik: PG-01 (metode valuasi persediaan) dan 10 keputusan di `06_STATUS_PERBAIKAN.md` bagian 4.
+**Belum dikerjakan (teknis, tanpa keputusan):**
+- PG-06 sisa: tagihan lama atas PO yang sudah telanjur batal masih bisa disetujui/dibayar (jalur AP).
+- Kandidat pola yang sama: `deals/{id}/pricing-approval`, `petty_cash.approve/reject`, `subcon_claims.verify/reject`, `quotation_engine.decide_discount`,
+  `allin_amend.decide_amendment`, penomoran `to_po`; janji temu & dokumen draft kontrak saat pembatalan; sweeper kedaluwarsa (`deal_cancel.expire`) belum memakai
+  penutup turunan bersama; gerbang biaya FN-03 hanya di jalur formal; bayar invoice biaya setelah batal belum diblokir.
+- Layar frontend untuk `/webhooks/status` dan pengisian rahasia webhook; UI belum diuji di peramban (kotak pengakuan biaya pembatalan, banner komponen biaya,
+  penanganan `indicator` rekonsiliasi, toast 400/409 baru).
+- `money_op()` sebagai satu pintu uang keluar (G1): `funds_guard` + `deal_money` adalah langkah pertamanya; jalur titipan/booking fee baru diserialkan per-deal
+  lewat `booking_fee.pay`, `deal_cancel.cancel`, `cancellation_engine.decide`.
+- Balapan bayar-booking-fee ‖ batal: kini diserialkan per-deal; tes soak probabilistik **belum terbukti merah pada kode lama** (hanya terlihat 1 dari 5 putaran pada skrip manual).
+
+**Catatan operasional:** begitu rahasia sebuah kanal webhook diisi, rahasia yang sama harus sudah dipasang di dashboard penyedia (kalau tidak lead asli ikut ditolak);
+skema TikTok adalah asumsi; format payload Meta leadgen asli dan Google `user_column_data` belum diurai; verify token Meta tetap di query string GET (spesifikasi Meta).

@@ -221,14 +221,10 @@ def test_event_lead_ctwa_dikirim_sebagai_business_messaging_dalam_simulasi():
 
 
 # ================================================================== 3. unit/in-process (pengirim palsu, tanpa jaringan)
-_LOOP = None
-
-
 def _run(coro):
-    global _LOOP
-    if _LOOP is None:
-        _LOOP = asyncio.new_event_loop()
-    return _LOOP.run_until_complete(coro)
+    """Satu event loop bersama seluruh tes in-process (lihat `aio.py`): klien Motor global terikat pada loop pertama."""
+    import aio
+    return aio.run(coro)
 
 
 @pytest.fixture

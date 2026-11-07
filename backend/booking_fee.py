@@ -101,8 +101,19 @@ def refund_summary(inv: dict, deal: dict) -> dict:
                                 "Refund hanya untuk deal yang dibatalkan/kedaluwarsa."))}
 
 
-async def pay(org: str, deal_id: str, *, amount: int, method: str, note: str, actor: str,
-              proof_file_ids: list = None, cash_account_id: str = None) -> dict:
+async def pay(org: str, deal_id: str, **kw) -> dict:
+    """Terima booking fee — diserialkan per-deal dengan pembatalan/penerimaan/void/hapus (`deal_money`).
+
+    Dulu bayar booking fee yang bersamaan dengan pembatalan reservasi sama-sama berhasil (200/200): kuitansi Rp 5 jt dan
+    saldo titipan ada, tetapi 2-1450 di GL nol karena pembatalan sudah memindahkan titipan sebelum titipan ini lahir
+    (rekonsiliasi 2-1450 merah). Status deal/tagihan kini dibaca ULANG di bawah kunci."""
+    from deal_money import deal_money
+    async with deal_money(org, deal_id):
+        return await _pay_unlocked(org, deal_id, **kw)
+
+
+async def _pay_unlocked(org: str, deal_id: str, *, amount: int, method: str, note: str, actor: str,
+                        proof_file_ids: list = None, cash_account_id: str = None) -> dict:
     """Terima booking fee → kwitansi bernomor + titipan pelanggan berjurnal + status tagihan."""
     from finance_engine import _deposit_move, notify_finance
     inv = await get_invoice(org, deal_id)

@@ -148,8 +148,15 @@ async def _void_ar(org: str, deal_id: str, reason: str) -> None:
         "cancel_reason": reason, "updated_at": ts}})
 
 
-async def cancel(org: str, deal: dict, user: dict, *, reason: str, refund_mode: str = None,
-                 refund_amount: int = None, method: str = "transfer", note: str = None) -> dict:
+async def cancel(org: str, deal: dict, user: dict, **kw) -> dict:
+    """Batalkan reservasi/deal — di bawah mutex per-deal yang sama dengan pembayaran booking fee (lihat `booking_fee.pay`)."""
+    from deal_money import deal_money
+    async with deal_money(org, deal["id"]):
+        return await _cancel_unlocked(org, deal, user, **kw)
+
+
+async def _cancel_unlocked(org: str, deal: dict, user: dict, *, reason: str, refund_mode: str = None,
+                           refund_amount: int = None, method: str = "transfer", note: str = None) -> dict:
     pv = await preview(org, deal, user)
     if not pv["can_cancel"]:
         raise ValueError(pv["blocked_reason"])

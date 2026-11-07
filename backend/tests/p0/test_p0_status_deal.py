@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from test_p0_masuk import FINANCE, MANAGER, OWNER, World, ar, call, cl_balance, ok, pay
+from test_p0_masuk import FINANCE, MANAGER, OWNER, SALES, World, ar, call, cl_balance, ok, pay
 from test_p0_masuk_2 import approve as approve_cancel, cancel_case, convert
 
 FINLEAD = "finlead@sipro.co.id"
@@ -137,3 +137,30 @@ def test_hapus_paksa_deal_lama_tidak_melepas_unit_deal_baru(world):
     u = _unit(world, a["unit_id"])
     assert u["status"] == "reserved" and (u.get("reserved_by_deal") == b["id"]), \
         f"unit deal BARU terlepas oleh hapus-paksa deal lama: {u['status']} / {u.get('reserved_by_deal')}"
+
+
+# ------------------------------------------------------------------ bayar booking fee ‖ batalkan reservasi (G-B menemukan sisa balapan)
+def test_bayar_booking_fee_dan_batal_bersamaan_tidak_merusak_rekonsiliasi(world):
+    """Dulu 200/200: kuitansi + saldo titipan ada, tetapi pembatalan sudah memindahkan titipan sebelum titipan ini lahir →
+    2-1450 di GL nol vs subledger Rp 5 jt (rekonsiliasi merah). Kini keduanya diserialkan per-deal (`deal_money`).
+
+    CATATAN JUJUR: ini tes SOAK probabilistik. Pada skrip manual kode lama menghasilkan 1 dari 5 putaran tidak konsisten,
+    tetapi tes ini (60 putaran total pada 2 run) belum berhasil merah pada kode lama — jangan dianggap bukti merah-dulu."""
+    import random
+    from test_p0_masuk import race, upload_proof
+    for i in range(30):
+        d = world.new_deal(booking_fee=5_000_000, book=False)["deal_id"]
+        proof = upload_proof(FINANCE)
+        # dua pertiga putaran dimulai SERENTAK (jendela yang terukur memunculkan cacat ±20%/putaran), sisanya dengan selisih acak
+        t_bayar, t_batal = (0.0, 0.0) if i % 3 else (random.uniform(0, 0.05), random.uniform(0, 0.05))
+
+        def bayar(d=d, proof=proof, t=t_bayar):
+            time.sleep(t)
+            return call(FINANCE, "POST", f"/booking-fee/deals/{d}/pay",
+                        json={"amount": 5_000_000, "method": "transfer", "note": "uji balapan", "proof_file_ids": [proof]})
+
+        def batal(d=d, t=t_batal):
+            time.sleep(t)
+            return call(SALES, "POST", f"/deals/{d}/cancel", json={"reason": "uji balapan bayar booking fee dan batal"})
+        race([bayar, batal])
+    assert _reconcile_ok(), "rekonsiliasi merah setelah balapan bayar-booking-fee ‖ batal"
