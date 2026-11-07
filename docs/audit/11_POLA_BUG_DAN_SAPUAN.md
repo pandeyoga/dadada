@@ -260,6 +260,13 @@ kelasnya (G7 + G8 di bagian 7).
 uji lintas-org koleksi keuangan, pencatatan tanggal tak terbaca (P9). Ratchet sapuan (`scripts/pattern_sweep.py`) hanya turun: tanggal-UTC 31→0,
 cek-dana-tanpa-kunci 9→0, pencari-by-id tanpa `org_id` 191→17, set-status-tanpa-syarat 115→±85, baca-lalu-tulis 191→±165.
 
+**Verifikasi akhir dengan fuzz invarian (`scripts/fuzz`, DB baru, kode final):** sebelum perbaikan agen menemukan 157 pelanggaran unik (sekuensial) dan 74 (serentak).
+Sesudahnya: seed 11 × 250 operasi → 8 pelanggaran baru; serentak 40 putaran → 5; seed 12 × 2.216 operasi → 2 (M07, keluarga IN-14); seed 31 → 0; **0 HTTP 500**.
+Semua sisa termasuk kelas yang sudah dikenal: O13 (lubang nomor dokumen, lunak), O10 (nama pembeli ≠ lead, lunak/aturan aman KT-15), O16 (komisi `approved` pada deal batal —
+belum dibalik, ⚖), O15 (tugas tindak lanjut Keuangan yang SENGAJA dibuat saat batal), O08 (lead `won` tanpa deal, KT-13 ⚖), M07 (alokasi kuitansi ke termin yang diganti, IN-14 ⚖).
+S02 ternyata invarian yang usang (menghitung transfer/retur sebagai pemakaian) dan sudah diselaraskan dengan PG-21. Catatan metode: dua proses fuzz yang tumpang tindih pada DB
+yang sama sempat menghasilkan 30–37 pelanggaran semu (unit/AR/BF) yang hilang pada run tunggal — jangan menjalankan dua fuzz pada DB yang sama.
+
 **Belum / sebagian — butuh keputusan pemilik (⚖):**
 - Pembalikan akrual komisi/fee/pajak yang SUDAH disetujui/dibayar pada deal batal (hanya ditandai + tugas Keuangan); perlakuan akuntansi titipan biaya 2-1470
   dan invoice biaya saat batal (gerbang pengakuan sudah ada, tanpa jurnal baru); FN-01/FN-11/FN-12 (satu master biaya, ganti skema ke KPR, NPOPTKP per proyek,
