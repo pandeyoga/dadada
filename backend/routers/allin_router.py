@@ -7,11 +7,13 @@ from pydantic import BaseModel, Field
 import allin_amend as am
 import allin_engine as ae
 import contracts_engine as ce
+import cost_master_rules as cmr
 import kpr_disburse as kd
 import kpr_engine as kprmod
 from core_utils import new_id, now_iso, serialize_doc
 from db import db, ORG_ID
-from idempotency import Conflict, once
+from org_scope import exists_in_org
+from idempotency import Conflict, mutex, once
 from rbac import audit_log, require_permission
 
 router = APIRouter(tags=["allin"])
@@ -29,6 +31,7 @@ class ComponentIn(BaseModel):
     gl_ap: Optional[str] = None
     kpr_only: Optional[bool] = None
     is_active: Optional[bool] = None
+    sync_schemes: Optional[bool] = None   # buat: tempel ke semua skema (bawaan ya); FN-02: bisa dimatikan
 
 
 class SchemeIn(BaseModel):
@@ -126,31 +129,34 @@ async def list_components(include_inactive: bool = False,
 @router.post("/cost-components")
 async def create_component(p: ComponentIn, user: dict = Depends(require_permission("catalog", "update"))):
     org = _org(user)
-    code = (p.code or "").strip().upper()
-    if not code or not p.name:
-        raise HTTPException(status_code=400, detail="Kode & nama komponen wajib.")
-    if p.calc_method not in ae.CALC_METHODS or p.default_treatment not in ae.TREATMENTS:
-        raise HTTPException(status_code=400, detail="Cara hitung / perlakuan tidak dikenal.")
-    if await db.cost_components.find_one({"org_id": org, "code": code}):
-        raise HTTPException(status_code=409, detail=f"Kode komponen {code} sudah dipakai.")
+    # FN-02: master divalidasi di API (nominal ≥ 0, persen 0–100, akun GL nyata & aktif di CoA, enum dikenal).
+    raw = {k: v for k, v in p.model_dump().items() if v is not None and k != "sync_schemes"}
+    try:
+        f = await cmr.clean_component(org, raw, creating=True)
+    except ValueError as e:
+        raise _err(e)
+    code = f["code"]
     ts = now_iso()
-    doc = {"id": new_id(), "org_id": org, "code": code, "name": p.name, "calc_method": p.calc_method,
-           "amount": int(p.amount or 0), "pct": float(p.pct or 0), "default_treatment": p.default_treatment,
-           "gl_expense": p.gl_expense or ae.GL_BEBAN_PENJUALAN, "gl_liability": p.gl_liability or ae.GL_TITIPAN_BIAYA,
-           "gl_ap": p.gl_ap or ae.GL_AP, "kpr_only": bool(p.kpr_only), "is_active": True,
-           "created_at": ts, "updated_at": ts}
-    await db.cost_components.insert_one(dict(doc))
-    # Sinkron: komponen baru langsung masuk ke SEMUA skema all-in/exclude dengan perlakuan
-    # bawaannya, supaya admin tidak perlu mengedit tiap skema satu per satu.
-    synced = await db.allin_schemes.update_many(
-        {"org_id": org, "items.component_code": {"$ne": code}},
-        {"$push": {"items": {"component_code": code, "treatment": p.default_treatment,
-                             "override_amount": None}},
-         "$set": {"updated_at": ts}})
-    await audit_log(user, "create", "cost_components", doc["id"],
-                    {"code": code, "synced_schemes": synced.modified_count})
+    async with mutex(f"allin.master:{org}", what="Master komponen biaya"):
+        if await db.cost_components.find_one({"org_id": org, "code": code}):
+            raise HTTPException(status_code=409, detail=f"Kode komponen {code} sudah dipakai.")
+        doc = {"id": new_id(), "org_id": org, **f, "kpr_only": bool(f.get("kpr_only")), "is_active": True,
+               "created_at": ts, "updated_at": ts}
+        await db.cost_components.insert_one(dict(doc))
+    # Sinkron: komponen baru langsung masuk ke SEMUA skema all-in/exclude dengan perlakuan bawaannya,
+    # supaya admin tidak perlu mengedit tiap skema satu per satu. `sync_schemes=false` mematikannya
+    # (FN-02: komponen baru tidak harus ikut skema yang sedang dijual).
+    n_sync = 0
+    if p.sync_schemes is not False:
+        synced = await db.allin_schemes.update_many(
+            {"org_id": org, "items.component_code": {"$ne": code}},
+            {"$push": {"items": {"component_code": code, "treatment": doc["default_treatment"],
+                                 "override_amount": None}},
+             "$set": {"updated_at": ts}})
+        n_sync = synced.modified_count
+    await audit_log(user, "create", "cost_components", doc["id"], {"code": code, "synced_schemes": n_sync})
     doc.pop("_id", None)
-    return {"data": doc, "synced_schemes": synced.modified_count}
+    return {"data": doc, "synced_schemes": n_sync}
 
 
 @router.put("/cost-components/{cid}")
@@ -159,11 +165,16 @@ async def update_component(cid: str, p: ComponentIn, user: dict = Depends(requir
     cur = await db.cost_components.find_one({"org_id": org, "id": cid}, {"_id": 0})
     if not cur:
         raise HTTPException(status_code=404, detail="Komponen tidak ditemukan.")
-    upd = {k: v for k, v in p.model_dump(exclude_unset=True).items() if v is not None and k != "code"}
+    upd = {k: v for k, v in p.model_dump(exclude_unset=True).items()
+           if v is not None and k not in ("code", "sync_schemes")}
     if cur.get("code") == ae.BOOKING_CODE:
         # Nominal/cara hitung komponen BOOKING terkunci: selalu = booking fee deal.
         for k in ("calc_method", "amount", "pct"):
             upd.pop(k, None)
+    try:
+        upd = await cmr.clean_component(org, upd, creating=False)
+    except ValueError as e:
+        raise _err(e)
     upd["updated_at"] = now_iso()
     await db.cost_components.update_one({"id": cid, "org_id": org}, {"$set": upd})
     await audit_log(user, "update", "cost_components", cid, {"fields": sorted(upd)})
@@ -183,6 +194,8 @@ async def list_schemes(project_id: str = None, unit_type: str = None, include_in
 async def preview_scheme(sid: str, price: int, project_id: str = None, scheme: str = None,
                          booking_fee: int = None,
                          user: dict = Depends(require_permission("deals", "view_own"))):
+    if price < 0:
+        raise HTTPException(status_code=400, detail="Harga pratinjau tidak boleh negatif.")
     try:
         return {"data": await ae.resolve_scheme(_org(user), sid, price, project_id, scheme,
                                                 booking_fee=booking_fee)}
@@ -193,19 +206,20 @@ async def preview_scheme(sid: str, price: int, project_id: str = None, scheme: s
 @router.post("/allin-schemes")
 async def create_scheme(p: SchemeIn, user: dict = Depends(require_permission("catalog", "update"))):
     org = _org(user)
-    if not p.name or not p.items:
-        raise HTTPException(status_code=400, detail="Nama & daftar komponen wajib.")
-    for it in p.items:
-        if it.get("treatment") not in ae.TREATMENTS:
-            raise HTTPException(status_code=400, detail=f"Perlakuan '{it.get('treatment')}' tidak dikenal.")
-    code = (p.code or p.name).strip().upper().replace(" ", "_")[:24]
-    if await db.allin_schemes.find_one({"org_id": org, "code": code}):
-        raise HTTPException(status_code=409, detail=f"Kode skema {code} sudah dipakai.")
+    # FN-02: butir skema harus merujuk komponen yang ADA & AKTIF, nominal terkunci ≥ 0, tanpa butir ganda.
+    try:
+        f = await cmr.clean_scheme(org, {k: v for k, v in p.model_dump().items() if v is not None})
+    except ValueError as e:
+        raise _err(e)
+    code = (p.code or f["name"]).strip().upper().replace(" ", "_")[:24]
     ts = now_iso()
-    doc = {"id": new_id(), "org_id": org, "code": code, "name": p.name, "note": p.note or "",
-           "project_ids": p.project_ids or [], "unit_types": p.unit_types or [], "items": p.items,
-           "is_active": True, "created_at": ts, "updated_at": ts}
-    await db.allin_schemes.insert_one(dict(doc))
+    async with mutex(f"allin.master:{org}", what="Master skema all-in"):
+        if await db.allin_schemes.find_one({"org_id": org, "code": code}):
+            raise HTTPException(status_code=409, detail=f"Kode skema {code} sudah dipakai.")
+        doc = {"id": new_id(), "org_id": org, "code": code, "name": f["name"], "note": f.get("note", ""),
+               "project_ids": f.get("project_ids", []), "unit_types": f.get("unit_types", []),
+               "items": f["items"], "is_active": True, "created_at": ts, "updated_at": ts}
+        await db.allin_schemes.insert_one(dict(doc))
     await audit_log(user, "create", "allin_schemes", doc["id"], {"code": code})
     doc.pop("_id", None)
     return {"data": doc}
@@ -214,9 +228,14 @@ async def create_scheme(p: SchemeIn, user: dict = Depends(require_permission("ca
 @router.put("/allin-schemes/{sid}")
 async def update_scheme(sid: str, p: SchemeIn, user: dict = Depends(require_permission("catalog", "update"))):
     org = _org(user)
-    if not await db.allin_schemes.find_one({"org_id": org, "id": sid}):
+    cur = await db.allin_schemes.find_one({"org_id": org, "id": sid}, {"_id": 0})
+    if not cur:
         raise HTTPException(status_code=404, detail="Skema tidak ditemukan.")
     upd = {k: v for k, v in p.model_dump(exclude_unset=True).items() if v is not None and k != "code"}
+    try:
+        upd = await cmr.clean_scheme(org, upd, current=cur)
+    except ValueError as e:
+        raise _err(e)
     upd["updated_at"] = now_iso()
     await db.allin_schemes.update_one({"id": sid, "org_id": org}, {"$set": upd})
     await audit_log(user, "update", "allin_schemes", sid, {"fields": sorted(upd)})
@@ -255,6 +274,7 @@ async def issue_cost_invoice(cid: str, user: dict = Depends(require_permission("
 
 @router.post("/cost-invoices/{iid}/pay")
 async def pay_cost_invoice(iid: str, p: PayIn, user: dict = Depends(require_permission("finance", "create"))):
+    await exists_in_org(db.cost_invoices, iid, user, name="Invoice biaya")
     try:
         async with once("allin.cost_pay", iid, p.amount, p.method, user.get("email"),
                         client_ref=p.client_ref, what="Pembayaran invoice biaya yang sama"):
@@ -309,7 +329,7 @@ async def list_kpr_schemes(include_inactive: bool = False, bank: str = None,
 async def create_kpr_scheme(p: KprSchemeIn, user: dict = Depends(require_permission("catalog", "update"))):
     org = _org(user)
     try:
-        doc = kd.validate_scheme(p.model_dump())
+        doc = cmr.clean_kpr_scheme(kd.validate_scheme(p.model_dump()))
     except ValueError as e:
         raise _err(e)
     doc["code"] = doc["code"] or doc["name"].upper().replace(" ", "_")[:24]
@@ -330,7 +350,7 @@ async def update_kpr_scheme(sid: str, p: KprSchemeIn, user: dict = Depends(requi
         raise HTTPException(status_code=404, detail="Skema tidak ditemukan.")
     merged = {**cur, **{k: v for k, v in p.model_dump(exclude_unset=True).items() if v is not None}}
     try:
-        doc = kd.validate_scheme(merged)
+        doc = cmr.clean_kpr_scheme(kd.validate_scheme(merged))
     except ValueError as e:
         raise _err(e)
     doc["code"] = cur["code"]

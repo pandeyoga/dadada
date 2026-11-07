@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from db import db, ORG_ID
+from org_scope import exists_in_org
 from core_utils import serialize_doc, now_iso, parse_pagination
 from idempotency import Conflict, reserved
 from p27_utils import clean_cash_date
@@ -161,6 +162,7 @@ async def faktur_candidates(user: dict = Depends(require_permission("tax", "view
 @router.post("/faktur")
 async def create_faktur(payload: FakturIssue,
                         user: dict = Depends(require_permission("tax", "create"))):
+    await exists_in_org(db.deals, payload.deal_id, user, name="Deal")
     try:
         doc = await tx.issue_faktur(
             user.get("org_id", ORG_ID), payload.deal_id, user.get("email"),

@@ -17,6 +17,7 @@ import bank_import as bimp
 import bank_match as bmatch
 from core_utils import new_id, now_iso, parse_pagination, serialize_doc
 from db import ORG_ID, db
+from org_scope import exists_in_org
 from idempotency import Conflict, mutex
 from models_p47 import BankAccountIn, BankIgnoreIn, BankImportIn, BankMatchIn, BankUnmatchIn
 from rbac import audit_log, require_permission
@@ -112,6 +113,7 @@ async def update_account(account_id: str, payload: BankAccountIn,
 async def import_statement(payload: BankImportIn,
                            user: dict = Depends(require_permission("bank", "create"))):
     """Impor CSV mutasi. `dry_run=true` (bawaan) HANYA memberi pratinjau, tanpa menulis."""
+    await exists_in_org(db.bank_accounts, payload.account_id, user, name="Rekening")
     try:
         out = await bimp.import_csv(_org(user), payload.account_id, payload.filename,
                                     payload.csv_text, user.get("email"),
@@ -181,9 +183,19 @@ async def suggest_match(txn_id: str,
         raise HTTPException(status_code=404, detail=str(e))
 
 
+# jenis pencocokan -> (koleksi dokumen tujuan, nama untuk pesan galat)
+_MATCH_TARGET = {"ar_deal": ("deals", "Deal"), "payment_intake": ("payment_intakes", "Bukti pelanggan"),
+                 "ap_bill": ("ap_invoices", "Tagihan AP"), "labor_payroll": ("labor_payrolls", "Rekap upah")}
+
+
 @router.post("/transactions/{txn_id}/match")
 async def do_match(txn_id: str, payload: BankMatchIn,
                    user: dict = Depends(require_permission("bank", "update"))):
+    await exists_in_org(db.bank_transactions, txn_id, user, name="Mutasi bank")
+    # Dokumen tujuan pencocokan juga harus milik organisasi ini (mutasi org B tidak boleh melunasi tagihan org A).
+    tujuan = _MATCH_TARGET.get(payload.kind)
+    if tujuan and payload.target_id:
+        await exists_in_org(db[tujuan[0]], payload.target_id, user, name=tujuan[1])
     try:
         out = await bmatch.match(_org(user), txn_id, payload.kind, payload.target_id,
                                  user.get("email"), payload.note,
@@ -201,6 +213,7 @@ async def do_match(txn_id: str, payload: BankMatchIn,
 async def do_unmatch(txn_id: str, payload: BankUnmatchIn,
                      user: dict = Depends(require_permission("bank", "approve"))):
     """Batalkan pencocokan + balikkan dampaknya. Wajib beralasan."""
+    await exists_in_org(db.bank_transactions, txn_id, user, name="Mutasi bank")
     try:
         out = await bmatch.unmatch(_org(user), txn_id, user.get("email"), payload.reason)
     except Conflict:
@@ -215,6 +228,7 @@ async def do_unmatch(txn_id: str, payload: BankUnmatchIn,
 @router.post("/transactions/{txn_id}/ignore")
 async def do_ignore(txn_id: str, payload: BankIgnoreIn,
                     user: dict = Depends(require_permission("bank", "update"))):
+    await exists_in_org(db.bank_transactions, txn_id, user, name="Mutasi bank")
     try:
         out = await bmatch.ignore(_org(user), txn_id, user.get("email"), payload.reason)
     except ValueError as e:
@@ -238,6 +252,7 @@ async def reconciliation(account_id: str = None, as_of: str = None,
         if not acc:
             raise HTTPException(status_code=404, detail="Belum ada rekening bank terdaftar.")
         account_id = acc["id"]
+    await exists_in_org(db.bank_accounts, account_id, user, name="Rekening")
     try:
         return {"data": serialize_doc(await brc.reconcile(org, account_id, as_of))}
     except ValueError as e:
@@ -260,6 +275,8 @@ async def reconciliation_explain(payload: dict = Body(...),
     for k in ("account_id", "journal_id", "reason_code"):
         if not payload.get(k):
             raise HTTPException(status_code=400, detail=f"Field '{k}' wajib diisi.")
+    await exists_in_org(db.bank_accounts, payload["account_id"], user, name="Rekening")
+    await exists_in_org(db.journal_entries, payload["journal_id"], user, name="Jurnal")
     try:
         doc = await brc.explain(_org(user), payload["account_id"], payload["journal_id"],
                                 payload["reason_code"], payload.get("note"), user.get("email"))
@@ -274,6 +291,8 @@ async def reconciliation_explain(payload: dict = Body(...),
 async def reconciliation_unexplain(payload: dict = Body(...),
                                    user: dict = Depends(require_permission("bank", "update"))):
     import bank_recon as brc
+    if payload.get("account_id"):
+        await exists_in_org(db.bank_accounts, payload["account_id"], user, name="Rekening")
     ok = await brc.unexplain(_org(user), payload.get("account_id"), payload.get("journal_id"))
     if not ok:
         raise HTTPException(status_code=404, detail="Alasan tidak ditemukan.")

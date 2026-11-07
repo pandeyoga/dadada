@@ -66,7 +66,11 @@ async def reconcile(org: str) -> dict:
     checks.append({"code": "TB", "label": "Neraca saldo seimbang (Σ debit = Σ kredit)", "gl": td,
                    "subledger": tc, "diff": td - tc, "ok": td == tc,
                    "hint": "Ada jurnal tidak seimbang — periksa jurnal manual."})
-    failed = [c for c in checks if not c["ok"]]
+    # G3: akun kendali tambahan (piutang usaha, titipan biaya, aset tetap, penyusutan, utang bank).
+    import finance_audit_ext as fax
+    checks.extend(await fax.extra_checks(org))
+    # `indicator` = peringatan saja: terlihat di rincian tetapi tidak menggagalkan `ok` / lampu merah dasbor.
+    failed = [c for c in checks if not c["ok"] and not c.get("indicator")]
     pending = await db.events.count_documents({"org_id": org, "status": {"$in": ["pending", "processing"]}})
     failed_ev = await db.events.count_documents({"org_id": org, "status": "failed"})
     # GL-09: event yang menunggu percobaan ulang & rincian yang gagal permanen ikut dilaporkan
@@ -75,6 +79,7 @@ async def reconcile(org: str) -> dict:
     retrying = await db.events.count_documents(
         {"org_id": org, "status": "pending", "next_retry_at": {"$ne": None}})
     return {"ok": not failed and not failed_ev, "checks": checks, "failed": len(failed),
+            "indicators_off": sum(1 for c in checks if not c["ok"] and c.get("indicator")),
             "events_pending": pending, "events_failed": failed_ev, "events_retrying": retrying,
             "failed_events": await er.list_problems(org, "failed", 20) if failed_ev else []}
 

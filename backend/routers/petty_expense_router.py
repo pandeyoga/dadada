@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 import petty_expense as pe
 import reference_p27 as r27
 from core_utils import serialize_doc
-from db import ORG_ID
+from db import ORG_ID, db
+from org_scope import exists_in_org
 from idempotency import Conflict
 from models_p84 import PettyExpenseIn, PettyExpenseVoid, ReplenishIn
 from rbac import audit_log, can, require_permission
@@ -35,6 +36,7 @@ async def imprest(user: dict = Depends(require_permission("bank", "view"))):
 @router.post("/imprest/{account_id}/replenish")
 async def replenish(account_id: str, payload: ReplenishIn,
                     user: dict = Depends(require_permission("bank", "create"))):
+    await exists_in_org(db.bank_accounts, account_id, user, name="Kas kecil")
     try:
         doc = await pe.propose_replenish(_org(user), account_id, user.get("email"),
                                          payload.from_account_id, payload.amount, payload.note)
@@ -61,6 +63,9 @@ async def list_expenses(account_id: str = Query(None), status: str = Query(None)
 @router.post("/expenses")
 async def create_expense(payload: PettyExpenseIn,
                          user: dict = Depends(require_permission("bank", "create"))):
+    await exists_in_org(db.bank_accounts, payload.cash_account_id, user, name="Kas kecil")
+    if payload.project_id:
+        await exists_in_org(db.projects, payload.project_id, user, name="Proyek")
     try:
         doc = await pe.create_expense(_org(user), payload.model_dump(), user.get("email"),
                                       user.get("name"))

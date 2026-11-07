@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 import payment_intake as intake
 from core_utils import parse_pagination, serialize_doc
-from db import ORG_ID
+from db import ORG_ID, db
+from org_scope import exists_in_org
 from idempotency import Conflict
 from models_p47 import IntakeRejectIn, IntakeVerifyIn
 from rbac import audit_log, require_permission
@@ -43,6 +44,7 @@ async def detail(intake_id: str,
 async def verify(intake_id: str, payload: IntakeVerifyIn,
                  user: dict = Depends(require_permission("finance", "approve"))):
     """Verifikasi bukti → tagihan berkurang lewat jalur resmi `apply_receipt`."""
+    await exists_in_org(db.payment_intakes, intake_id, user, name="Bukti transfer")
     try:
         out = await intake.verify(_org(user), intake_id, user.get("email"),
                                   bank_txn_id=payload.bank_txn_id, note=payload.note,
@@ -62,6 +64,7 @@ async def verify(intake_id: str, payload: IntakeVerifyIn,
 async def reject(intake_id: str, payload: IntakeRejectIn,
                  user: dict = Depends(require_permission("finance", "approve"))):
     """Tolak bukti + alasan yang DIBACA pelanggan di portal. Tagihan tidak berubah."""
+    await exists_in_org(db.payment_intakes, intake_id, user, name="Bukti transfer")
     try:
         out = await intake.reject(_org(user), intake_id, user.get("email"), payload.reason)
     except Conflict:

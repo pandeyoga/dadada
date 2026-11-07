@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import fixed_assets as fa
 from core_utils import parse_pagination, serialize_doc
 from db import db, ORG_ID
+from org_scope import exists_in_org
 from idempotency import Conflict
 from models_p27 import AssetCreate, AssetDispose, DepreciationRun
 from rbac import audit_log, require_permission
@@ -69,6 +70,8 @@ async def detail(asset_id: str,
 @router.post("/assets")
 async def create(payload: AssetCreate,
                  user: dict = Depends(require_permission("fixed_assets", "create"))):
+    if payload.project_id:
+        await exists_in_org(db.projects, payload.project_id, user, name="Proyek")
     try:
         doc = await fa.create_asset(payload, user.get("email"), user.get("org_id", ORG_ID))
     except ValueError as e:
@@ -93,6 +96,7 @@ async def run_depreciation(payload: DepreciationRun,
 @router.post("/assets/{asset_id}/dispose")
 async def dispose(asset_id: str, payload: AssetDispose,
                   user: dict = Depends(require_permission("fixed_assets", "approve"))):
+    await exists_in_org(db.fixed_assets, asset_id, user, name="Aset tetap")
     try:
         doc = await fa.dispose_asset(asset_id, payload.proceeds, payload.source, payload.date,
                                      payload.note, user.get("email"), user.get("org_id", ORG_ID),

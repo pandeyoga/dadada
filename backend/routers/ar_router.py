@@ -7,6 +7,7 @@ import listing as lst
 import stage_clock as clock
 import reference as ref
 from db import db, ORG_ID
+from org_scope import exists_in_org
 from idempotency import Conflict
 from core_utils import serialize_doc, parse_pagination
 from rbac import audit_log, require_permission
@@ -107,6 +108,7 @@ async def list_deposits(user: dict = Depends(require_permission("finance", "view
 async def deposit_receive(deal_id: str, payload: DepositReceive,
                          user: dict = Depends(require_permission("finance", "create"))):
     """Terima titipan di muka (belum dialokasikan ke termin)."""
+    await exists_in_org(db.deals, deal_id, user, name="Deal")
     try:
         # Klik ganda / dua tab / retry jaringan = satu penerimaan (audit IN-01).
         async with once("ar.deposit_in", deal_id, payload.amount, user.get("email"),
@@ -130,6 +132,7 @@ async def deposit_receive(deal_id: str, payload: DepositReceive,
 @router.post("/{deal_id}/deposit/apply")
 async def deposit_apply(deal_id: str, payload: DepositApply,
                         user: dict = Depends(require_permission("finance", "update"))):
+    await exists_in_org(db.deals, deal_id, user, name="Deal")
     try:
         async with once("ar.deposit_apply", deal_id, payload.amount, user.get("email"),
                         client_ref=payload.client_ref, what="Pemakaian titipan yang sama"):
@@ -145,6 +148,7 @@ async def deposit_apply(deal_id: str, payload: DepositApply,
 @router.post("/{deal_id}/deposit/refund")
 async def deposit_refund(deal_id: str, payload: DepositRefund,
                          user: dict = Depends(require_permission("finance", "update"))):
+    await exists_in_org(db.deals, deal_id, user, name="Deal")
     try:
         async with once("ar.deposit_refund", deal_id, payload.amount, user.get("email"),
                         client_ref=payload.client_ref, what="Pengembalian titipan yang sama"):
@@ -162,6 +166,7 @@ async def deposit_refund(deal_id: str, payload: DepositRefund,
 @router.get("/{deal_id}/spr-compare")
 async def ar_spr_compare(deal_id: str, user: dict = Depends(require_permission("finance", "view"))):
     """SPR (angka saat terbit) vs tagihan Finance (AR + invoice biaya), baris per baris."""
+    await exists_in_org(db.deals, deal_id, user, name="Deal")
     import spr_compare
     return {"data": serialize_doc(await spr_compare.compare(user.get("org_id", ORG_ID), deal_id))}
 
@@ -220,6 +225,7 @@ async def create_schedule(deal_id: str, payload: ArScheduleCreate,
 @router.post("/receipts")
 async def create_receipt(payload: ReceiptCreateDated,
                          user: dict = Depends(require_permission("finance", "create"))):
+    await exists_in_org(db.deals, payload.deal_id, user, name="Deal")
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="Jumlah pembayaran harus lebih dari 0")
     if str(payload.method or "").lower() == "kpr":

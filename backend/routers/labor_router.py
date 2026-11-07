@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 import labor_engine as labor
 from core_utils import parse_pagination, serialize_doc
 from db import db, ORG_ID
+from org_scope import exists_in_org
 from idempotency import Conflict
 from models_p47 import AttendanceIn, PayrollBuildIn, PayrollDecisionIn, PayrollPayIn, WorkerIn
 import offline_intake as oi
@@ -168,6 +169,7 @@ async def payroll_detail(payroll_id: str,
 @router.post("/payrolls/{payroll_id}/submit")
 async def submit_payroll(payroll_id: str,
                          user: dict = Depends(require_permission("labor", "update"))):
+    await exists_in_org(db.labor_payrolls, payroll_id, user, name="Rekap upah")
     try:
         out = await labor.submit_payroll(_org(user), payroll_id, user.get("email"))
     except ValueError as e:
@@ -180,6 +182,7 @@ async def submit_payroll(payroll_id: str,
 async def decide_payroll(payroll_id: str, payload: PayrollDecisionIn,
                          user: dict = Depends(require_permission("labor", "approve"))):
     """Keuangan menyetujui/menolak rekap upah (penolakan wajib beralasan)."""
+    await exists_in_org(db.labor_payrolls, payroll_id, user, name="Rekap upah")
     try:
         out = await labor.decide_payroll(_org(user), payroll_id, user.get("email"),
                                          payload.approve, payload.reason)
@@ -196,6 +199,7 @@ async def decide_payroll(payroll_id: str, payload: PayrollDecisionIn,
 async def pay_payroll(payroll_id: str, payload: PayrollPayIn,
                       user: dict = Depends(require_permission("labor", "approve"))):
     """Bayar upah → jurnal Dr WIP proyek / Cr Bank + realisasi anggaran bila ditaut."""
+    await exists_in_org(db.labor_payrolls, payroll_id, user, name="Rekap upah")
     try:
         out = await labor.pay_payroll(_org(user), payroll_id, user.get("email"),
                                       bank_txn_id=payload.bank_txn_id, note=payload.note)

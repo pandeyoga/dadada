@@ -138,13 +138,18 @@ def compute_amount(comp: dict, price: int, npoptkp: int, override: int = None,
 
 async def resolve_scheme(org: str, scheme_id: str, price: int, project_id: str = None,
                          scheme: str = None, booking_fee: int = None) -> dict:
-    """Snapshot komponen dari skema all-in untuk harga ini → disimpan di `deal.costs`."""
+    """Snapshot komponen dari skema all-in untuk harga ini → disimpan di `deal.costs`.
+
+    FN-02: komponen NONAKTIF tidak ikut ditagihkan pada snapshot baru (dulu `include_inactive=True`
+    membuatnya tetap masuk reservasi baru). Kontrak/deal yang snapshot-nya sudah terbit tidak berubah."""
+    if int(price) < 0:
+        raise ValueError("Harga tidak boleh negatif.")
     sch = await db.allin_schemes.find_one({"org_id": org, "id": scheme_id}, {"_id": 0})
     if not sch:
         raise ValueError("Skema all-in tidak ditemukan.")
     if not sch.get("is_active", True):
         raise ValueError("Skema all-in ini sudah nonaktif — pilih skema lain.")
-    comps = {c["code"]: c for c in await list_components(org, include_inactive=True)}
+    comps = {c["code"]: c for c in await list_components(org, include_inactive=False)}
     npoptkp = await npoptkp_for(org, project_id)
     components = []
     for it in sch.get("items") or []:
@@ -155,6 +160,9 @@ async def resolve_scheme(org: str, scheme_id: str, price: int, project_id: str =
             continue
         amount, formula = compute_amount(comp, int(price), npoptkp, it.get("override_amount"),
                                          booking_fee=booking_fee)
+        if amount < 0:   # master lama yang rusak (sebelum validasi API) tidak boleh melahirkan tagihan negatif
+            raise ValueError(f"Komponen {comp['code']} bernilai negatif (Rp {amount:,}) — perbaiki master "
+                             "komponen/skema di Pusat Konfigurasi dulu.".replace(",", "."))
         components.append({
             "code": comp["code"], "name": comp["name"], "amount": amount,
             "treatment": it.get("treatment") or comp.get("default_treatment"),
@@ -176,6 +184,8 @@ def manual_components(items: list, reason: str, actor: str) -> dict:
         code = (it.get("code") or "").strip().upper()
         if not code or it.get("amount") is None:
             raise ValueError("Komponen manual wajib kode & nominal.")
+        if int(it["amount"]) < 0:
+            raise ValueError(f"Nominal komponen manual {code} tidak boleh negatif.")
         tr = it.get("treatment") or "customer_pass_through"
         if tr not in TREATMENTS:
             raise ValueError(f"Perlakuan '{tr}' tidak dikenal.")

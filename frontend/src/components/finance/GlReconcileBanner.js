@@ -28,7 +28,7 @@ export default function GlReconcileBanner() {
     load();
   };
   if (!d) return null;
-  const bad = d.checks.filter((c) => !c.ok);
+  const bad = d.checks.filter((c) => !c.ok && !c.indicator);   // `indicator` = peringatan, tidak menggagalkan lampu
   const ok = d.ok;
   return (
     <div data-testid="gl-reconcile-banner" data-state={ok ? "ok" : "mismatch"}
@@ -64,10 +64,10 @@ export default function GlReconcileBanner() {
         <ul className="mt-2 grid gap-1 md:grid-cols-2">
           {d.checks.map((c) => (
             <li key={c.code} data-testid={`gl-reconcile-row-${c.code}`} data-ok={c.ok}
-              className={`flex items-start justify-between gap-2 rounded border bg-white/70 px-2 py-1 text-xs ${c.ok ? "border-emerald-100" : "border-rose-300"}`}>
+              className={`flex items-start justify-between gap-2 rounded border bg-white/70 px-2 py-1 text-xs ${c.ok ? "border-emerald-100" : c.indicator ? "border-amber-300" : "border-rose-300"}`}>
               <span>
                 <span className="font-mono font-semibold">{c.code}</span> · {c.label}
-                {!c.ok ? <span className="block text-rose-700">{c.hint}</span> : null}
+                {!c.ok ? <span className={`block ${c.indicator ? "text-amber-800" : "text-rose-700"}`}>{c.indicator ? "Indikator (tidak menggagalkan lampu): " : ""}{c.hint}</span> : null}
               </span>
               <span className="whitespace-nowrap text-right tabular-nums">
                 GL {formatIDR(c.gl)}<br />sub {formatIDR(c.subledger)}

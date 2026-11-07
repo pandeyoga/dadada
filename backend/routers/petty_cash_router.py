@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import petty_cash as pc
 from core_utils import parse_pagination, serialize_doc
 from db import db, ORG_ID
+from org_scope import exists_in_org
 from idempotency import Conflict
 from models_p27 import CashAdvanceCreate, CashAdvanceDisburse, CashAdvanceSettle, NoteOnly
 from rbac import audit_log, can, require_permission
@@ -53,6 +54,8 @@ async def detail(advance_id: str,
 @router.post("/advances")
 async def create(payload: CashAdvanceCreate,
                  user: dict = Depends(require_permission("petty_cash", "create"))):
+    if payload.project_id:
+        await exists_in_org(db.projects, payload.project_id, user, name="Proyek")
     doc = await pc.create_advance(payload, user.get("email"), user.get("name"),
                                   user.get("org_id", ORG_ID))
     await audit_log(user, "create", "petty_cash", doc["id"], {"amount": doc["amount_requested"]})
@@ -62,6 +65,7 @@ async def create(payload: CashAdvanceCreate,
 @router.post("/advances/{advance_id}/approve")
 async def approve(advance_id: str, payload: NoteOnly,
                   user: dict = Depends(require_permission("petty_cash", "approve"))):
+    await exists_in_org(db.cash_advances, advance_id, user, name="Kas bon")
     try:
         doc = await pc.approve_advance(advance_id, user.get("email"), payload.note,
                                        user.get("org_id", ORG_ID))
@@ -74,6 +78,7 @@ async def approve(advance_id: str, payload: NoteOnly,
 @router.post("/advances/{advance_id}/reject")
 async def reject(advance_id: str, payload: NoteOnly,
                  user: dict = Depends(require_permission("petty_cash", "approve"))):
+    await exists_in_org(db.cash_advances, advance_id, user, name="Kas bon")
     try:
         doc = await pc.reject_advance(advance_id, user.get("email"), payload.note,
                                       user.get("org_id", ORG_ID))
@@ -104,6 +109,7 @@ async def cancel(advance_id: str,
 @router.post("/advances/{advance_id}/disburse")
 async def disburse(advance_id: str, payload: CashAdvanceDisburse,
                    user: dict = Depends(require_permission("petty_cash", "approve"))):
+    await exists_in_org(db.cash_advances, advance_id, user, name="Kas bon")
     org = user.get("org_id", ORG_ID)
     try:
         cur = await db.cash_advances.find_one({"id": advance_id, "org_id": org},
