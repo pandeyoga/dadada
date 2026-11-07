@@ -8,6 +8,8 @@ Aturan:
 Efek: unit kembali `available`, tagihan BF/AR yang belum dibayar ditutup, kontrak draft
 dibatalkan, kupon dilepas, tugas terkait ditutup, tahap lead mundur ke nurturing.
 """
+import logging
+
 import booking_fee as bf
 import lead_lifecycle as lc
 import stage_clock as clock
@@ -190,7 +192,11 @@ async def cancel(org: str, deal: dict, user: dict, *, reason: str, refund_mode: 
             "cancel_reason": reason, "updated_at": ts}})
     # PK3-08: SATU fungsi penutup turunan (tugas, komisi, fee, KPR, kupon, pajak) dipakai bersama pembatalan formal.
     import deal_cancel_cleanup as dcc
-    cleanup = await dcc.close_deal_dependents(org, deal, actor=actor, reason=reason, source="reservasi")
+    try:   # klaim batal sudah terjadi; kegagalan penutup tidak boleh meninggalkan separuh pembatalan
+        cleanup = await dcc.close_deal_dependents(org, deal, actor=actor, reason=reason, source="reservasi")
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger("sipro.deal_cancel").exception("Penutupan turunan deal %s gagal", deal["id"])
+        cleanup = {"error": str(e)[:200]}
     refund = None
     if defer_refund:
         await notify_finance(
