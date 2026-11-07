@@ -10,6 +10,7 @@ import csv
 import io
 import re
 
+import ctwa
 import wa_gateway as gw
 from core_utils import new_id, now_iso
 from db import db, ORG_ID
@@ -250,6 +251,10 @@ async def _create_lead(org_id: str, contact: dict, *, actor: str, assigned_to: s
     lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     if assigned_to:
         await db.conversations.update_many({"org_id": org_id, "lead_id": lead_id}, {"$set": {"owner": assigned_to}})
+    # CTWA: lead lahir SESUDAH percakapan dari iklan -> warisi atribusinya sebelum event `lead.captured`
+    # diproses CAPI (pertama menang; tidak menimpa; hanya percakapan nomor yang sama).
+    await ctwa.sync_to_lead(org_id, lead_id, contact["phone"])
+    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0}) or lead
     await add_activity(entity_type="lead", entity_id=lead_id, type="system", org_id=org_id, actor=actor,
                        body=f"Lead dibuat dari kontak WhatsApp ({contact.get('source')}) oleh {actor}.",
                        meta={"wa_contact_id": contact["id"]})
@@ -287,6 +292,7 @@ async def capture(org_id: str, *, ids: list = None, all_new: bool = False, phone
             if lead:
                 if policy_lead == "link":
                     await _link_conversation(org_id, c, lead)
+                    await ctwa.sync_to_lead(org_id, lead["id"], phone)
                     upd = {"last_touch": {"at": ts, "provider": "whatsapp", "source": "whatsapp", "campaign": campaign or "wa-capture"},
                            "updated_at": ts}
                     if c.get("name") and (lead.get("name") or "Lead Baru") == "Lead Baru":

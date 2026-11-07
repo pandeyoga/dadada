@@ -12,7 +12,9 @@ import logging
 from datetime import datetime, timezone
 
 import capture_failures as cf
+import ctwa
 import settings_store
+import webhook_security as ws
 import wa_compliance as wcomp
 import wa_contacts
 import wa_gateway as gw
@@ -126,10 +128,28 @@ async def _conversation_for(org_id: str, phone: str, name: str, lead: dict) -> d
     return conv
 
 
-async def _handle_message(org_id: str, m: dict, profile_names: dict, adapter, mode: str) -> dict:
+async def _handle_message(org_id: str, m: dict, profile_names: dict, adapter, mode: str,
+                          waba_id: str = None, phone_number_id: str = None) -> dict:
+    """Idempoten per `wamid`: pemeriksaan `messages` (permanen) + klaim ATOMIK (dua pengiriman
+    identik yang tiba bersamaan tidak lagi saling menubruk indeks unik)."""
     wamid = m.get("id")
     if wamid and await db.messages.find_one({"provider_message_id": wamid}, {"_id": 1}):
         return {"skipped": "duplicate"}
+    if ws.too_old(m.get("timestamp")):   # pembatas usia OPSIONAL (WEBHOOK_META_MAX_AGE_SECONDS; bawaan mati)
+        return {"skipped": "stale"}
+    if wamid and not await ws.claim_event("wa_message", wamid, org_id):
+        return {"skipped": "duplicate"}
+    try:
+        return await _process_message(org_id, m, profile_names, adapter, mode, waba_id, phone_number_id)
+    except BaseException:
+        if wamid:
+            await ws.release_event("wa_message", wamid, org_id)   # gagal -> pengiriman ulang Meta boleh masuk
+        raise
+
+
+async def _process_message(org_id: str, m: dict, profile_names: dict, adapter, mode: str,
+                           waba_id: str = None, phone_number_id: str = None) -> dict:
+    wamid = m.get("id")
     phone = gw.valid_phone("+" + str(m.get("from") or "").lstrip("+"))
     if not phone:
         return {"skipped": "invalid_phone", "from": m.get("from")}
@@ -148,12 +168,24 @@ async def _handle_message(org_id: str, m: dict, profile_names: dict, adapter, mo
         "$set": {"last_message_at": ts, "last_direction": "in", "status": "active", "updated_at": ts,
                  "window_expires_at": due_in(hours=24), "mode": mode},
         "$inc": {"unread": 1}})
+    # CTWA: `referral` hanya ada di pesan PERTAMA setelah klik iklan. Simpan SEBELUM lead dibuat
+    # (auto-capture di bawah) supaya lead lahir sudah beratribusi; pertama menang, idempoten.
+    referral = ctwa.build(m.get("referral"), waba_id=waba_id, phone_number_id=phone_number_id,
+                          wamid=wamid, at=ts)
+    ctwa_new = {"conversation": False, "lead": False}
+    if referral:
+        ctwa_new = await ctwa.attach(org_id, conv_id=conv["id"], lead_id=(lead or {}).get("id"), doc=referral)
+    elif lead and not ((lead.get("attribution") or {}).get("ctwa")):
+        await ctwa.sync_to_lead(org_id, lead["id"], phone)   # lead sudah ada, percakapan lama punya atribusi
     opt_out = wcomp.detect_opt_out(desc["body"])
     contact = await wa_contacts.upsert_from_inbound(org_id, phone=phone, name=name, body=desc["body"],
                                                     conversation_id=conv["id"], lead=lead, at=ts,
                                                     opt_out=opt_out)
     out = {"conversation_id": conv["id"], "lead_id": (lead or {}).get("id"), "contact_id": contact["id"],
            "captured": False}
+    if referral:
+        out["ctwa"] = {"captured": bool(ctwa_new["conversation"] or ctwa_new["lead"]),
+                       "has_clid": bool(referral.get("ctwa_clid")), "source_id": referral.get("source_id")}
     if lead:
         await add_activity(entity_type="lead", entity_id=lead["id"], type="system",
                            body=f"WhatsApp masuk ({'LIVE' if mode == 'live' else 'SIMULASI'}): {desc['body'][:120]}",
@@ -207,8 +239,9 @@ async def process_meta_payload(raw: dict, org_id: str = ORG_ID, *, mode: str = N
                                 f"Field webhook '{change.get('field')}' belum ditangani", org_id=org_id)
                 continue
             names = {c.get("wa_id"): (c.get("profile") or {}).get("name") for c in (value.get("contacts") or [])}
+            waba_id, phone_number_id = entry.get("id"), (value.get("metadata") or {}).get("phone_number_id")
             for m in value.get("messages") or []:
-                res = await _handle_message(org_id, m, names, adapter, mode)
+                res = await _handle_message(org_id, m, names, adapter, mode, waba_id, phone_number_id)
                 summary["results"].append(res)
                 if res.get("skipped") == "duplicate":
                     summary["duplicates"] += 1
@@ -263,7 +296,7 @@ async def _handle_account_event(org_id: str, field: str, value: dict) -> dict:
 
 
 def build_meta_payload(*, phone: str, name: str = None, text: str = None, mtype: str = "text",
-                       wamid: str = None, filename: str = None) -> dict:
+                       wamid: str = None, filename: str = None, referral: dict = None) -> dict:
     """Bentuk payload Meta asli untuk simulasi & pengujian."""
     wa_id = phone.lstrip("+")
     import time
@@ -276,6 +309,8 @@ def build_meta_payload(*, phone: str, name: str = None, text: str = None, mtype:
                       "caption": text, "filename": filename}
     elif mtype == "location":
         msg["location"] = {"latitude": -6.2, "longitude": 106.8, "name": text or "Lokasi"}
+    if referral:   # simulasi pesan pertama dari iklan Click-to-WhatsApp
+        msg["referral"] = dict(referral)
     return {"object": "whatsapp_business_account", "entry": [{"id": "SIM-WABA", "changes": [{
         "field": "messages", "value": {"messaging_product": "whatsapp",
                                        "metadata": {"display_phone_number": "0", "phone_number_id": "SIM"},
