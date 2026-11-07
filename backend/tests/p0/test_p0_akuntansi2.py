@@ -11,6 +11,8 @@ import uuid
 
 import pytest
 
+import aio
+
 from test_p0_masuk import (FINANCE, OWNER, SUPER, TAG, World, ar, call, cl_balance, ok, pay,  # noqa: F401
                            race, upload_proof)
 
@@ -431,13 +433,13 @@ def test_gl15_posting_otomatis_digeser_ke_periode_terbuka_terdekat_bukan_masa_de
         return {prev}
     try:
         glp.closed_periods = tutup_sampai_berjalan
-        d, dari = asyncio.run(glp.resolve_post_date("o", "2026-03-15", True))
+        d, dari = aio.run(glp.resolve_post_date("o", "2026-03-15", True))
         assert dari == "2026-03" and period_of(d) == nxt, (d, nxt)
         glp.closed_periods = tutup_bulan_lalu
-        d, dari = asyncio.run(glp.resolve_post_date("o", f"{prev}-10", True))
+        d, dari = aio.run(glp.resolve_post_date("o", f"{prev}-10", True))
         assert dari == prev and period_of(d) == cur and d[:10] <= _days_ago(0), d
         with pytest.raises(ValueError):
-            asyncio.run(glp.resolve_post_date("o", f"{prev}-10", False))
+            aio.run(glp.resolve_post_date("o", f"{prev}-10", False))
     finally:
         glp.closed_periods = asli
 

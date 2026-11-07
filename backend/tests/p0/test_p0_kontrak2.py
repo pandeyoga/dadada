@@ -539,7 +539,8 @@ def test_kt29_tugas_konfirmasi_booking_fee_selesai_saat_booking(cleanup):
     lead, deal, _u = booked_deal(cleanup, tag="K29")
     for st, harap in (("open", False), ("done", True)):
         code, body = call("owner", "GET", "/work/tasks",
-                          params={"scope": "all", "q": "Konfirmasi booking fee", "status": st, "limit": 100})
+                          # q dipersempit dengan nama lead uji: DB yang sudah lama dipakai punya >100 tugas serupa
+                          params={"scope": "all", "q": f"Konfirmasi booking fee: {lead['name']}", "status": st, "limit": 100})
         assert code == 200, (code, str(body)[:200])
         ada = [t for t in body["data"] if t.get("related_entity_id") == deal["id"]]
         assert bool(ada) is harap, (st, ada)

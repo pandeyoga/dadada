@@ -13,6 +13,8 @@ import uuid
 
 import pytest
 
+import aio
+
 from test_p0_masuk import FINANCE, MANAGER, OWNER, SALES, World, ar, call, codes, ok, pay, race, upload_proof  # noqa: F401
 from test_p0_masuk_2 import allin_deal, approve, cancel_case, convert, cost_ledger
 
@@ -160,7 +162,7 @@ def test_pk308_penutup_turunan_idempoten(world):
         async def twice():
             import deal_cancel_cleanup as dcc
             return await dcc.close_deal_dependents(deal["org_id"], deal, actor="uji", reason="ulang", source="uji")
-        out = asyncio.run(twice())
+        out = aio.run(twice())
         assert out["commissions_cancelled"] == 0 and out["fees_cancelled"] == 0 and out["tax_cancelled"] == 0
         assert out["financing_cancelled"] == 0 and out["coupons_released"] == 0 and not out.get("finance_followup")
         assert db.tasks.count_documents({"source_event": f"deal.cancel_followup:{d['deal_id']}"}) == 1

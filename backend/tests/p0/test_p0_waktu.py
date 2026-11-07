@@ -11,6 +11,8 @@ import sys
 
 import pytest
 
+import aio
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 pytest.importorskip("motor")
 
@@ -42,7 +44,7 @@ def test_giro_diterima_hari_ini_wib_tidak_ditolak_sebagai_masa_depan():
     pdc_engine.now_iso = lambda: FAKE_UTC
     pdc_engine.today_wib = lambda: WIB_TODAY
     with pytest.raises(Exception) as e:
-        asyncio.run(pdc_engine._receive_locked("org-sipro", {
+        aio.run(pdc_engine._receive_locked("org-sipro", {
             "kind": "cek", "amount": 1_000_000, "due_date": "2026-11-20", "received_date": WIB_TODAY,
             "deal_id": "tidak-ada-uji-waktu"}, "uji@x"))
     assert "masa depan" not in str(e.value), f"tanggal hari ini (WIB) ditolak: {e.value}"
