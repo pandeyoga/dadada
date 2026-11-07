@@ -19,6 +19,7 @@ export const P56 = {
   decideBtn: "cancellation-decide-button",
   decideDialog: "cancellation-decide-dialog",
   decideNote: "cancellation-decide-note",
+  costHold: "cancellation-cost-hold",
   decideApprove: "cancellation-decide-approve",
   decideReject: "cancellation-decide-reject",
   decisionSoD: "cancellation-decision-sod",

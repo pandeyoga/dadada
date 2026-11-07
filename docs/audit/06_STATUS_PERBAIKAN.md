@@ -117,6 +117,17 @@ Konteks: penelusuran pola menemukan celah yang sama di jalur yang belum disentuh
 | AZ-08 | ✔ | `re.escape(q)` di 10 pembangun `$regex`; `q=[` tidak lagi 500 | idem |
 | AZ-09 | ✔ | `/webhooks/web` dibatasi laju per IP (bawaan 60/10 menit, `WEB_FORM_RATE_MAX`) | idem |
 | AZ-10 | ✔ | OTP portal: maks 5 percobaan per kode (atomik), kode dikunci setelahnya; permintaan kode baru dibatasi per pembeli | idem |
+| PK3-08 | ✔ | `deal_cancel_cleanup.close_deal_dependents` dipakai KEDUA jalur batal (`deal_cancel.cancel` & `cancellation_engine.decide`): tugas aktif (deal/kontrak/KYC/lead) → `cancelled`; komisi & fee marketing belum disetujui → `cancelled`; KPR berjalan → `cancelled`/tahap `batal`; kupon dilepas; catatan pajak `pending` → `cancelled` (laporan pajak mengecualikannya, `PUT` ditolak). Idempoten. **Yang sudah disetujui/dibayar TIDAK dijurnal balik** — hanya diberi tanda `cancel_followup` + notifikasi + satu tugas ke Keuangan | `test_p0_siklus_deal.py` |
+| PK3-06 (lanjutan) | ✔ | Pembersihan otomatis catatan pajak saat deal batal kini ada (lihat PK3-08) | idem |
+| PK3-09 / FZ-04 | ✔ | Hapus-paksa deal: `pdc_cheques`→`pdc_instruments`; + komplain, klaim garansi, marketing fee (+ pembayaran & jurnalnya), faktur pajak, peristiwa konversi, tugas kontrak; bukti kas BKM/BKK ikut terhapus bersama jurnalnya; `customers.deal_id` dilepas; fee untuk deal yang tidak ada tidak bisa disetujui/dibayar | `test_p0_siklus_hapus.py` (pemindai yatim atas SEMUA koleksi) |
+| FZ-07 / PK3-11 | ✔ | Mutex per-deal `deal_money` dipegang penerimaan (`apply_receipt` dibungkus), void kuitansi, hapus kuitansi, dan hapus-paksa deal; hapus kuitansi memakai kunci yang sama dengan void, membaca ulang kuitansi di bawah kunci (kedua → 409/404, bukan membalik dua kali) dan tidak membalik alokasi kuitansi yang sudah void | idem |
+| PK3-12 | ✔ | Hapus kuitansi / void / hapus-paksa deal melepas pencocokan bank (mutasi kembali "belum cocok"); `unmatch` toleran bila kuitansinya sudah hilang/void (data warisan yang tersangkut) | idem |
+| PK3-13 | ✔ | Hapus lead/unit/proyek: deal batal dibuang lewat kaskade `delete_deal_cascade` (bukan `delete_many` mentah); bila deal batal punya jejak uang (kuitansi, titipan, jurnal, refund…) → diblokir "catatan keuangan deal batal" (hanya hapus-paksa yang menghapusnya) | idem |
+| PK3-14 | ✔ | Hapus proyek diblokir: mutasi stok, permintaan material, absensi/rekap upah, kas bon terbuka, kas kecil, aset tetap, klaim subkon, GRN, tagihan AP; BoQ & master material kosong ikut dihapus; hapus-paksa tidak menghapus stok/upah terutang | idem |
+| PK3-15 | ✔ | BAST batal mengembalikan unit ke status SEBELUM BAST (`prev_unit_status`, bukan selalu `sold`); BAST batal tak lagi memblokir pembatalan kontrak (field `state`, bukan `status`); pembatalan BAST di-CAS (paralel → satu 200) | `test_p0_siklus_deal.py` |
+| PK3-07 | ✔ | Pengingat WA hanya untuk invoice `unpaid`/`partial` dan item bukan `cancelled`, tidak untuk deal batal; "kirim pengingat penagihan" manual ditolak untuk tagihan batal/lunas | idem |
+| PK3-19 | ✔ | Lead tidak bisa ditandai `lost`/`recycle` selagi punya deal `reserved`/`booked`/`completed` (batalkan dulu) | idem |
+| FN-03 | ◐ | Sisi aman: pratinjau/pengajuan/penyelesaian pembatalan memuat `cost_holds` (saldo titipan biaya 2-1470 + invoice biaya terbuka); **persetujuan diblokir** selama ada, kecuali `acknowledge_costs=true` + `cost_note` ≥ 10 huruf (dicatat di keputusan & audit). Perlakuan akuntansinya (kembalikan/salurkan/void invoice) ⚖ **menunggu keputusan pemilik**; tidak ada jurnal baru | idem |
 
 Perubahan perilaku yang akan terlihat pemakai:
 - Persetujuan transfer/pembayaran dari rekening yang saldonya sudah berkurang kini ditolak dengan pesan "Saldo … tidak cukup" **pada saat disetujui**.
@@ -127,6 +138,9 @@ Perubahan perilaku yang akan terlihat pemakai:
 - Penambahan pengguna dengan peran Super Admin kini hanya bisa oleh Super Admin.
 - Data milik organisasi lain kini dijawab 404 di semua layar/API. Sales hanya melihat KPR dari deal miliknya.
 - Pemilih "tambah bank/jenis izin baru" hanya berhasil untuk peran dengan izin `settings:manage` (peran lain memakai nilai itu hanya pada formulir yang sedang diisi).
+- Pembatalan kontrak/reservasi kini menutup tugas, komisi/fee yang belum disetujui, KPR, kupon, dan pajak `pending`; komisi/fee/pajak yang sudah disetujui atau dibayar tetap (ditandai & dikirim ke Keuangan sebagai tugas). Pembatalan kontrak yang masih punya titipan biaya/invoice biaya terbuka butuh pengakuan penyetuju.
+- Hapus-paksa deal sekarang juga menghapus giro, komplain, klaim garansi, fee marketing, faktur pajak, bukti kas; penerimaan/void/hapus yang bersamaan pada deal yang sama kini ANTRE (maks. 15 dtk, lalu 409). Menghapus kuitansi yang sama dua kali → yang kedua 404/409.
+- Hapus lead/unit/proyek yang punya deal batal berjejak uang kini ditolak; hapus proyek ditolak bila masih ada stok/permintaan material/absensi/kas bon/aset. Lead yang punya deal aktif tidak bisa ditandai Hilang/Daur Ulang.
 - Berkas HTML/SVG yang diunggah kini diunduh, bukan dibuka di peramban. Kode OTP portal terkunci setelah 5 salah. Formulir web publik dibatasi 60 kiriman/10 menit per IP (naikkan lewat env bila di belakang proxy dengan lonjakan sah).
 
 Risiko/catatan baru: status sementara `posting` pada transfer bisa tertinggal bila proses mati tepat di tengah (jurnalnya idempoten, jadi aman dicoba ulang oleh admin setelah status dipulihkan);
