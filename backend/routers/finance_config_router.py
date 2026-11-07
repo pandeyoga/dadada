@@ -44,8 +44,12 @@ async def get_tax(user: dict = Depends(require_permission("finance", "view"))):
 async def put_tax(payload: TaxConfigUpdate,
                   user: dict = Depends(require_permission("finance", "update"))):
     org = user.get("org_id", ORG_ID)
-    doc = await fe.set_finance_config(org, payload.ppn_rate, payload.bphtb_rate,
-                                      payload.pph_rate, payload.npoptkp)
+    import cost_master_rules as cmr
+    try:   # FN-12c: tarif 0–100% & NPOPTKP ≥ 0 (dulu ppn −5, bphtb 500, npoptkp −1 tersimpan)
+        rates = cmr.clean_tax_config(payload.ppn_rate, payload.bphtb_rate, payload.pph_rate, payload.npoptkp)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    doc = await fe.set_finance_config(org, *rates)
     return {"data": serialize_doc(doc)}
 
 
