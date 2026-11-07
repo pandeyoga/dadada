@@ -94,7 +94,8 @@ async def _close_tasks_and_rewind_lead(org: str, deal: dict, actor: str, ts: str
     """Tugas terkait deal ditutup; lead yang tadinya `booking` mundur ke nurturing bila tak ada deal hidup."""
     await db.tasks.update_many(
         {"org_id": org, "related_entity_type": "deal", "related_entity_id": deal["id"],
-         "status": {"$nin": ["done", "cancelled"]}},
+         "status": {"$nin": ["done", "cancelled"]},
+         "source_event": {"$not": {"$regex": "^deal\\.cancel_followup:"}}},   # tugas tindak lanjut Keuangan (PK3-08) tetap hidup
         {"$set": {"status": "cancelled", "outcome": outcome, "updated_at": ts}})
     lead = await db.leads.find_one({"id": deal.get("lead_id"), "org_id": org}, {"_id": 0})
     if lead and lead.get("stage") == "booking":
