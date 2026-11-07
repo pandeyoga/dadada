@@ -7,6 +7,7 @@ import stage_clock as clock
 from core_utils import normalize_phone_e164
 from denorm import cascade_master_change
 from db import db, ORG_ID
+from idempotency import cas as idem_cas, mutex
 from core_utils import new_id, now_iso, serialize_doc, parse_pagination, due_in, now
 from rbac import require_permission, scope_query, is_scoped_sales, can, FULL_ACCESS_ROLES
 from org_scope import get_in_org
@@ -507,6 +508,13 @@ APPT_SORTS = {"scheduled_at": "scheduled_at", "title": "title", "type": "type",
               "assigned_to": "assigned_to", "created_at": "created_at"}
 APPT_TYPES = list(ref.values("appointment_type"))
 APPT_KINDS = list(ref.values("agenda_kind"))
+# PK3-23: tabel transisi status agenda/janji temu. `done`/`cancelled` final; `no_show` boleh dijadwal ulang.
+APPT_TRANSITIONS = {
+    "scheduled": ("done", "cancelled", "no_show"),
+    "no_show": ("scheduled", "cancelled"),
+    "done": (),
+    "cancelled": (),
+}
 
 
 def _appt_scope(user: dict, base: dict) -> dict:
@@ -608,6 +616,21 @@ async def create_appointment(payload: AppointmentCreate,
                 "Agenda yang menyebut lead hanya boleh dibuat pemakai yang berhak melihat "
                 "lead. Untuk rapat internal, kosongkan pilihan lead."))
         lead = await _get_lead_scoped(payload.lead_id, user)
+        # PK3-23: agenda lead identik (lead + waktu sama) dibuat SEKALI — klik ganda/dua tab tidak melahirkan
+        # tiga janji temu (dan tiga tugas survei). Kunci per (lead, waktu) menyerialkan cek-lalu-tulis.
+        async with mutex(f"appt.create:{org}:{payload.lead_id}:{payload.scheduled_at}",
+                         what="Pembuatan agenda untuk lead dan waktu ini"):
+            if await db.appointments.find_one({
+                    "org_id": org, "lead_id": payload.lead_id, "scheduled_at": payload.scheduled_at,
+                    "status": {"$in": ["scheduled", "no_show"]}}, {"_id": 0, "id": 1}):
+                raise HTTPException(status_code=409, detail=(
+                    "Agenda untuk lead ini pada waktu yang sama sudah ada. Ubah jadwal agenda yang ada "
+                    "atau pilih waktu lain."))
+            return await _create_appointment(payload, user, org, ts, internal, lead)
+    return await _create_appointment(payload, user, org, ts, internal, lead)
+
+
+async def _create_appointment(payload, user: dict, org: str, ts: str, internal: bool, lead: dict):
     appt = {
         "id": new_id(), "org_id": org, "lead_id": payload.lead_id, "title": payload.title,
         "lead_name": (lead or {}).get("name"),
@@ -683,7 +706,15 @@ async def update_appointment(appt_id: str, payload: AppointmentUpdate,
 async def appointment_status(appt_id: str, payload: AppointmentStatus,
                              user: dict = Depends(require_permission("appointments", "update"))):
     appt = await _get_appt_scoped(appt_id, user)
-    await db.appointments.update_one({"id": appt_id, "org_id": appt["org_id"]},
-                                     {"$set": {"status": payload.status, "updated_at": now_iso()}})
+    cur = appt.get("status")
+    if payload.status == cur:
+        raise HTTPException(status_code=400, detail=f"Agenda sudah berstatus '{cur}'.")
+    if payload.status not in APPT_TRANSITIONS.get(cur, ()):
+        raise HTTPException(status_code=400, detail=(
+            f"Status agenda tidak bisa diubah dari '{cur}' ke '{payload.status}' — agenda yang sudah "
+            "selesai/dibatalkan adalah catatan sejarah; buat agenda baru bila jadwalnya diulang."))
+    # PK3-23: CAS atas status yang dibaca (selesai ‖ batal → satu pemenang, 409 untuk yang kalah).
+    await idem_cas("appointments", {"id": appt_id, "org_id": appt["org_id"]}, {"status": cur},
+                   {"$set": {"status": payload.status, "updated_at": now_iso()}}, what="Agenda")
     fresh = await db.appointments.find_one({"id": appt_id, "org_id": appt["org_id"]}, {"_id": 0})
     return {"data": serialize_doc(fresh)}

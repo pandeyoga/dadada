@@ -34,12 +34,21 @@ import settings_store as cfg
 from core_utils import new_id, now_iso, today_wib
 from db import ORG_ID, db
 from engine import add_activity, create_notification, emit
-from idempotency import reserved
+from idempotency import reserved, transition
 from reference_p47 import (ATTENDANCE_DAY_FACTOR, ATTENDANCE_LABEL, GL_BANK, GL_WIP,
                           LABOR_ROLE_LABEL, PAYROLL_LABEL)
 
 logger = logging.getLogger("sipro.labor")
 LOCKED_PAYROLL = ("submitted", "approved", "paid")
+# PK3-18: tabel transisi status rekap upah. `paying` = status sementara saat jurnal pembayaran diposting.
+PAYROLL_TRANSITIONS = {
+    "draft": ("submitted",),
+    "submitted": ("approved", "rejected"),
+    "approved": ("paying",),
+    "paying": ("paid", "approved"),
+    "paid": (),
+    "rejected": (),
+}
 
 
 # ============================================================ master tenaga kerja
@@ -324,21 +333,27 @@ async def payroll_or_error(org: str, payroll_id: str) -> dict:
 
 
 async def _advance(org: str, payroll_id: str, actor: str, *, state: str, action: str,
-                   reason: str = None, extra: dict = None) -> dict:
+                   reason: str = None, extra: dict = None, expect: str = None) -> dict:
+    """Pindah status rekap. Dengan `expect`, perpindahan bersyarat (CAS) atas status asal itu — yang kalah
+    balapan mendapat Conflict (409) dan TIDAK menambah riwayat/efek apa pun."""
     ts = now_iso()
-    await db.labor_payrolls.update_one({"id": payroll_id}, {
-        "$set": {"state": state, "state_label": PAYROLL_LABEL[state], "updated_at": ts,
-                 **(extra or {})},
-        "$push": {"history": {"at": ts, "by": actor, "action": action, "state": state,
-                              "reason": reason}}})
+    update = {"$set": {"state": state, "state_label": PAYROLL_LABEL[state], "updated_at": ts,
+                       **(extra or {})},
+              "$push": {"history": {"at": ts, "by": actor, "action": action, "state": state,
+                                    "reason": reason}}}
+    if expect:
+        return await transition("labor_payrolls", {"id": payroll_id, "org_id": org}, {"state": expect},
+                                update, what="Rekap upah")
+    await db.labor_payrolls.update_one({"id": payroll_id}, update)
     return await payroll_or_error(org, payroll_id)
 
 
 async def submit_payroll(org: str, payroll_id: str, actor: str) -> dict:
     p = await payroll_or_error(org, payroll_id)
-    if p["state"] != "draft":
+    if "submitted" not in PAYROLL_TRANSITIONS.get(p["state"], ()):
         raise ValueError(f"Rekap ini sudah {p.get('state_label')}.")
-    out = await _advance(org, payroll_id, actor, state="submitted", action="submit",
+    # PK3-18: diajukan ×3 serentak dulu melahirkan 3 notifikasi Keuangan; kini satu pemenang, sisanya 409.
+    out = await _advance(org, payroll_id, actor, state="submitted", action="submit", expect="draft",
                          extra={"submitted_by": actor, "submitted_at": now_iso()})
     import finance_engine as fin
     await fin.notify_finance(
@@ -357,7 +372,9 @@ async def decide_payroll(org: str, payroll_id: str, actor: str, approve: bool,
         raise ValueError("Penolakan wajib beralasan (minimal 5 huruf) — mandor perlu tahu "
                          "apa yang harus diperbaiki.")
     state = "approved" if approve else "rejected"
-    out = await _advance(org, payroll_id, actor, state=state,
+    # PK3-18: setuju ‖ tolak = satu pemenang (CAS atas `submitted`); dulu keduanya 200 dan akhirnya `rejected`
+    # sementara persetujuan sudah tercatat.
+    out = await _advance(org, payroll_id, actor, state=state, expect="submitted",
                          action=("approve" if approve else "reject"), reason=reason,
                          extra={"approved_by": actor, "approved_at": now_iso(),
                                 "decision_reason": (reason or "").strip() or None})

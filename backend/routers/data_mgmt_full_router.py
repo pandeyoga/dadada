@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+from idempotency import Conflict
 from rbac import audit_log
 from routers.data_mgmt_router import require_data_admin, _org, _read_upload, XLSX
 from data_mgmt_full_schema import list_collections, GROUP_LABELS
@@ -124,6 +125,8 @@ async def commit_session(sid: str, body: CommitRequest, user: dict = Depends(req
                                body.skip_errors, user)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "import_all", "data_mgmt", entity_id=sid,

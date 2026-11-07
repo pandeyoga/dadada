@@ -9,7 +9,9 @@ Phase 18 menambah:
     saat pemakaian (out kumulatif) melampaui RAB -> flag `over_budget` + tugas urgent
     + notifikasi ke PM (idempotent) + event `material.overbudget`.
 """
-from idempotency import mutex
+from contextlib import AsyncExitStack
+
+from idempotency import Conflict, mutex, reserved, transition
 from fastapi import APIRouter, Depends, HTTPException
 
 import sequences as seq
@@ -26,12 +28,34 @@ from models import (MaterialCreate, MaterialTxn, OpnameCreate,
 router = APIRouter(prefix="/materials", tags=["materials"])
 REQ_OPEN = ("submitted", "approved", "partially_issued")
 REQ_STATUS = ("submitted", "approved", "partially_issued", "issued", "rejected")
+# PK3-18: tabel transisi status permintaan material. `issuing` = status SEMENTARA saat stok sedang
+# dikeluarkan (klaim atomik; tidak bisa disetujui/ditolak/dikeluarkan lagi oleh proses lain).
+REQ_TRANSITIONS = {
+    "submitted": ("approved", "rejected"),
+    "approved": ("issuing", "rejected"),
+    "partially_issued": ("issuing",),
+    "issuing": ("partially_issued", "issued"),
+    "issued": (),
+    "rejected": (),
+}
+REQ_WHAT = "Permintaan material"
+
+
+def _assert_req_move(req: dict, to: str, msg: str) -> None:
+    if req.get("status") == "issuing":
+        raise Conflict("Permintaan material ini sedang diproses (stok sedang dikeluarkan). "
+                       "Muat ulang sebentar lagi.")
+    if to not in REQ_TRANSITIONS.get(req.get("status"), ()):
+        raise HTTPException(status_code=400, detail=msg)
 
 
 # ------------------------------ helpers ------------------------------
 async def _consumed_qty(project_id: str, material_id: str, org: str) -> float:
+    # PG-21: transfer antar proyek & retur ke vendor memang `out` di buku stok, tetapi BUKAN pemakaian
+    # (barangnya tidak terpasang di proyek ini) — tidak boleh menggembungkan "pemakaian vs RAB".
     txns = await db.material_txns.find(
-        {"org_id": org, "project_id": project_id, "material_id": material_id, "type": "out"},
+        {"org_id": org, "project_id": project_id, "material_id": material_id, "type": "out",
+         "transfer_id": None, "return_id": None},
         {"_id": 0, "qty": 1}).to_list(5000)
     return round(sum(t.get("qty", 0) for t in txns), 2)
 
@@ -88,6 +112,10 @@ async def list_materials(project_id: str, user: dict = Depends(require_permissio
     mats = await db.materials.find({"org_id": org, "project_id": project_id}, {"_id": 0}).sort("code", 1).to_list(500)
     for m in mats:
         m["stock"] = await material_book_stock(project_id, m["id"], org)
+        # PG-21: angka tersimpan (`consumed_qty`/`over_budget`) bisa basi — hitung ulang dari buku stok,
+        # supaya daftar material dan layar anggaran (/budget) menampilkan angka yang SAMA.
+        m["consumed_qty"] = await _consumed_qty(project_id, m["id"], org)
+        m["over_budget"] = float(m.get("budget_qty") or 0) > 0 and m["consumed_qty"] > float(m["budget_qty"])
         last = await db.material_txns.find_one(
             {"org_id": org, "project_id": project_id, "material_id": m["id"], "type": "adjust"},
             {"_id": 0}, sort=[("created_at", -1)])
@@ -320,11 +348,13 @@ async def get_requisition(rid: str, user: dict = Depends(require_permission("mat
 async def approve_requisition(rid: str, user: dict = Depends(require_permission("materials", "approve"))):
     org = user.get("org_id", ORG_ID)
     req = await _get_req(org, rid, user)
-    if req.get("status") != "submitted":
-        raise HTTPException(status_code=400, detail="Hanya permintaan berstatus 'diajukan' yang bisa disetujui.")
+    _assert_req_move(req, "approved", "Hanya permintaan berstatus 'diajukan' yang bisa disetujui.")
     ts = now_iso()
-    await db.material_requisitions.update_one({"id": rid, "org_id": org}, {"$set": {
-        "status": "approved", "approved_by": user.get("email"), "approved_at": ts, "updated_at": ts}})
+    # PK3-18: transisi submitted → approved atomik; setuju ×2 atau setuju ‖ tolak = satu pemenang, yang
+    # kalah mendapat 409 (dulu keduanya 200: dua notifikasi, `approved_by` dan `rejected_by` sama-sama terisi).
+    await transition("material_requisitions", {"id": rid, "org_id": org}, {"status": req["status"]},
+                     {"$set": {"status": "approved", "approved_by": user.get("email"),
+                               "approved_at": ts, "updated_at": ts}}, what=REQ_WHAT)
     await create_notification(user_email=req.get("requested_by"), title="Permintaan material disetujui",
                               body=f"{req.get('req_number')} disetujui, siap dikeluarkan.", type="material",
                               related_entity_type="project", related_entity_id=req["project_id"], org_id=org)
@@ -336,13 +366,14 @@ async def reject_requisition(rid: str, payload: RequisitionIssue,
                              user: dict = Depends(require_permission("materials", "approve"))):
     org = user.get("org_id", ORG_ID)
     req = await _get_req(org, rid, user)
-    if req.get("status") not in ("submitted", "approved"):
-        raise HTTPException(status_code=400, detail="Permintaan ini tidak bisa ditolak.")
+    _assert_req_move(req, "rejected", "Permintaan ini tidak bisa ditolak.")
     ts = now_iso()
     setter = {"status": "rejected", "rejected_by": user.get("email"), "rejected_at": ts, "updated_at": ts}
     if payload.note:
         setter["note"] = ((req.get("note") or "") + f"\n[tolak {today_wib()}] {payload.note}").strip()
-    await db.material_requisitions.update_one({"id": rid, "org_id": org}, {"$set": setter})
+    # PK3-18: hanya bila statusnya MASIH yang tadi dibaca (setuju/keluarkan yang lebih dulu menang → 409).
+    await transition("material_requisitions", {"id": rid, "org_id": org}, {"status": req["status"]},
+                     {"$set": setter}, what=REQ_WHAT)
     return {"data": serialize_doc(await db.material_requisitions.find_one({"id": rid, "org_id": org}, {"_id": 0}))}
 
 
@@ -351,39 +382,57 @@ async def issue_requisition(rid: str, payload: RequisitionIssue,
                             user: dict = Depends(require_permission("materials", "update"))):
     org = user.get("org_id", ORG_ID)
     req = await _get_req(org, rid, user)
-    if req.get("status") not in ("approved", "partially_issued"):
-        raise HTTPException(status_code=400, detail="Hanya permintaan disetujui yang bisa dikeluarkan.")
+    _assert_req_move(req, "issuing", "Hanya permintaan disetujui yang bisa dikeluarkan.")
     override = {i.material_id: float(i.qty) for i in (payload.items or [])}
     ts = now_iso()
     items = req["items"]
-    affected, issued_any = set(), False
-    for it in items:
-        remaining = round(float(it["qty_requested"]) - float(it.get("qty_issued", 0)), 2)
-        if remaining <= 0:
-            continue
-        qty = override.get(it["material_id"], remaining) if override else remaining
-        qty = round(min(qty, remaining), 2)
-        if qty <= 0:
-            continue
-        stock = await material_book_stock(req["project_id"], it["material_id"], org)
-        if qty > stock:
-            raise HTTPException(status_code=400,
-                                detail=f"Stok {it['name']} tidak cukup (tersedia {stock} {it['uom']})")
-        await db.material_txns.insert_one({
-            "id": new_id(), "org_id": org, "project_id": req["project_id"], "material_id": it["material_id"],
-            "type": "out", "qty": qty, "note": (payload.note or f"Pengeluaran {req['req_number']}"),
-            "ref": req["req_number"], "requisition_id": rid, "phase_id": req.get("phase_id"),
-            "task_id": req.get("task_id"), "actor": user.get("email"), "created_at": ts})
-        it["qty_issued"] = round(float(it.get("qty_issued", 0)) + qty, 2)
-        affected.add(it["material_id"])
-        issued_any = True
-    if not issued_any:
-        raise HTTPException(status_code=400, detail="Tidak ada item yang bisa dikeluarkan.")
-    fully = all(float(it.get("qty_issued", 0)) >= float(it["qty_requested"]) for it in items)
-    new_status = "issued" if fully else "partially_issued"
-    await db.material_requisitions.update_one({"id": rid, "org_id": org}, {"$set": {
-        "items": items, "status": new_status, "issued_by": user.get("email"),
-        "issued_at": ts, "updated_at": ts}})
+    # PK3-18/PG-04: klaim atomik approved|partially_issued → issuing SEBELUM stok disentuh. Keluarkan ×2
+    # serentak (stok −300) atau keluarkan ‖ tolak (`issued` + `rejected_by`) kini menyisakan satu pemenang.
+    prior = {"status": req["status"], "updated_at": req.get("updated_at")}
+    async with reserved("material_requisitions", {"id": rid, "org_id": org}, prior,
+                        {"$set": {"status": "issuing", "updated_at": ts}},
+                        undo={"$set": {"status": req["status"], "updated_at": req.get("updated_at")}},
+                        what=REQ_WHAT):
+        # Kunci stok per material (urut tetap supaya dua permintaan tidak saling menunggu): cek-lalu-tulis
+        # stok sama-sama diserialkan dengan txn manual, opname, transfer, dan retur.
+        async with AsyncExitStack() as stack:
+            for mid in sorted({it["material_id"] for it in items}):
+                await stack.enter_async_context(mutex(
+                    f"stock:{org}:{req['project_id']}:{mid}", what="Stok material ini"))
+            # Tahap 1: validasi SEMUA baris (tidak ada `out` setengah jadi bila baris ke-2 ditolak).
+            plan = []
+            for it in items:
+                remaining = round(float(it["qty_requested"]) - float(it.get("qty_issued", 0)), 2)
+                if remaining <= 0:
+                    continue
+                qty = override.get(it["material_id"], remaining) if override else remaining
+                qty = round(min(qty, remaining), 2)
+                if qty <= 0:
+                    continue
+                stock = await material_book_stock(req["project_id"], it["material_id"], org)
+                if qty > stock:
+                    raise HTTPException(status_code=400,
+                                        detail=f"Stok {it['name']} tidak cukup (tersedia {stock} {it['uom']})")
+                plan.append((it, qty))
+            if not plan:
+                raise HTTPException(status_code=400, detail="Tidak ada item yang bisa dikeluarkan.")
+            # Tahap 2: tulis.
+            affected = set()
+            for it, qty in plan:
+                await db.material_txns.insert_one({
+                    "id": new_id(), "org_id": org, "project_id": req["project_id"],
+                    "material_id": it["material_id"],
+                    "type": "out", "qty": qty, "note": (payload.note or f"Pengeluaran {req['req_number']}"),
+                    "ref": req["req_number"], "requisition_id": rid, "phase_id": req.get("phase_id"),
+                    "task_id": req.get("task_id"), "actor": user.get("email"), "created_at": ts})
+                it["qty_issued"] = round(float(it.get("qty_issued", 0)) + qty, 2)
+                affected.add(it["material_id"])
+            fully = all(float(it.get("qty_issued", 0)) >= float(it["qty_requested"]) for it in items)
+            new_status = "issued" if fully else "partially_issued"
+            await db.material_requisitions.update_one(
+                {"id": rid, "org_id": org, "status": "issuing"}, {"$set": {
+                    "items": items, "status": new_status, "issued_by": user.get("email"),
+                    "issued_at": ts, "updated_at": ts}})
     alerts = 0
     for mid in affected:
         if await _check_material_budget(req["project_id"], mid, org, user.get("email")):

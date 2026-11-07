@@ -18,6 +18,7 @@ import build_monitor as bm
 import reference as ref
 from core_utils import new_id, now_iso, parse_pagination, serialize_doc
 from db import db, ORG_ID
+from idempotency import Conflict
 from models_p31 import (BuildTemplateClone, BuildTemplateIn, ItemDelayCause, ItemOverride,
                         ItemReject, ItemSubmit, ItemVerify, ScheduleGenerate, ScheduleHold)
 from rbac import has_role, assert_project_access, audit_log, require_permission, can as rbac_can
@@ -457,6 +458,8 @@ async def submit_item(item_id: str, payload: ItemSubmit,
     item, sched = await _get_item(item_id, user)
     try:
         out = await ba.submit_item(_org(user), item, sched, payload, user)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"data": serialize_doc(out["item"]), "warning": out.get("warning"),
@@ -475,6 +478,8 @@ async def verify_item(item_id: str, payload: ItemVerify,
         out = await ba.verify_item(_org(user), item, sched, payload.note, user)
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"data": serialize_doc(out["item"]), "schedule": serialize_doc(out["schedule"]),
@@ -488,6 +493,8 @@ async def reject_item(item_id: str, payload: ItemReject,
     try:
         return {"data": serialize_doc(await ba.reject_item(_org(user), item, payload.reason,
                                                            user))}
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -503,6 +510,8 @@ async def override_item(item_id: str, payload: ItemOverride,
                                                              payload.note, user)),
                 "message": ("Gerbang diterobos — dicatat pada jejak audit dan dilaporkan "
                             "ke direksi.")}
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

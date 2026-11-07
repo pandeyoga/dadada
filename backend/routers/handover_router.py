@@ -29,6 +29,7 @@ from models_p50 import (HandoverCancel, HandoverIssue, WarrantyClaimClose,
                         WarrantyClaimComplete, WarrantyClaimCreate, WarrantyClaimDecision,
                         WarrantyClaimVerify)
 import offline_intake as oi
+from idempotency import Conflict
 from rbac import audit_log, can, require_permission
 
 logger = logging.getLogger("sipro.handover")
@@ -229,6 +230,8 @@ async def decide(cid: str, payload: WarrantyClaimDecision,
         doc = await we.decide(_org(user), cid, accept=payload.accept, actor=user.get("email"),
                               reason=payload.reason, reject_reason=payload.reject_reason,
                               assigned_to=payload.assigned_to, due_date=payload.due_date)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "update", "warranty_claim", cid,
@@ -255,6 +258,9 @@ async def complete(cid: str, payload: WarrantyClaimComplete,
     try:
         doc = await we.complete(org, cid, actor=user.get("email"),
                                 photo_file_ids=payload.photo_file_ids, note=payload.note)
+    except Conflict:
+        await oi.rollback(org, "warranty_fix", payload.client_ref)
+        raise
     except ValueError as e:
         await oi.rollback(org, "warranty_fix", payload.client_ref)
         raise HTTPException(status_code=400, detail=str(e))
@@ -272,6 +278,8 @@ async def verify(cid: str, payload: WarrantyClaimVerify,
     try:
         doc = await we.verify(_org(user), cid, actor=user.get("email"), passed=payload.passed,
                               note=payload.note, reason=payload.reason)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "approve", "warranty_claim", cid, {"passed": payload.passed})
@@ -287,6 +295,8 @@ async def close(cid: str, payload: WarrantyClaimClose,
     try:
         doc = await we.close(_org(user), cid, actor=user.get("email"), ack_by=payload.ack_by,
                              ack_note=payload.ack_note)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "update", "warranty_claim", cid, {"action": "close"})

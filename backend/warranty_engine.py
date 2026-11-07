@@ -30,12 +30,24 @@ import settings_store as st
 from core_utils import due_in, new_id, now_iso
 from db import db, ORG_ID
 from engine import auto_create_task
+from idempotency import reserved, transition
 
 logger = logging.getLogger("sipro.warranty")
 
 SUBMITTED, REJECTED, IN_PROGRESS = "diajukan", "ditolak", "dikerjakan"
 DONE, VERIFIED, CLOSED = "selesai", "diverifikasi", "ditutup"
 OPEN_STATES = (SUBMITTED, IN_PROGRESS, DONE, VERIFIED)
+# PK3-18: tabel transisi status klaim. Setiap perubahan memakai CAS atas status asal — terima ×3 tidak lagi
+# melahirkan 3 punch item, terima ‖ tolak tidak lagi menghasilkan status campur.
+TRANSITIONS = {
+    SUBMITTED: (IN_PROGRESS, REJECTED),
+    IN_PROGRESS: (DONE,),
+    DONE: (VERIFIED, IN_PROGRESS),
+    VERIFIED: (CLOSED,),
+    REJECTED: (),
+    CLOSED: (),
+}
+WHAT = "Klaim garansi"
 
 
 def _label(state: str) -> str:
@@ -156,41 +168,53 @@ async def decide(org: str, cid: str, *, accept: bool, actor: str, reason: str = 
             raise ValueError("Alasan penolakan minimal 10 huruf — pembeli berhak tahu dasarnya.")
         if not reject_reason:
             raise ValueError("Pilih sebab penolakan dari kamus data (mis. di luar lingkup).")
-        await db.warranty_claims.update_one({"id": cid, "org_id": org}, {"$set": {
+        await transition("warranty_claims", {"id": cid, "org_id": org}, {"state": SUBMITTED}, {"$set": {
             "state": REJECTED, "state_label": _label(REJECTED),
             "reject_reason": reject_reason, "reject_detail": reason.strip(),
             "decided_by": actor, "decided_at": ts, "decision_reason": reason.strip(),
-            "updated_at": ts}})
+            "updated_at": ts}}, what=WHAT)
         return await _claim(org, cid)
 
     assignee = assigned_to or await _pm_of(org, doc.get("project_id"))
     due = due_date or due_in(days=int(await st.get("warranty.fix_days", org_id=org) or 7))
     pid = new_id()
-    await db.punch_items.insert_one({
-        "id": pid, "org_id": org, "project_id": doc.get("project_id"),
-        "project_name": doc.get("project_name"), "unit_id": doc.get("unit_id"),
-        "title": f"[Garansi {doc['number']}] {doc['title']}",
-        "description": (doc.get("description")
-                        or f"Klaim garansi {doc['category_label']} dari pembeli."),
-        "location": None, "category": "lainnya", "severity": "high", "status": "open",
-        "assigned_to": assignee, "due_date": due,
-        "photo": (doc.get("photos") or [None])[0], "photos": doc.get("photos") or [],
-        "fix_photos": [], "source": "warranty_claim", "warranty_claim_id": cid,
-        "opened_by": actor, "closed_at": None, "created_at": ts, "updated_at": ts,
-    })
-    await auto_create_task(
-        source_event=f"warranty.fix:{cid}",
-        title=f"Perbaikan garansi {doc['number']} — {doc.get('unit_code')}",
-        jobdesk_code="TK-03", type="task",
-        related_entity_type="punch_item", related_entity_id=pid,
-        assigned_to=assignee, due_date=due, sla_due_at=due,
-        priority="urgent", org_id=org,
-        description=(reason or doc.get("description") or doc["title"]))
-    await db.warranty_claims.update_one({"id": cid, "org_id": org}, {"$set": {
-        "state": IN_PROGRESS, "state_label": _label(IN_PROGRESS), "punch_id": pid,
-        "assigned_to": assignee, "decided_by": actor, "decided_at": ts,
-        "decision_reason": (reason or "").strip() or None, "fix_due_date": due,
-        "updated_at": ts}})
+    # PK3-18: klaim diklaim atomik (diajukan → dikerjakan) SEBELUM punch item/tugas lahir; terima ×3 dulu
+    # melahirkan 3 punch item dan 2 tugas. Bila pembuatan pekerjaan gagal, status dikembalikan ke "diajukan".
+    async with reserved("warranty_claims", {"id": cid, "org_id": org}, {"state": SUBMITTED}, {"$set": {
+            "state": IN_PROGRESS, "state_label": _label(IN_PROGRESS), "assigned_to": assignee,
+            "decided_by": actor, "decided_at": ts,
+            "decision_reason": (reason or "").strip() or None, "fix_due_date": due,
+            "updated_at": ts}},
+            undo={"$set": {"state": SUBMITTED, "state_label": _label(SUBMITTED), "assigned_to": None,
+                           "decided_by": None, "decided_at": None, "decision_reason": None,
+                           "fix_due_date": None}}, what=WHAT):
+        await db.punch_items.insert_one({
+            "id": pid, "org_id": org, "project_id": doc.get("project_id"),
+            "project_name": doc.get("project_name"), "unit_id": doc.get("unit_id"),
+            "title": f"[Garansi {doc['number']}] {doc['title']}",
+            "description": (doc.get("description")
+                            or f"Klaim garansi {doc['category_label']} dari pembeli."),
+            "location": None, "category": "lainnya", "severity": "high", "status": "open",
+            "assigned_to": assignee, "due_date": due,
+            "photo": (doc.get("photos") or [None])[0], "photos": doc.get("photos") or [],
+            "fix_photos": [], "source": "warranty_claim", "warranty_claim_id": cid,
+            "opened_by": actor, "closed_at": None, "created_at": ts, "updated_at": ts,
+        })
+        try:
+            await auto_create_task(
+                source_event=f"warranty.fix:{cid}",
+                title=f"Perbaikan garansi {doc['number']} — {doc.get('unit_code')}",
+                jobdesk_code="TK-03", type="task",
+                related_entity_type="punch_item", related_entity_id=pid,
+                assigned_to=assignee, due_date=due, sla_due_at=due,
+                priority="urgent", org_id=org,
+                description=(reason or doc.get("description") or doc["title"]))
+            await db.warranty_claims.update_one({"id": cid, "org_id": org}, {"$set": {"punch_id": pid}})
+        except BaseException:
+            # klaim dikembalikan ke "diajukan" oleh `reserved`; punch item yang sudah lahir ikut dibuang
+            # supaya percobaan ulang tidak menghasilkan punch kedua.
+            await db.punch_items.delete_one({"id": pid, "org_id": org})
+            raise
     logger.info("klaim garansi %s diterima, punch %s dibuat untuk %s", doc["number"], pid,
                 assignee)
     return await _claim(org, cid)
@@ -208,10 +232,10 @@ async def complete(org: str, cid: str, *, actor: str, photo_file_ids: list,
         raise ValueError("Bukti foto perbaikan wajib — klaim garansi tidak bisa dinyatakan "
                          "selesai hanya dengan catatan.")
     ts = now_iso()
-    await db.warranty_claims.update_one({"id": cid, "org_id": org}, {"$set": {
+    await transition("warranty_claims", {"id": cid, "org_id": org}, {"state": IN_PROGRESS}, {"$set": {
         "state": DONE, "state_label": _label(DONE), "fix_photos": photos,
         "fix_note": (note or "").strip() or None, "completed_by": actor, "completed_at": ts,
-        "updated_at": ts}})
+        "updated_at": ts}}, what=WHAT)
     if doc.get("punch_id"):
         await db.punch_items.update_one({"id": doc["punch_id"], "org_id": org}, {"$set": {
             "status": "in_progress", "fix_photos": photos, "updated_at": ts}})
@@ -232,10 +256,10 @@ async def verify(org: str, cid: str, *, actor: str, passed: bool = True, note: s
     if not passed:
         if len((reason or "").strip()) < 10:
             raise ValueError("Alasan perbaikan dikembalikan minimal 10 huruf.")
-        await db.warranty_claims.update_one({"id": cid, "org_id": org}, {"$set": {
+        await transition("warranty_claims", {"id": cid, "org_id": org}, {"state": DONE}, {"$set": {
             "state": IN_PROGRESS, "state_label": _label(IN_PROGRESS),
             "verify_note": reason.strip(), "verified_by": None, "verified_at": None,
-            "completed_by": None, "completed_at": None, "updated_at": ts}})
+            "completed_by": None, "completed_at": None, "updated_at": ts}}, what=WHAT)
         await auto_create_task(
             source_event=f"warranty.rework:{cid}:{ts}",
             title=f"Perbaikan garansi {doc['number']} dikembalikan — {doc.get('unit_code')}",
@@ -244,9 +268,9 @@ async def verify(org: str, cid: str, *, actor: str, passed: bool = True, note: s
             assigned_to=doc.get("assigned_to"), priority="urgent", org_id=org,
             description=reason.strip())
         return await _claim(org, cid)
-    await db.warranty_claims.update_one({"id": cid, "org_id": org}, {"$set": {
+    await transition("warranty_claims", {"id": cid, "org_id": org}, {"state": DONE}, {"$set": {
         "state": VERIFIED, "state_label": _label(VERIFIED), "verified_by": actor,
-        "verified_at": ts, "verify_note": (note or "").strip() or None, "updated_at": ts}})
+        "verified_at": ts, "verify_note": (note or "").strip() or None, "updated_at": ts}}, what=WHAT)
     if doc.get("punch_id"):
         await db.punch_items.update_one({"id": doc["punch_id"], "org_id": org}, {"$set": {
             "status": "verified", "verified_by": actor, "updated_at": ts}})
@@ -261,10 +285,10 @@ async def close(org: str, cid: str, *, actor: str, ack_by: str = None,
         raise ValueError(f"Klaim {doc['number']} berstatus \u201c{_label(doc['state'])}\u201d — "
                          "penutupan hanya untuk perbaikan yang sudah diperiksa.")
     ts = now_iso()
-    await db.warranty_claims.update_one({"id": cid, "org_id": org}, {"$set": {
+    await transition("warranty_claims", {"id": cid, "org_id": org}, {"state": VERIFIED}, {"$set": {
         "state": CLOSED, "state_label": _label(CLOSED), "closed_at": ts,
         "ack_by": ack_by or doc.get("buyer_name") or actor,
-        "ack_note": (ack_note or "").strip() or None, "closed_by": actor, "updated_at": ts}})
+        "ack_note": (ack_note or "").strip() or None, "closed_by": actor, "updated_at": ts}}, what=WHAT)
     if doc.get("punch_id"):
         await db.punch_items.update_one({"id": doc["punch_id"], "org_id": org}, {"$set": {
             "status": "closed", "closed_at": ts, "updated_at": ts}})

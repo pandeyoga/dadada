@@ -16,6 +16,7 @@ import stock_control as sc
 from db import db, ORG_ID
 from core_utils import serialize_doc
 from engine import add_activity
+from idempotency import Conflict
 from models_p48 import MinStockIn, TransferIn
 from rbac import has_role, require_permission, assert_project_access, project_query, audit_log
 
@@ -53,6 +54,8 @@ async def create_transfer(payload: TransferIn,
     await assert_project_access(payload.to_project_id, user)
     try:
         doc = await sc.transfer(org, payload.model_dump(), user.get("email"))
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "create", "material_transfer", doc["id"], {

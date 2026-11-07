@@ -169,3 +169,31 @@ Perubahan perilaku yang akan terlihat pemakai:
 
 Butuh keputusan pemilik (tidak dikerjakan): FN-01 (satu master komponen biaya?), FN-11 (ganti skema kontrak ke KPR tanpa menambah komponen KPR-only — butuh aturan hitung ulang), FN-12a/b/d–f (NPOPTKP per proyek, satu sumber tarif BPHTB, BANK_FEE dari plafon, NJOP, PPh final 1%), batas wajar nominal komponen (dipasang Rp 1 triliun sebagai pagar kewajaran, ubah bila perlu), izin `finance:update` untuk peran staf pada konfigurasi pajak.
 Catatan teknis: pemeriksaan 2-1470 menjumlahkan **semua** kuitansi biaya; bila kelak pembatalan deal (perlakuan titipan pada deal batal = keputusan pemilik) menjurnal 2-1470, catatan subledgernya (`cost_receipts`/`cost_disbursements`) harus ikut diubah agar pemeriksaan tetap hijau.
+### 8.G-B Mesin status & konkurensi ("set status tanpa syarat status", baca-lalu-tulis)
+
+Pola perbaikan: **tabel transisi status** (dict) per entitas di modulnya + **CAS** (`idempotency.transition/cas/reserved/mutex`) atas status yang dibaca.
+Transisi tak sah → 400 (pesan menyebut status sekarang); yang kalah balapan → 409. Tes: `test_p0_status_konkurensi.py`, `_2.py`, `_3.py` (36 tes, **semuanya merah di kode lama 6f5b6f2, hijau di kode baru**).
+
+| ID | Status | Perubahan | Tabel transisi / alat |
+|---|:-:|---|---|
+| PK3-18 | ✔ | Permintaan material (setuju/tolak/keluarkan), klaim garansi (terima/tolak/selesai/periksa/tutup), item jadwal bangun (verifikasi/kembalikan/override/ajukan), komplain (selesaikan/tugaskan), rekap upah (ajukan/setuju/tolak), PO (batal ‖ setuju): satu pemenang, yang kalah 409 | `REQ_TRANSITIONS`, `warranty_engine.TRANSITIONS`, `ITEM_TRANSITIONS`, `complaints.TRANSITIONS`, `PAYROLL_TRANSITIONS`, `PO_TRANSITIONS` |
+| PK3-10 | ✔ | Change order: CO diklaim `draft→approved` (CAS) lalu nilai SPK ditambah `$inc` bersyarat; 3 CO +Rp 10 jt paralel → SPK +Rp 30 jt (dulu +Rp 10 jt); setuju ganda/setuju ‖ tolak → satu pemenang | `CO_TRANSITIONS`, `_apply_value_delta` |
+| PK3-16 | ✔ | Work Hub: `PUT status=done` tidak lagi melewati bukti/verifikasi; tugas `cancelled`/`done` tidak bisa di-complete/snooze/dibuka; `complete` ×3 → sekali | `workhub.TASK_TRANSITIONS`, `can_move` |
+| PK3-17 | ✔ | Izin: `approved` hanya dari `submitted`; `renew` hanya dari `approved`/`expired`; `alerts/scan` paralel tidak menggandakan notifikasi (penanda harian diklaim atomik) | `PERMIT_TRANSITIONS`, `RENEWABLE` |
+| PK3-20 | ✔ | Fee marketing ganda (jalur manual & otomatis mitra memakai kunci yang sama) + indeks unik parsial `uq_mfee_open_dedup` (status terbuka). Bila data lama sudah berisi kembaran, indeks dilaporkan sebagai `conflict` saat start (tidak menggagalkan, tidak ada data dihapus) dan penjagaan aplikasi tetap berlaku | `marketing_fee.fee_lock`, `indexes.PARTIAL_EXPR` |
+| PK3-21 | ✔ | Impor semua data: sesi diklaim `open→committing` (CAS); `committed` tidak bisa di-commit ulang; gagal di tengah → `failed` (pulihkan dari snapshot). Impor biaya iklan: klaim `preview→committing` | `data_mgmt_full_session.commit`, `ads_router.commit_import` |
+| PK3-22 | ✔ | Handler global `DuplicateKeyError → 409` (dulu 500); nomor GRN diambil SESUDAH PO diklaim (nomor tidak hangus); transfer stok mengambil nomor sesudah cek stok | `server.py` |
+| PK3-23 | ✔ | Komplain hanya maju (`resolved` final); janji temu `done/cancelled` final, `no_show` boleh dijadwal ulang; janji temu identik (lead + waktu) ditolak 409 | `complaints.TRANSITIONS`, `APPT_TRANSITIONS` |
+| FZ-06 / PG-04 | ✔ | Retur GRN dikunci per GRN + per material, GRN/PO dibaca ulang di dalam kunci, PO diklaim CAS; keluarkan permintaan & transfer antar proyek memakai kunci stok yang sama dengan txn manual/opname | `procurement_extra.create_return`, `stock_control.transfer` |
+| PG-05 | ✔ | Retur ditolak bila melebihi stok yang ada dan bila PO `cancelled` (PO batal tidak dihidupkan) | idem |
+| PG-06 | ◐ | Batal PO ditolak bila PO sudah menerima barang (`received_value>0`), punya tagihan aktif, atau berstatus diterima sebagian. **Tagihan lama atas PO yang sudah terlanjur batal tetap bisa disetujui/dibayar** (jalur AP bukan bagian stream ini) | `cancel_po` |
+| PG-21 | ✔ | "Pemakaian vs RAB" tidak lagi menghitung transfer/retur sebagai pemakaian; daftar material memakai angka yang dihitung ulang (sama dengan layar anggaran) | `_consumed_qty` |
+| FZ-05 | ✔ | `book` menurunkan `units.payment_status` dari AR yang sebenarnya (`paid_off`/`partial`/`booking_fee`) | `deals_router.book_deal` |
+
+Perubahan perilaku yang akan terlihat pemakai:
+- Dua orang menekan aksi pemutus yang sama/berlawanan (setuju/tolak, terima/tolak, verifikasi/kembalikan, selesaikan/tugaskan) → yang kedua melihat 409 "baru saja diubah oleh proses lain".
+- Status izin tidak bisa loncat (mis. ditolak → disetujui langsung); perpanjangan hanya untuk izin yang sudah disetujui. Komplain/janji temu yang sudah selesai tidak bisa "dimundurkan".
+- Tugas Work Hub yang butuh bukti tidak bisa ditandai selesai lewat PUT status; tugas selesai/batal tidak bisa ditunda/diselesaikan lagi.
+- PO yang sudah menerima barang tidak bisa dibatalkan (lakukan retur dulu); retur tidak bisa melebihi stok yang ada.
+- Permintaan material memiliki status sementara `issuing` selama stok dikeluarkan (bisa tertinggal bila proses mati tepat di tengah; Conflict-nya jelas, admin dapat memulihkannya ke `approved`).
+- Janji temu dengan lead + waktu yang sama ditolak (409). Sesi impor yang sudah `committed` tidak bisa di-commit lagi.

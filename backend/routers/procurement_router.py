@@ -207,15 +207,47 @@ async def approve_po(pid: str, payload: POAction,
     return {"data": serialize_doc(await db.purchase_orders.find_one({"id": pid, "org_id": doc["org_id"]}, {"_id": 0}))}
 
 
+# PK3-18/PG-06: tabel transisi status PO. Yang tidak tercantum ditolak (400); yang kalah balapan → 409.
+PO_TRANSITIONS = {
+    "draft": ("approved", "cancelled"),
+    "approved": ("partially_received", "received", "cancelled"),
+    "partially_received": ("partially_received", "received"),
+    "received": ("closed",),
+    "closed": (),
+    "cancelled": (),
+}
+VOID_BILL_STATUSES = ("void", "voided", "cancelled", "rejected")
+
+
 @router.post("/pos/{pid}/cancel")
 async def cancel_po(pid: str, payload: POAction,
                     user: dict = Depends(require_permission("procurement", "update"))):
     doc = await _get_po(pid, user)
-    if doc.get("status") in ("received", "closed", "cancelled"):
+    if doc.get("status") == "cancelled":
+        raise HTTPException(status_code=400, detail="PO ini sudah dibatalkan.")
+    if "cancelled" not in PO_TRANSITIONS.get(doc.get("status"), ()):
+        if doc.get("status") == "partially_received":
+            raise HTTPException(status_code=400, detail=(
+                "PO ini sudah menerima barang (GRN). Kembalikan barangnya ke vendor lewat RETUR lebih dulu — "
+                "membatalkan PO tidak membatalkan stok maupun kewajiban yang sudah terbentuk."))
         raise HTTPException(status_code=400, detail="PO tidak dapat dibatalkan pada status ini.")
+    # PG-06: PO yang sudah menerima barang atau punya tagihan aktif tidak boleh "dibatalkan" — status batal
+    # tidak menarik stok/kewajiban; tagihannya tetap bisa disetujui dan DIBAYAR atas dokumen yang gugur.
+    if int(doc.get("received_value") or 0) > 0:
+        raise HTTPException(status_code=400, detail=(
+            "PO ini sudah menerima barang (GRN) — lakukan retur ke vendor dulu sampai nilai diterima nol."))
+    active_bills = await db.ap_invoices.count_documents({
+        "org_id": doc["org_id"], "po_id": pid, "status": {"$nin": list(VOID_BILL_STATUSES)}})
+    if int(doc.get("billed_value") or 0) > 0 or active_bills:
+        raise HTTPException(status_code=400, detail=(
+            f"PO ini sudah punya {active_bills or 'nilai'} tagihan aktif — batalkan/koreksi tagihannya "
+            "(nota kredit) sebelum PO dibatalkan."))
     ts = now_iso()
-    await db.purchase_orders.update_one({"id": pid, "org_id": doc["org_id"]}, {"$set": {
-        "status": "cancelled", "updated_at": ts}})
+    # PK3-18: CAS atas keadaan yang dibaca — batal ‖ setujui (draft) atau batal ‖ GRN → satu pemenang, 409 untuk
+    # yang kalah (dulu `cancelled` dengan `approved_by` terisi).
+    await cas("purchase_orders", {"id": pid, "org_id": doc["org_id"]},
+              expect_of(doc, "status", "updated_at", "received_value", "billed_value"),
+              {"$set": {"status": "cancelled", "updated_at": ts}}, what="PO")
     await audit_log(user, "cancel", "purchase_order", pid, {"note": payload.note})
     return {"data": serialize_doc(await db.purchase_orders.find_one({"id": pid, "org_id": doc["org_id"]}, {"_id": 0}))}
 
@@ -253,8 +285,7 @@ async def create_grn(payload: GRNCreate,
     txns = []  # PK-02: stok baru ditulis SETELAH PO diklaim atomik (bukan di dalam loop)
     received_value = 0
     ts = now_iso()
-    grn_number = await _next_number("GRN", db.grns, org, {"project_id": po.get("project_id"),
-                                                          "vendor_id": po.get("vendor_id")})
+    grn_number = None  # PK3-22: nomor GRN diambil SESUDAH PO diklaim (kalah balapan tidak menghanguskan nomor)
     for gi in payload.items:
         idx = gi.po_item_index
         if idx < 0 or idx >= len(items):
@@ -288,12 +319,12 @@ async def create_grn(payload: GRNCreate,
                     # (harga rata-rata bergerak). Tanpa ini, stok hanya kuantitas dan
                     # laporan nilai persediaan terpaksa mengarang angka.
                     "unit_price": int(it.get("unit_price", 0) or 0), "amount": amt,
-                    "note": f"Penerimaan PO {po.get('po_number')}", "ref": grn_number,
+                    "note": f"Penerimaan PO {po.get('po_number')}", "ref": None,
                     "actor": user.get("email"), "created_at": ts})
     if not grn_items:
         raise HTTPException(status_code=400, detail="Tidak ada item dengan qty diterima > 0.")
     grn = {
-        "id": new_id(), "org_id": org, "grn_number": grn_number, "po_id": po["id"],
+        "id": new_id(), "org_id": org, "grn_number": None, "po_id": po["id"],
         "po_number": po.get("po_number"), "project_id": po["project_id"], "vendor": po.get("vendor"),
         "items": grn_items, "received_value": int(received_value), "note": payload.note,
         "received_by": user.get("email"), "created_at": ts,
@@ -314,7 +345,11 @@ async def create_grn(payload: GRNCreate,
             undo={"$set": {"items": items_before, "received_value": int(po.get("received_value", 0)),
                            "status": po.get("status"), "updated_at": po.get("updated_at")}},
             what="PO"):
+        grn_number = await _next_number("GRN", db.grns, org, {"project_id": po.get("project_id"),
+                                                              "vendor_id": po.get("vendor_id")})
+        grn["grn_number"] = grn_number
         for tx in txns:
+            tx["ref"] = grn_number
             await db.material_txns.insert_one(tx)
         await db.grns.insert_one(dict(grn))
     await add_activity(entity_type="project", entity_id=po["project_id"], type="system",

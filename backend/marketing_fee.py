@@ -109,6 +109,20 @@ async def create_fee(payload, actor: str, org_id=ORG_ID) -> dict:
     if not deal:
         raise ValueError("Deal tidak ditemukan.")
     _assert_deal_active(deal)
+    # PK3-20: cek duplikat → tulis diserialkan per (agen, deal, pemicu); dulu `POST /marketing/fees` ×3 serentak
+    # melahirkan MF/0003-0005 identik. Indeks unik parsial `uq_mfee_open_dedup` (indexes.py) menjaga di DB.
+    async with fee_lock(org_id, agent["id"], deal["id"], payload.trigger):
+        return await _create_fee_locked(payload, actor, org_id, agent, deal)
+
+
+def fee_lock(org_id: str, agent_id: str, deal_id: str, trigger: str):
+    """Kunci pembuatan fee untuk (agen, deal, pemicu) — dipakai bersama jalur manual & otomatis (mitra)."""
+    from idempotency import mutex
+    return mutex(f"mfee.create:{org_id}:{agent_id}:{deal_id}:{trigger}",
+                 what="Pengajuan fee untuk agen, deal, dan pemicu ini")
+
+
+async def _create_fee_locked(payload, actor: str, org_id: str, agent: dict, deal: dict) -> dict:
     dup = await db.marketing_fees.find_one({
         "org_id": org_id, "agent_id": payload.agent_id, "deal_id": payload.deal_id,
         "trigger": payload.trigger, "status": {"$in": OPEN_STATUSES}}, {"_id": 0, "no": 1})

@@ -223,6 +223,16 @@ async def create_fee_for_trigger(deal: dict, trigger: str, *, actor: str = "syst
                     (deal or {}).get("id"), trigger, calc.get("reason"))
         return {"created": False, "reason": calc.get("reason"),
                 "partner_id": (calc.get("partner") or {}).get("id")}
+    partner = calc["partner"]
+    # PK3-20: pembuatan fee mitra diserialkan per (mitra, deal, pemicu) — kunci SAMA dengan `marketing_fee.create_fee`,
+    # sehingga jalur manual dan jalur otomatis (event) juga tidak melahirkan fee kembar satu sama lain.
+    import marketing_fee as _mf
+    async with _mf.fee_lock(org_id, partner["id"], deal["id"], trigger):
+        return await _create_fee_locked(deal, trigger, actor, org_id, manual, cfgs, calc)
+
+
+async def _create_fee_locked(deal: dict, trigger: str, actor: str, org_id: str, manual: bool,
+                             cfgs: dict, calc: dict) -> dict:
     partner, rule, tax = calc["partner"], calc["rule"], calc["tax"]
     existing = await db.marketing_fees.find_one(
         {"org_id": org_id, "agent_id": partner["id"], "deal_id": deal["id"],

@@ -16,6 +16,7 @@ Tiga lubang yang ditutup:
 """
 import sequences as seq
 from db import db
+from idempotency import mutex
 from core_utils import new_id, now_iso
 from engine import material_book_stock
 
@@ -49,6 +50,13 @@ async def transfer(org: str, data: dict, actor: str) -> dict:
     if src.get("project_id") != data["from_project_id"]:
         raise ValueError("Material itu bukan milik proyek asal yang dipilih.")
     qty = float(data["qty"])
+    # PG-04: cek stok → tulis `out` diserialkan dengan kunci stok material yang SAMA dengan txn manual,
+    # opname, pengeluaran permintaan, dan retur (dulu transfer 80 ×2 dari stok 100 → keduanya lolos).
+    async with mutex(f"stock:{org}:{data['from_project_id']}:{src['id']}", what="Stok material ini"):
+        return await _transfer_locked(org, data, actor, src, qty)
+
+
+async def _transfer_locked(org: str, data: dict, actor: str, src: dict, qty: float) -> dict:
     stock = await material_book_stock(data["from_project_id"], src["id"], org)
     if qty > stock + 1e-9:
         raise ValueError(f"Stok {src['name']} di proyek asal hanya {stock:g} {src.get('uom')} "

@@ -17,6 +17,7 @@ import vendor_engine as ve
 from db import db, ORG_ID
 from core_utils import serialize_doc
 from engine import add_activity, create_notification
+from idempotency import Conflict
 from models_p48 import ReqToPoIn, ReturnIn
 from rbac import has_role, require_permission, assert_project_access, project_query, audit_log
 
@@ -58,6 +59,8 @@ async def create_return(payload: ReturnIn,
     try:
         doc = await pe.create_return(org, grn, po, payload.kind,
                                      payload.items, payload.reason, user.get("email"))
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "create", "grn_return", doc["id"], {

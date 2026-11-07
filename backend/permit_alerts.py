@@ -67,6 +67,13 @@ async def expiry_tick(org: str = None) -> int:
             continue
         if p.get("expiry_notified_on") == today:
             continue
+        # PK3-17: tandai "sudah diberitahu hari ini" secara ATOMIK sebelum notifikasi/tugas dikirim — pemindaian
+        # serentak (`alerts/scan` ×3) dulu masing-masing mengirim peringatan yang sama (+9 notifikasi).
+        claimed = await db.permits.find_one_and_update(
+            {"id": p["id"], "status": "approved", "expiry_notified_on": {"$ne": today}},
+            {"$set": {"expiry_notified_on": today, "expiry_health": h["health"], "updated_at": now_iso()}})
+        if claimed is None:
+            continue
         porg = p.get("org_id", ORG_ID)
         where = await _scope_label(porg, p)
         assignee = await _pic(porg, p.get("project_id"))
@@ -77,21 +84,24 @@ async def expiry_tick(org: str = None) -> int:
                 f"{str(p.get('expiry_at'))[:10]}. "
                 + ("Pekerjaan/serah terima yang bergantung pada izin ini berisiko "
                    "dihentikan." if expired else "Ajukan perpanjangan sekarang."))
-        if assignee:
-            await create_notification(
-                user_email=assignee, title=title, body=body, type="permit",
-                related_entity_type="project", related_entity_id=p.get("project_id"),
-                org_id=porg)
-        await wh.spawn(porg, JOBDESK,
-                       source_event=f"permit.expiry:{p['id']}:{today}",
-                       assignee_override=assignee, entity_type="project",
-                       entity_id=p.get("project_id"), title=title, description=body,
-                       due_date=p.get("expiry_at"),
-                       meta={"permit_id": p["id"], "health": h["health"],
-                             "scope": p.get("scope") or "project",
-                             "scope_id": p.get("scope_id")})
-        await db.permits.update_one({"id": p["id"]}, {"$set": {
-            "expiry_notified_on": today, "expiry_health": h["health"],
-            "updated_at": now_iso()}})
+        try:
+            if assignee:
+                await create_notification(
+                    user_email=assignee, title=title, body=body, type="permit",
+                    related_entity_type="project", related_entity_id=p.get("project_id"),
+                    org_id=porg)
+            await wh.spawn(porg, JOBDESK,
+                           source_event=f"permit.expiry:{p['id']}:{today}",
+                           assignee_override=assignee, entity_type="project",
+                           entity_id=p.get("project_id"), title=title, description=body,
+                           due_date=p.get("expiry_at"),
+                           meta={"permit_id": p["id"], "health": h["health"],
+                                 "scope": p.get("scope") or "project",
+                                 "scope_id": p.get("scope_id")})
+        except BaseException:
+            # Gagal kirim → lepas tanda supaya putaran berikutnya mencoba lagi (bukan peringatan yang hilang).
+            await db.permits.update_one({"id": p["id"], "expiry_notified_on": today},
+                                        {"$set": {"expiry_notified_on": p.get("expiry_notified_on")}})
+            raise
         made += 1
     return made

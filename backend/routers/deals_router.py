@@ -451,8 +451,16 @@ async def book_deal(deal_id: str, payload: DealAction,
     if klaim.matched_count != 1:
         from idempotency import Conflict
         raise Conflict("Reservasi ini baru saja dikonfirmasi/diubah oleh proses lain. Muat ulang halaman.")
+    # FZ-05: `payment_status` unit = fungsi status AR yang SEBENARNYA (rumus sama dengan `_recalc_invoice`) —
+    # dulu selalu "booking_fee" walau piutang sudah terbayar sebagian/penuh sebelum booking.
+    inv = await db.ar_invoices.find_one({"org_id": org, "deal_id": deal_id, "status": {"$ne": "cancelled"}},
+                                        {"_id": 0, "status": 1, "paid": 1})
+    pay_status = "booking_fee"
+    if inv:
+        pay_status = ("paid_off" if inv.get("status") == "paid"
+                      else ("partial" if int(inv.get("paid") or 0) > 0 else "booking_fee"))
     await db.units.update_one({"id": d["unit_id"], "org_id": org}, {"$set": {
-        "status": "booked", "booked_by_deal": deal_id, "payment_status": "booking_fee", "updated_at": ts}})
+        "status": "booked", "booked_by_deal": deal_id, "payment_status": pay_status, "updated_at": ts}})
     # Fase 31 (perbaikan cacat): ikatan unit → deal → lead → pembeli disimpan pada unit,
     # supaya progres pembangunan, portal pembeli, dan laporan tidak bergantung pencarian
     # berlapis yang mudah putus.
