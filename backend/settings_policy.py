@@ -14,7 +14,7 @@ Aturan setiap kunci di sini:
 
 def _d(key, value, type_, label, help_, *, impact="", sensitive=True, minimum=None, maximum=None,
        src="SISTEM", ref_group=None, levels=("org", "project"), unavailable=None, validator=None, editor=None,
-       group="kebijakan", writer=None):
+       group="kebijakan", writer=None, guard=None):
     options = []
     if ref_group:
         import reference as _ref
@@ -32,6 +32,7 @@ def _d(key, value, type_, label, help_, *, impact="", sensitive=True, minimum=No
         "source": src, "ref_group": ref_group, "levels": tuple(levels), "unavailable": dict(unavailable or {}),
         "validator": validator, "editor": editor,   # nama (string) supaya spec tetap bisa diserialisasi ke UI
         "writer": tuple(writer) if writer else None,   # (resource, aksi) pemegang izin MENGUBAH kunci ini; kosong = settings:manage
+        "guard": guard,   # nama penjaga DINAMIS (lihat GUARDS): opsi yang baru sah bila bukti data terpenuhi (mis. selisih = 0)
     }
 
 
@@ -223,3 +224,62 @@ DEFAULTS_W2A: dict = {d["key"]: d for d in [
        minimum=0, maximum=100, **_PAJAK),
 ]}
 DEFAULTS_POLICY.update(DEFAULTS_W2A)
+# ===== W2-C — master komponen biaya (#16), model biaya kontrak (#6), batas nominal komponen =====
+# Dibaca oleh: `cost_master` (mode master + penjaga dinamis di bawah), `cost_limits` (batas nominal),
+# `contract_cost_model` (model biaya kontrak + persetujuan input bebas). Kunci HANYA didaftarkan bersama pembacanya.
+async def _guard_cost_master_mode(value, *, org_id, scope, scope_id):
+    """Opsi `katalog_sumber` hanya sah bila selisih katalog↔aturan All-in = 0 PADA SAAT dipilih (bukti data)."""
+    if value != "katalog_sumber":
+        return
+    import allin_engine
+    import cost_master
+    await allin_engine.ensure_defaults(org_id)   # master All-in org ini sudah disemai (org yang belum pernah membukanya tak boleh lolos karena "kosong")
+    sebab = await cost_master.unavailable_reason(org_id, probe=True)   # selisih = 0 DAN hitung ulang skema aktif identik di kedua sumber
+    if sebab:
+        raise ValueError(f"Sumber master komponen biaya: opsi 'katalog_sumber' belum tersedia — {sebab}")
+
+
+async def dynamic_unavailable(guard: str, org_id: str) -> dict:
+    """Opsi yang SEKARANG belum sah menurut bukti data (dipakai daftar pengaturan supaya UI menonaktifkannya + alasan)."""
+    if guard == "cost_master_mode":
+        import cost_master
+        sebab = await cost_master.unavailable_reason(org_id)
+        return {"katalog_sumber": sebab} if sebab else {}
+    return {}
+
+
+GUARDS = {"cost_master_mode": _guard_cost_master_mode}
+
+DEFAULTS_POLICY.update({d["key"]: d for d in [
+    _d("cost.master_mode", "bayangan", "enum", "Sumber master komponen biaya",
+       "Dari mana definisi komponen biaya transaksi (BPHTB, notaris, bank, asuransi: nama, cara hitung, akun GL, ditagih ke pembeli "
+       "atau ditalangi developer) dibaca saat tagihan baru dihitung. 'Bayangan' (bawaan): tagihan tetap dari master Biaya All-in; "
+       "katalog Komponen Biaya hanya DIBANDINGKAN dan selisihnya dilaporkan. 'Katalog sebagai sumber': definisi dibaca dari "
+       "katalog lewat rujukan kode, sedangkan aturan All-in hanya menentukan komponen mana yang berlaku per skema/proyek. "
+       "Opsi kedua hanya bisa dipilih bila selisih katalog dengan aturan = 0 (lihat tab Komponen Biaya › Selisih).",
+       impact="Berlaku ke depan: hanya reservasi/penawaran/amandemen BARU yang menghitung biaya dengan sumber baru; snapshot biaya "
+              "pada deal/kontrak yang sudah terbit TIDAK berubah. Pada 'katalog sumber' mengubah komponen di tab Biaya All-in ditolak "
+              "(ubah di katalog).",
+       ref_group="cost_master_mode", guard="cost_master_mode"),
+    _d("cost.component_max_amount", 10_000_000_000, "money", "Batas nominal per komponen biaya (Rp)",
+       "Batas wajar nominal SATU komponen biaya (BPHTB, notaris, bank, asuransi, komponen manual, nominal terkunci skema, beban "
+       "developer). Nominal di atas batas ditolak di semua jalur input. Nilai yang sudah tersimpan di atas batas tidak diubah, "
+       "tetapi tidak bisa dinaikkan lagi. Bawaan Rp 10.000.000.000.",
+       impact="Menaikkan batas membuka angka yang lebih besar untuk komponen baru/diubah; menurunkannya tidak mengubah komponen "
+              "yang sudah ada (hanya menolak kenaikan lebih lanjut).",
+       minimum=1_000_000, maximum=1_000_000_000_000),
+    _d("contract.cost_model", "input_bebas_invoice", "enum", "Model biaya kontrak",
+       "Bagaimana komponen biaya kontrak (BPHTB, notaris, bank, asuransi, PPh penjual) boleh dimasukkan. 'Input bebas + invoice' "
+       "(bawaan): komponen boleh diketik Keuangan lalu ditagih lewat invoice biaya; apakah input bebas wajib persetujuan diatur "
+       "kunci di bawahnya. 'Wajib skema All-in': biaya hanya dari kebijakan All-in — input bebas ditolak (perubahan lewat "
+       "amandemen skema). 'Persetujuan': SEMUA perubahan isian biaya kontrak (termasuk potongan, plafon, DP) lewat permohonan yang "
+       "disetujui Keuangan, apa pun isi kunci persetujuan input bebas.",
+       impact="Berlaku ke depan; biaya kontrak yang sudah ada tidak berubah. 'Wajib skema All-in' membuat isian bebas ditolak "
+              "dengan petunjuk memakai amandemen skema.",
+       ref_group="contract_cost_model"),
+    _d("contract.cost_free_input_needs_approval", True, "bool", "Input bebas biaya kontrak wajib persetujuan Keuangan",
+       "Hanya berlaku pada model 'Input bebas + invoice'. Aktif (bawaan): mengisi BPHTB/notaris/bank/asuransi/PPh penjual secara "
+       "bebas pada kontrak TIDAK langsung berlaku — lahir permohonan yang harus disetujui pemegang izin persetujuan Keuangan "
+       "(orang lain dari pemohon). Nonaktif: isian bebas langsung berlaku seperti sebelumnya.",
+       impact="Menonaktifkan membuat angka biaya yang diketik satu orang langsung tercetak di SPR/invoice tanpa pemeriksa kedua."),
+]})

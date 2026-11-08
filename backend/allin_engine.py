@@ -142,11 +142,16 @@ def compute_amount(comp: dict, price: int, npoptkp: int, override: int = None,
 
 
 async def resolve_scheme(org: str, scheme_id: str, price: int, project_id: str = None,
-                         scheme: str = None, booking_fee: int = None, land_area=None, plafon: int = None) -> dict:
+                         scheme: str = None, booking_fee: int = None, land_area=None, plafon: int = None,
+                         *, mode: str = None) -> dict:
     """Snapshot komponen dari skema all-in untuk harga ini → disimpan di `deal.costs`.
 
     FN-02: komponen NONAKTIF tidak ikut ditagihkan pada snapshot baru (dulu `include_inactive=True`
-    membuatnya tetap masuk reservasi baru). Kontrak/deal yang snapshot-nya sudah terbit tidak berubah."""
+    membuatnya tetap masuk reservasi baru). Kontrak/deal yang snapshot-nya sudah terbit tidak berubah.
+
+    W2-C (#16): `cost.master_mode` — `bayangan` (bawaan) = definisi komponen dari master All-in seperti dulu; `katalog_sumber` =
+    definisi dibaca dari katalog lewat rujukan (`cost_master.source_components`), skema tetap menentukan komponen mana yang berlaku.
+    `mode` hanya dipakai uji ekuivalensi (`cost_master.probe_equivalence`)."""
     if int(price) < 0:
         raise ValueError("Harga tidak boleh negatif.")
     sch = await db.allin_schemes.find_one({"org_id": org, "id": scheme_id}, {"_id": 0})
@@ -155,6 +160,10 @@ async def resolve_scheme(org: str, scheme_id: str, price: int, project_id: str =
     if not sch.get("is_active", True):
         raise ValueError("Skema all-in ini sudah nonaktif — pilih skema lain.")
     comps = {c["code"]: c for c in await list_components(org, include_inactive=False)}
+    import cost_master
+    mode = mode or await cost_master.mode_for(org, project_id)
+    if mode == cost_master.KATALOG:
+        comps = await cost_master.source_components(org, [it.get("component_code") for it in sch.get("items") or []])
     tm = await tax_master.resolve(project_id, org_id=org)   # W2-A: NPOPTKP, tarif BPHTB, NJOP, % plafon BANK_FEE — satu master
     npoptkp = int(tm["npoptkp"])
     njop_total = tax_master.bphtb_npop(0, tm["njop_per_m2"], land_area)
@@ -178,13 +187,18 @@ async def resolve_scheme(org: str, scheme_id: str, price: int, project_id: str =
             "kpr_only": bool(comp.get("kpr_only")),
             "gl_expense": comp.get("gl_expense") or GL_BEBAN_PENJUALAN,
             "gl_liability": comp.get("gl_liability") or GL_TITIPAN_BIAYA,
-            "gl_ap": comp.get("gl_ap") or GL_AP, "source": "scheme"})
-    return {"scheme_id": sch["id"], "scheme_code": sch.get("code"), "scheme_name": sch["name"],
-            "npoptkp": npoptkp, "components": components}
+            "gl_ap": comp.get("gl_ap") or GL_AP, "source": "scheme",
+            **({"catalog_code": comp.get("catalog_code")} if mode == cost_master.KATALOG else {})})
+    out = {"scheme_id": sch["id"], "scheme_code": sch.get("code"), "scheme_name": sch["name"],
+           "npoptkp": npoptkp, "components": components}
+    if mode == cost_master.KATALOG:   # jejak: snapshot ini dihitung dari katalog (bayangan = bentuk lama persis, tanpa kunci tambahan)
+        out["master_mode"] = cost_master.KATALOG
+    return out
 
 
-def manual_components(items: list, reason: str, actor: str) -> dict:
-    """Input manual (hanya finance_manager/superadmin) — wajib alasan, setiap baris ter-audit."""
+def manual_components(items: list, reason: str, actor: str, limit: int = None) -> dict:
+    """Input manual (hanya finance_manager/superadmin) — wajib alasan, setiap baris ter-audit. `limit` = batas nominal per komponen
+    (`cost_limits.max_amount`, pengaturan `cost.component_max_amount`); pemanggil membacanya sesuai proyek deal."""
     if len((reason or "").strip()) < 10:
         raise ValueError("Input biaya manual wajib alasan (minimal 10 huruf).")
     out = []
@@ -194,6 +208,9 @@ def manual_components(items: list, reason: str, actor: str) -> dict:
             raise ValueError("Komponen manual wajib kode & nominal.")
         if int(it["amount"]) < 0:
             raise ValueError(f"Nominal komponen manual {code} tidak boleh negatif.")
+        if limit is not None:
+            import cost_limits
+            cost_limits.check(int(it["amount"]), limit, f"Nominal komponen manual {code}")
         tr = it.get("treatment") or "customer_pass_through"
         if tr not in TREATMENTS:
             raise ValueError(f"Perlakuan '{tr}' tidak dikenal.")
@@ -566,6 +583,9 @@ async def record_developer_expense(org: str, contract: dict, component_code: str
     amount = int(amount or comp.get("amount") or 0)
     if amount <= 0:
         raise ValueError("Nominal beban wajib > 0.")
+    import cost_limits
+    cost_limits.check(amount, await cost_limits.max_amount(org, await cost_limits.project_of_deal(org, contract.get("deal_id"))),
+                      f"Nominal beban {component_code}", stored=comp.get("amount"))   # nilai komponen yang sudah terbit boleh dicatat apa adanya
     if await db.cost_expenses.find_one({"org_id": org, "contract_id": contract["id"], "component_code": component_code}):
         raise ValueError(f"Beban {component_code} untuk kontrak ini sudah dicatat.")
     # PK-02: dua pencatatan beban yang sama bersamaan dulu sama-sama lolos cek di atas (2 tagihan + 2 jurnal).

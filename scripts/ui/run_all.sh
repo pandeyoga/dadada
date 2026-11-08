@@ -13,9 +13,16 @@ PY="${PYTHON:-python3}"
 echo "== menyemai data uji =="
 "$PY" "$HERE/seed_hc.py" > /dev/null || { echo "GAGAL menyemai data"; exit 2; }
 "$PY" "$HERE/seed_w1c.py" > /dev/null || { echo "GAGAL menyemai data W1-C"; exit 2; }
+# ===== W2-C — satu master komponen biaya (#16) & model biaya kontrak (#6) =====
+"$PY" "$HERE/seed_w2c.py" > /dev/null || { echo "GAGAL menyemai data W2-C"; exit 2; }
 
 fail=0
 for t in webhook_security ronde_a_pembatalan ronde_bc_banner ronde_d_void ronde_e_aksi_409 ronde_f_batal_reservasi w0_kebijakan w1a_kebijakan w1b_diskon_bertingkat w1b_alokasi_skema w1c_titipan w2a_master_pajak; do
+  echo; echo "================ $t ================"
+  node "$HERE/$t.js" || fail=1
+done
+# ===== W2-C =====
+for t in w2c_master_biaya w2c_biaya_kontrak; do
   echo; echo "================ $t ================"
   node "$HERE/$t.js" || fail=1
 done

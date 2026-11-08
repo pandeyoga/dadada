@@ -225,6 +225,7 @@ class PriceComponentCreate(BaseModel):
     order: int = 0
     active: bool = True
     note: Optional[str] = None
+    cost: Optional[dict] = None   # W2-C: blok biaya (cara hitung, persen, nominal, ditagih/ditalangi, GL beban/titipan/AP, hanya-KPR)
 
     _c = field_validator("code")(_code)
 
@@ -242,6 +243,7 @@ class PriceComponentUpdate(BaseModel):
     order: Optional[int] = None
     active: Optional[bool] = None
     note: Optional[str] = None
+    cost: Optional[dict] = None   # W2-C: ubah sebagian blok biaya (digabung dengan yang tersimpan, divalidasi seperti master All-in)
 
 
 # ------------------------------------------------------------------ dokumen syarat

@@ -15,10 +15,14 @@ import re
 
 import allin_engine as ae
 import coa_rules
+import cost_limits
 import gl_engine as gl
 from db import db
 
-MAX_NOMINAL = 1_000_000_000_000          # Rp 1 triliun: batas kewajaran satu komponen/override
+# Batas TEKNIS (bukan batas komponen biaya): rentang tahap pencairan KPR & NPOPTKP, serta langit-langit pengaturan
+# `cost.component_max_amount`. Batas nominal KOMPONEN biaya = pengaturan itu (bawaan Rp 10 miliar, `cost_limits`), dibaca di
+# SEMUA jalur input komponen (W2-C).
+MAX_NOMINAL = 1_000_000_000_000
 CALC_METHODS = ("nominal_tetap", "persen_harga", "rumus_bphtb")
 TREATMENTS = ("developer_borne", "customer_pass_through")
 CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{1,31}$")
@@ -77,8 +81,9 @@ async def check_account(org: str, code: str, field: str) -> str:
     return code
 
 
-async def clean_component(org: str, data: dict, *, creating: bool) -> dict:
-    """Validasi & normalisasi kolom master komponen yang ADA di `data` (lengkap saat membuat)."""
+async def clean_component(org: str, data: dict, *, creating: bool, current: dict = None) -> dict:
+    """Validasi & normalisasi kolom master komponen yang ADA di `data` (lengkap saat membuat). `current` = nilai tersimpan
+    (UPDATE): nominal yang sudah di atas batas boleh diturunkan/dibiarkan, tidak boleh dinaikkan (`cost_limits.check`)."""
     out = {}
     if creating or "code" in data:
         code = str(data.get("code") or "").strip().upper()
@@ -101,6 +106,8 @@ async def clean_component(org: str, data: dict, *, creating: bool) -> dict:
         out["default_treatment"] = data["default_treatment"]
     if "amount" in data or creating:
         out["amount"] = _num(data.get("amount") or 0, "Nominal komponen", 0, MAX_NOMINAL, integer=True)
+        cost_limits.check(out["amount"], await cost_limits.max_amount(org), "Nominal komponen",
+                          stored=(current or {}).get("amount"))
     if "pct" in data or creating:
         out["pct"] = _num(data.get("pct") or 0, "Persentase komponen", 0, 100)
     for f in GL_ROLES:
@@ -151,6 +158,10 @@ async def clean_scheme(org: str, data: dict, *, current: dict = None) -> dict:
             raise ValueError("Skema wajib memuat minimal satu komponen.")
         comps = {c["code"]: c for c in await db.cost_components.find({"org_id": org}, {"_id": 0}).to_list(500)}
         had = {(it or {}).get("component_code") for it in (current or {}).get("items") or []}
+        had_ov = {(it or {}).get("component_code"): (it or {}).get("override_amount") for it in (current or {}).get("items") or []}
+        # batas nominal terkunci = batas TERKETAT dari proyek-proyek skema ini (skema tanpa proyek → batas organisasi)
+        limit = await cost_limits.limit_for_projects(
+            org, out["project_ids"] if "project_ids" in out else (current or {}).get("project_ids"))
         seen, clean = set(), []
         for it in items:
             if not isinstance(it, dict):
@@ -171,6 +182,7 @@ async def clean_scheme(org: str, data: dict, *, current: dict = None) -> dict:
             ov = it.get("override_amount")
             if ov is not None:
                 ov = _num(ov, f"Nominal terkunci komponen {code}", 0, MAX_NOMINAL, integer=True)
+                cost_limits.check(ov, limit, f"Nominal terkunci komponen {code}", stored=had_ov.get(code))
             clean.append({"component_code": code, "treatment": tr, "override_amount": ov})
         out["items"] = clean
     return out

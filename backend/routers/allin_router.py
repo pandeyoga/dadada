@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 import allin_amend as am
 import allin_engine as ae
 import contracts_engine as ce
+import cost_master as cm
 import cost_master_rules as cmr
 import kpr_disburse as kd
 import kpr_engine as kprmod
@@ -148,6 +149,7 @@ async def create_component(p: ComponentIn, user: dict = Depends(require_permissi
         doc = {"id": new_id(), "org_id": org, **f, "kpr_only": bool(f.get("kpr_only")), "is_active": True,
                "created_at": ts, "updated_at": ts}
         await db.cost_components.insert_one(dict(doc))
+    await cm.mirror_new_rule(org, doc)   # W2-C: pada mode katalog_sumber komponen baru langsung terdaftar di katalog
     # Sinkron: komponen baru langsung masuk ke SEMUA skema all-in/exclude dengan perlakuan bawaannya,
     # supaya admin tidak perlu mengedit tiap skema satu per satu. `sync_schemes=false` mematikannya
     # (FN-02: komponen baru tidak harus ikut skema yang sedang dijual).
@@ -177,7 +179,8 @@ async def update_component(cid: str, p: ComponentIn, user: dict = Depends(requir
         for k in ("calc_method", "amount", "pct"):
             upd.pop(k, None)
     try:
-        upd = await cmr.clean_component(org, upd, creating=False)
+        await cm.guard_rule_edit(org, upd, cur)   # W2-C: pada mode katalog_sumber definisi komponen dimiliki katalog
+        upd = await cmr.clean_component(org, upd, creating=False, current=cur)
     except ValueError as e:
         raise _err(e)
     upd["updated_at"] = now_iso()
@@ -272,6 +275,8 @@ async def costs_ledger(cid: str, user: dict = Depends(require_permission("contra
 async def issue_cost_invoice(cid: str, user: dict = Depends(require_permission("finance", "create"))):
     c = await _contract(cid, user)
     try:
+        import contract_cost_model as ccm   # W2-C #6: input bebas + invoice — biaya yang diketik bebas dijadikan snapshot dulu (KT-03)
+        c = await ccm.ensure_invoiceable(_org(user), c)
         return {"data": await ae.issue_cost_invoice(_org(user), c, user.get("email"))}
     except ValueError as e:
         raise _err(e)

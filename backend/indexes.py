@@ -186,6 +186,8 @@ UNIQUE_INDEXES = [
     ("allin_amendments", [("org_id", 1), ("contract_id", 1)], "uq_allin_amend_pending"),
     # W1-C (#12): satu permohonan refund titipan biaya YANG MASIH BERJALAN per deal (dua penutup deal batal bersamaan → satu pemenang).
     ("cost_deposit_settlements", [("org_id", 1), ("deal_id", 1)], "uq_costsettle_inflight"),
+    # W2-C (#6): satu permohonan isian biaya kontrak `pending` per kontrak (dua pengajuan serentak → satu pemenang).
+    ("contract_cost_requests", [("org_id", 1), ("contract_id", 1)], "uq_costreq_pending"),
 ]
 
 # Natural key yang boleh kosong (partial index: hanya baris yang punya nilai dijaga).
@@ -227,6 +229,7 @@ PARTIAL_EXPR = {
                             "status": {"$in": ["open", "in_progress", "snoozed", "submitted"]}},
     "uq_allin_amend_pending": {"status": "pending"},
     "uq_costsettle_inflight": {"state": {"$in": ["diajukan", "disetujui", "refund_sebagian"]}},
+    "uq_costreq_pending": {"status": "pending"},
 }
 
 

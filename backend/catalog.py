@@ -231,12 +231,15 @@ async def create_price_component(payload, actor: str, org: str = ORG_ID) -> dict
     if await db.price_components.find_one({"org_id": org, "code": payload.code},
                                           {"_id": 0, "id": 1}):
         raise ValueError(f"Komponen biaya '{payload.code}' sudah ada.")
+    import cost_master   # W2-C: blok biaya divalidasi seperti master All-in; kolom turunan dihitung; batas nominal berlaku
+    fields = await cost_master.prepare_catalog_patch(org, {"code": payload.code}, _clean(payload))
     ts = now_iso()
-    doc = {"id": new_id(), "org_id": org, **_clean(payload),
+    doc = {"id": new_id(), "org_id": org, **fields,
            "created_by": actor, "created_at": ts, "updated_at": ts}
     doc.setdefault("active", True)
     await db.price_components.insert_one(dict(doc))
     doc.pop("_id", None)
+    await cost_master.after_catalog_write(org, doc)
     return doc
 
 
@@ -244,12 +247,19 @@ async def update_price_component(comp_id: str, payload, actor: str, org: str = O
     patch = _clean(payload)
     if not patch:
         raise ValueError("Tidak ada perubahan.")
+    cur = await db.price_components.find_one({"id": comp_id, "org_id": org}, {"_id": 0})
+    if not cur:
+        raise LookupError("Komponen biaya tidak ditemukan.")
+    import cost_master   # W2-C: validasi blok biaya + kolom turunan + batas nominal; tulis tembus bila katalog = sumber
+    patch = await cost_master.prepare_catalog_patch(org, cur, patch)
     patch["updated_at"] = now_iso()
     patch["updated_by"] = actor
     res = await db.price_components.update_one({"id": comp_id, "org_id": org}, {"$set": patch})
     if not res.matched_count:
         raise LookupError("Komponen biaya tidak ditemukan.")
-    return await db.price_components.find_one({"id": comp_id}, {"_id": 0})
+    row = await db.price_components.find_one({"id": comp_id}, {"_id": 0})
+    await cost_master.after_catalog_write(org, row)
+    return row
 
 
 async def scheme_matrix(org: str = ORG_ID) -> dict:

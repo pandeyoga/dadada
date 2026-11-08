@@ -243,8 +243,11 @@ async def reserve_unit(payload: DealReserve,
             if not await ae.may_manual(user):  # MANUAL_ROLES = pemegang finance:manage
                 raise HTTPException(status_code=403, detail=(
                     "Input biaya manual hanya untuk finance_manager/superadmin — pilih skema all-in."))
-            costs.update(ae.manual_components(payload.costs_manual, payload.costs_manual_reason,
-                                              user.get("email")))
+            import cost_limits   # W2-C: batas nominal per komponen (cost.component_max_amount) menurut proyek unit
+            import contract_cost_model as ccm   # W2-C #6: model 'wajib All-in' menutup komponen manual
+            await ccm.reject_if_all_in_only(org, unit.get("project_id"), "komponen manual saat reservasi")
+            costs.update(ae.manual_components(payload.costs_manual, payload.costs_manual_reason, user.get("email"),
+                                              limit=await cost_limits.max_amount(org, unit.get("project_id"))))
             await audit_log(user, "override", "deal_costs", None,
                             {"reason": payload.costs_manual_reason, "items": payload.costs_manual})
             qe.attach_costs(calc, costs)
@@ -252,6 +255,13 @@ async def reserve_unit(payload: DealReserve,
             if not await ae.may_manual(user):
                 raise HTTPException(status_code=403, detail=(
                     "Input biaya bebas sudah ditutup — pilih skema all-in dari master."))
+            import cost_limits   # W2-C: batas nominal + model biaya kontrak berlaku juga pada isian bebas saat reservasi
+            import contract_cost_model as ccm
+            await ccm.reject_if_all_in_only(org, unit.get("project_id"), "isian biaya bebas saat reservasi")
+            _lim = await cost_limits.max_amount(org, unit.get("project_id"))
+            for _k in ("bphtb", "notary_fee", "bank_fee", "insurance"):
+                if _k in costs:
+                    cost_limits.check(costs[_k], _lim, f"Nominal {_k}")
             costs["components"] = ae.legacy_components(costs)
             costs["scheme_code"], costs["scheme_name"] = "LEGACY", "Legacy (input bebas)"
             qe.attach_costs(calc, costs)

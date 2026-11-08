@@ -6,6 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RupiahInput } from "@/components/ui/rupiah-input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -14,11 +18,16 @@ import ReferenceSelect from "@/components/patterns/ReferenceSelect";
 import api from "@/services/apiClient";
 import { useReference } from "@/context/ReferenceContext";
 import { formatIDR } from "@/utils/formatters";
-import { CONFIG } from "@/constants/testIds";
+import CostMasterDiffPanel from "@/components/config/CostMasterDiffPanel";
+import { CONFIG, W2C } from "@/constants/testIds";
+
+const CALC = { nominal_tetap: "Nominal tetap", persen_harga: "% × harga", rumus_bphtb: "Rumus BPHTB (% × (harga − NPOPTKP))" };
+const BILL = { customer_pass_through: "Ditagih ke pembeli (titipan)", developer_borne: "Ditalangi developer (beban)" };
 
 /**
- * Komponen biaya per skema pembayaran (keputusan owner D12: tiap tipe pembayaran punya
- * komponen berbeda, KPR paling banyak) + perlakuan keuangannya yang menentukan jurnal.
+ * Katalog komponen biaya (keputusan owner D12: tiap tipe pembayaran punya komponen berbeda). W2-C #16: katalog ini adalah SUMBER
+ * master komponen biaya; baris bermuatan biaya membawa blok `cost` (cara hitung, ditagih/ditalangi, akun GL) yang pada mode
+ * "katalog sebagai sumber" dipakai tagihan & jurnal. Pada mode bayangan tagihan masih dari Biaya All-in — lihat panel selisih.
  */
 export default function PriceComponentPanel() {
   const { labelOf } = useReference();
@@ -28,16 +37,20 @@ export default function PriceComponentPanel() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState({ q: "", sort: "code", direction: "asc", skip: 0, limit: 50 });
   const [form, setForm] = useState(null);
+  const [mode, setMode] = useState("bayangan");
+  const [reloadKey, setReloadKey] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
-      const [m, list] = await Promise.all([
+      const [m, list, eff] = await Promise.all([
         api.get("/catalog/price-components/matrix"),
         api.get("/catalog/price-components"),
+        api.get("/settings/effective", { params: { keys: "cost.master_mode" } }).catch(() => ({ data: { data: {} } })),
       ]);
       setMatrix(m.data.data);
       setRows(list.data.data || []);
+      setMode(eff.data.data?.["cost.master_mode"] || "bayangan");
     } catch (e) {
       setError(e?.response?.data?.detail || "Gagal memuat komponen biaya.");
     } finally { setLoading(false); }
@@ -45,15 +58,21 @@ export default function PriceComponentPanel() {
 
   useEffect(() => { load(); }, [load]);
 
+  const setCost = (k, v) => setForm((f) => ({ ...f, cost: { ...f.cost, [k]: v } }));
   const submit = async () => {
     try {
-      await api.put(`/catalog/price-components/${form.id}`, {
+      // Baris bermuatan biaya: kolom lama (nilai bawaan, akun GL, skema) DITURUNKAN server dari blok biaya — tidak dikirim.
+      const body = form.cost ? {
+        label: form.label, note: form.note || null, active: form.active !== false,
+        cost: { ...form.cost, amount: Number(form.cost.amount) || 0, pct: Number(form.cost.pct) || 0 },
+      } : {
         label: form.label, value: Number(form.value) || 0,
         finance_treatment: form.finance_treatment, gl_account: form.gl_account || null,
         applies_schemes: form.applies_schemes || [], note: form.note || null,
-      });
+      };
+      await api.put(`/catalog/price-components/${form.id}`, body);
       toast.success("Komponen biaya diperbarui.");
-      setForm(null); load();
+      setForm(null); load(); setReloadKey((k) => k + 1);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Gagal menyimpan.");
     }
@@ -82,7 +101,11 @@ export default function PriceComponentPanel() {
       render: (r) => (
         <div>
           <div>{labelOf("finance_treatment", r.finance_treatment)}</div>
-          <div className="font-mono text-[10px] text-muted-foreground">{r.gl_account || "-"}</div>
+          {r.cost ? <div className="text-[11px]" data-testid="w2c-cost-bill">{BILL[r.cost.default_treatment]} · {CALC[r.cost.calc_method]}
+            {r.cost.calc_method === "nominal_tetap" ? ` · ${formatIDR(r.cost.amount)}` : ` · ${r.cost.pct}%`}</div> : null}
+          <div className="font-mono text-[10px] text-muted-foreground">
+            {r.cost ? `${r.cost.gl_expense} / ${r.cost.gl_liability} / ${r.cost.gl_ap}` : (r.gl_account || "-")}
+          </div>
         </div>
       ),
       exportValue: (r) => r.finance_treatment },
@@ -110,12 +133,24 @@ export default function PriceComponentPanel() {
 
   return (
     <div data-testid={CONFIG.pricePanel} className="space-y-3">
-      <div className="rounded-md border bg-secondary p-3 text-sm">
-        <strong>Katalog referensi — belum mengubah tagihan maupun jurnal.</strong> Kolom perlakuan keuangan di
-        sini (<em>Pendapatan</em>, <em>Titipan pelanggan</em>, <em>Potongan</em>, <em>Informasi</em>) hanya
-        keterangan. Cara hitung, perlakuan (titipan pembeli / ditanggung developer) dan akun GL biaya transaksi
-        yang BENAR-BENAR dipakai tagihan & jurnal diatur di tab <strong>Biaya All-in</strong>.
+      <div data-testid={W2C.banner} data-mode={mode} className="rounded-md border bg-secondary p-3 text-sm">
+        {mode === "katalog_sumber" ? (
+          <>
+            <strong>Katalog adalah SUMBER master komponen biaya.</strong> Baris bermuatan biaya (BPHTB, notaris, bank, asuransi, …) di bawah
+            ini DIPAKAI tagihan & jurnal untuk reservasi, penawaran, dan amandemen BARU; mengubahnya langsung berlaku ke depan (snapshot
+            yang sudah terbit tidak berubah). Tab <strong>Biaya All-in</strong> hanya menentukan komponen mana yang berlaku di tiap skema.
+            Baris harga/pajak/potongan lain hanya referensi.
+          </>
+        ) : (
+          <>
+            <strong>Mode bayangan — penyatuan master komponen biaya sedang disiapkan.</strong> Tagihan & jurnal biaya transaksi MASIH
+            dihitung dari master di tab <strong>Biaya All-in</strong>; katalog ini dibandingkan dengannya dan selisihnya dilaporkan di
+            bawah (belum mengubah tagihan maupun jurnal). Baris bermuatan biaya akan menjadi sumber bila opsi
+            “Katalog sebagai sumber” dipilih di Aturan Bisnis (hanya bila selisih 0). Baris harga/pajak/potongan lain hanya referensi.
+          </>
+        )}
       </div>
+      <CostMasterDiffPanel key={reloadKey} onChanged={load} />
       <DataTable
         testId="config-price-table"
         testIds={{ search: "config-price-search", row: CONFIG.priceRow,
@@ -127,7 +162,7 @@ export default function PriceComponentPanel() {
         emptyTitle="Belum ada komponen biaya" />
 
       <Dialog open={!!form} onOpenChange={(o) => { if (!o) setForm(null); }}>
-        <DialogContent>
+        <DialogContent className="max-h-[88vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Ubah komponen biaya</DialogTitle>
             <DialogDescription>{form?.code}</DialogDescription>
@@ -139,6 +174,40 @@ export default function PriceComponentPanel() {
                 <Input id="pc-label" value={form.label}
                   onChange={(e) => setForm({ ...form, label: e.target.value })} />
               </div>
+              {form.cost ? (
+                <div className="space-y-3" data-testid="w2c-cost-form">
+                  <p className="rounded-md border bg-secondary p-2 text-xs">
+                    Komponen biaya: akun GL, nilai bawaan, dan skema berlaku <strong>diturunkan</strong> dari blok biaya di bawah (tidak bisa
+                    saling bertentangan).{mode === "katalog_sumber" ? " Perubahan langsung dipakai tagihan baru." : " Pada mode bayangan perubahan di sini belum dipakai tagihan."}
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5"><Label>Cara hitung</Label>
+                      <Select value={form.cost.calc_method} disabled={form.code === "BOOKING"} onValueChange={(v) => setCost("calc_method", v)}>
+                        <SelectTrigger data-testid="w2c-cost-calc"><SelectValue /></SelectTrigger>
+                        <SelectContent>{Object.entries(CALC).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent>
+                      </Select></div>
+                    <div className="space-y-1.5"><Label>{form.cost.calc_method === "nominal_tetap" ? "Nominal (Rp)" : "Persen (%)"}</Label>
+                      {form.cost.calc_method === "nominal_tetap"
+                        ? <RupiahInput data-testid="w2c-cost-amount" disabled={form.code === "BOOKING"} value={form.cost.amount || 0} onChange={(e) => setCost("amount", e.target.value)} />
+                        : <Input type="number" data-testid="w2c-cost-pct" disabled={form.code === "BOOKING"} value={form.cost.pct} onChange={(e) => setCost("pct", e.target.value)} />}</div>
+                  </div>
+                  <div className="space-y-1.5"><Label>Ditagih / ditalangi (bawaan)</Label>
+                    <Select value={form.cost.default_treatment} onValueChange={(v) => setCost("default_treatment", v)}>
+                      <SelectTrigger data-testid="w2c-cost-treatment"><SelectValue /></SelectTrigger>
+                      <SelectContent>{Object.entries(BILL).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">Skema All-in tetap boleh menimpa per skema (aturan).</p></div>
+                  <div className="grid gap-3 sm:grid-cols-3" data-testid={W2C.costFormGl}>
+                    <div className="space-y-1.5"><Label>GL beban</Label><ReferenceSelect group="gl_account" value={form.cost.gl_expense || ""} onChange={(v) => setCost("gl_expense", v)} testId="w2c-gl-expense" /></div>
+                    <div className="space-y-1.5"><Label>GL titipan</Label><ReferenceSelect group="gl_account" value={form.cost.gl_liability || ""} onChange={(v) => setCost("gl_liability", v)} testId="w2c-gl-liability" /></div>
+                    <div className="space-y-1.5"><Label>GL utang (AP)</Label><ReferenceSelect group="gl_account" value={form.cost.gl_ap || ""} onChange={(v) => setCost("gl_ap", v)} testId="w2c-gl-ap" /></div>
+                  </div>
+                  <div className="flex items-center gap-4 text-sm">
+                    <label className="flex items-center gap-2"><Switch checked={!!form.cost.kpr_only} onCheckedChange={(v) => setCost("kpr_only", v)} /> Hanya KPR</label>
+                    <label className="flex items-center gap-2"><Switch checked={form.active !== false} onCheckedChange={(v) => setForm({ ...form, active: v })} /> Aktif</label>
+                  </div>
+                </div>
+              ) : (<>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="pc-value">Nilai bawaan (Rp)</Label>
@@ -162,12 +231,12 @@ export default function PriceComponentPanel() {
               <div className="space-y-1.5">
                 <Label>Berlaku pada skema bayar</Label>
                 <div className="flex flex-wrap gap-3 rounded-md border bg-secondary p-2">
-                  {schemes.map((s) => (
-                    <label key={s.value} className="flex items-center gap-2 text-sm">
+                  {schemes.map((sc) => (
+                    <label key={sc.value} className="flex items-center gap-2 text-sm">
                       <input type="checkbox"
-                        checked={(form.applies_schemes || []).includes(s.value)}
-                        onChange={() => toggleScheme(s.value)} />
-                      {s.label}
+                        checked={(form.applies_schemes || []).includes(sc.value)}
+                        onChange={() => toggleScheme(sc.value)} />
+                      {sc.label}
                     </label>
                   ))}
                 </div>
@@ -175,6 +244,7 @@ export default function PriceComponentPanel() {
                   Kosongkan semua = berlaku untuk semua skema.
                 </p>
               </div>
+              </>)}
             </div>
           ) : null}
           <DialogFooter>

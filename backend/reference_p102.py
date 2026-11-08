@@ -91,3 +91,31 @@ GROUPS_P102["ppn_mode"] = {
         _o("bebas_ppn", "Bebas PPN — tarif efektif 0 (mis. rumah subsidi), tanpa catatan PPN"),
     ],
 }
+# ===== W2-C — master komponen biaya (#16) & model biaya kontrak (#6) =====
+GROUPS_P102.update({
+    "cost_master_mode": {
+        "label": "Sumber Master Komponen Biaya", "strict": True,
+        "help": "Setting `cost.master_mode` (keputusan #16).",
+        "options": [
+            _o("bayangan", "Bayangan — tagihan tetap dari Biaya All-in; katalog hanya dibandingkan (laporan selisih)"),
+            _o("katalog_sumber", "Katalog sebagai sumber — definisi komponen dibaca dari katalog lewat rujukan kode"),
+        ],
+    },
+    "contract_cost_model": {
+        "label": "Model Biaya Kontrak", "strict": True,
+        "help": "Setting `contract.cost_model` (keputusan #6).",
+        "options": [
+            _o("input_bebas_invoice", "Input bebas + invoice biaya (persetujuan mengikuti kunci terpisah)"),
+            _o("wajib_all_in", "Wajib skema All-in — input bebas ditolak"),
+            _o("persetujuan", "Semua perubahan biaya kontrak lewat persetujuan Keuangan"),
+        ],
+    },
+    "cost_request_state": {
+        "label": "Keadaan Permohonan Biaya Kontrak", "strict": True,
+        "help": "Permohonan isian bebas biaya kontrak (W2-C #6).",
+        "options": [
+            _o("pending", "Menunggu persetujuan Keuangan"), _o("approved", "Disetujui — sudah berlaku"),
+            _o("rejected", "Ditolak"), _o("cancelled", "Dibatalkan pemohon"),
+        ],
+    },
+})

@@ -16,7 +16,7 @@ import {
 import api from "@/services/apiClient";
 import ReferenceSelect from "@/components/patterns/ReferenceSelect";
 import { formatIDR } from "@/utils/formatters";
-import { P75 } from "@/constants/testIds";
+import { P75, W2C } from "@/constants/testIds";
 
 const METHOD = { nominal_tetap: "Nominal tetap", persen_harga: "% × harga", rumus_bphtb: "Rumus BPHTB (tarif Master Pajak × (harga − NPOPTKP))" };
 const TREAT = { developer_borne: "Ditanggung developer (beban)", customer_pass_through: "Ditagih pembeli (titipan)" };
@@ -28,9 +28,12 @@ export default function CostComponentPanel() {
   const [rows, setRows] = useState([]);
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState("bayangan");
 
   const load = useCallback(() => {
     api.get("/cost-components", { params: { include_inactive: true } }).then((r) => setRows(r.data.data || [])).catch(() => setRows([]));
+    api.get("/settings/effective", { params: { keys: "cost.master_mode" } })
+      .then((r) => setMode(r.data.data?.["cost.master_mode"] || "bayangan")).catch(() => {});
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -46,6 +49,13 @@ export default function CostComponentPanel() {
 
   return (
     <div className="space-y-3">
+      <div data-testid={W2C.rulesNote} data-mode={mode} className="rounded-md border bg-secondary p-3 text-xs">
+        {mode === "katalog_sumber"
+          ? <><strong>Katalog adalah sumber.</strong> Definisi komponen (nama, cara hitung, akun GL, ditagih/ditalangi) dimiliki katalog di tab <strong>Komponen Biaya</strong>;
+            mengubahnya di sini ditolak. Skema di bawah hanya menentukan komponen mana yang berlaku, perlakuannya per skema, dan nominal terkunci.</>
+          : <><strong>Mode bayangan:</strong> komponen & skema di tab ini masih yang BENAR-BENAR menagih dan menjurnal. Katalog di tab <strong>Komponen Biaya</strong> dibandingkan
+            dengannya (laporan selisih) dan akan menjadi sumber setelah selisih 0 dan opsi dipilih di Aturan Bisnis.</>}
+      </div>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="section-title">Komponen biaya transaksi</h3>
@@ -61,7 +71,9 @@ export default function CostComponentPanel() {
           <tbody className="divide-y">
             {rows.map((r) => (
               <tr key={r.id} data-testid={P75.componentRow} data-code={r.code} className={r.is_active ? "" : "opacity-50"}>
-                <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
+                <td className="px-3 py-2 font-mono text-xs">{r.code}
+                  <div data-testid="w2c-catalog-ref" data-linked={r.catalog_code ? "1" : "0"} className="font-sans text-[10px] text-muted-foreground"
+                    title="Rujukan ke kode katalog (Komponen Biaya) — diisi migrasi">{r.catalog_code ? `↔ katalog ${r.catalog_code}` : "belum dirujuk ke katalog"}</div></td>
                 <td className="px-3 py-2">{r.name}{r.kpr_only ? <span className="ml-1 text-[10px] text-muted-foreground">(KPR)</span> : null}
                   {r.code === "BOOKING" ? <span data-testid="cost-component-booking-badge" className="ml-1.5 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-800">otomatis dari booking fee</span> : null}</td>
                 <td className="px-3 py-2 text-xs">{r.code === "BOOKING" ? "= booking fee deal" : `${METHOD[r.calc_method]} ${r.calc_method === "nominal_tetap" ? `· ${formatIDR(r.amount)}` : r.calc_method === "rumus_bphtb" ? "· tarif ikut Master Pajak" : `· ${r.pct}%`}`}</td>

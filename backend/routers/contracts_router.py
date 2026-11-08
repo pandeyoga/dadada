@@ -139,11 +139,21 @@ async def get_contract(contract_id: str,
 @router.post("/contracts/{contract_id}/costs")
 async def set_costs(contract_id: str, payload: ContractCostsIn,
                     user: dict = Depends(require_permission("contracts", "update"))):
-    """Isi komponen biaya. Kirim -1 untuk MENGOSONGKAN kembali (bukan 0)."""
-    await _contract_scoped(contract_id, user)
+    """Isi komponen biaya. Kirim -1 untuk MENGOSONGKAN kembali (bukan 0).
+
+    W2-C (#6): model biaya kontrak (`contract.cost_model`) — isian bebas bisa DITOLAK (wajib All-in) atau DITAHAN menunggu persetujuan
+    Keuangan (HTTP 202 + dokumen permohonan; angka lama tetap berlaku) menurut pengaturan org/proyek."""
+    import contract_cost_model as ccm
+    cur = await _contract_scoped(contract_id, user)
+    body = payload.model_dump(exclude_none=True)
     try:
-        c = await ce.set_costs(_org(user), contract_id,
-                               payload.model_dump(exclude_none=True), user.get("email"))
+        held = await ccm.screen_set_costs(_org(user), cur, body, user)
+        if held:
+            await audit_log(user, "request_approval", "contract", contract_id, {"request_id": held["id"], "changes": held["changes"]})
+            return ccm.held_response(held, ccm.hold_message(held))
+        c = await ce.set_costs(_org(user), contract_id, body, user.get("email"))
+    except Conflict:
+        raise
     except LookupError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:

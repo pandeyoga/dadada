@@ -62,7 +62,11 @@ async def _request_locked(org: str, contract: dict, payload: dict, user: dict) -
     elif payload.get("items") is not None:
         if not await ae.may_manual(user):
             raise PermissionError("Komponen manual hanya finance_manager/superadmin.")
-        new_costs = ae.manual_components(payload["items"], reason, user.get("email"))
+        import contract_cost_model as ccm   # W2-C #6: model 'wajib All-in' menutup komponen manual (amandemen tetap boleh memilih skema)
+        await ccm.reject_if_all_in_only(org, deal.get("project_id"), "komponen manual pada amandemen")
+        import cost_limits   # W2-C: batas nominal per komponen menurut proyek deal
+        new_costs = ae.manual_components(payload["items"], reason, user.get("email"),
+                                         limit=await cost_limits.max_amount(org, deal.get("project_id")))
     else:
         raise ValueError("Pilih skema all-in atau isi komponen manual.")
     old = contract.get("costs") or {}

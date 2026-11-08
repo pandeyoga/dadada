@@ -702,6 +702,9 @@ async def listing(*, org_id: str = ORG_ID, group: str = None, project_id: str = 
         if spec.get("ref_group"):
             import reference as _ref
             item["option_labels"] = _ref.labels(spec["ref_group"])
+        if spec.get("guard"):   # opsi yang baru sah bila bukti data terpenuhi (mis. selisih master = 0): hitung saat daftar dimuat
+            import settings_policy
+            item["unavailable"] = {**(spec.get("unavailable") or {}), **await settings_policy.dynamic_unavailable(spec["guard"], org_id)}
         item["group_label"] = GROUP_LABELS.get(spec["group"], spec["group"])
         item["default_value"] = spec["value"]
         item["value"] = row["value"] if row else spec["value"]
@@ -732,6 +735,9 @@ async def set_value(key: str, value, *, actor: str, reason: str = None,
     if spec.get("sensitive") and not (reason or "").strip():
         raise ValueError(f"'{spec['label']}' adalah setting sensitif — alasan wajib diisi.")
     value = coerce(spec, value)
+    if spec.get("guard"):   # penjaga dinamis (settings_policy.GUARDS): menolak opsi yang buktinya belum ada di data
+        import settings_policy
+        await settings_policy.GUARDS[spec["guard"]](value, org_id=org_id, scope=scope, scope_id=scope_id)
     ts = now_iso()
     existing = await db.settings.find_one(
         {"org_id": org_id, "key": key, "scope": scope, "scope_id": scope_id}, {"_id": 0})

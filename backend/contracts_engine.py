@@ -570,10 +570,9 @@ async def enrich(org: str, contract: dict) -> dict:
 
 
 # ============================================================ perubahan kontrak
-async def set_costs(org: str, contract_id: str, payload: dict, actor: str) -> dict:
-    """Isi/ubah komponen biaya. `None` DIABAIKAN (tidak menghapus nilai yang sudah ada);
-    kirim -1 untuk mengosongkan kembali menjadi "belum diisi"."""
-    c = await get_raw(org, contract_id)
+async def check_costs(org: str, c: dict, payload: dict) -> None:
+    """Pemeriksaan isian biaya kontrak (kontrak batal / snapshot terkunci / angka tidak wajar). Dipakai `set_costs` dan penyaring
+    model biaya kontrak (W2-C #6) supaya permohonan persetujuan ditolak SEKARANG bila isiannya memang tidak sah."""
     if c.get("state") == "cancelled":
         raise ValueError("Kontrak sudah dibatalkan.")
     if (c.get("costs") or {}).get("components") and c.get("state") != "draft" and any(
@@ -582,6 +581,13 @@ async def set_costs(org: str, contract_id: str, payload: dict, actor: str) -> di
                           "AMANDEMEN skema all-in dengan alasan & persetujuan finance manager.")
     import contract_costs_guard
     await contract_costs_guard.validate(org, c, payload)  # KT-22: angka tidak wajar ditolak
+
+
+async def set_costs(org: str, contract_id: str, payload: dict, actor: str) -> dict:
+    """Isi/ubah komponen biaya. `None` DIABAIKAN (tidak menghapus nilai yang sudah ada);
+    kirim -1 untuk mengosongkan kembali menjadi "belum diisi"."""
+    c = await get_raw(org, contract_id)
+    await check_costs(org, c, payload)
     # Per-bidang ($set/$unset), bukan menimpa seluruh dict `costs`: dua pengisian serentak pada
     # bidang berbeda tidak saling menghapus.
     sets, unsets, changed = {}, {}, []
