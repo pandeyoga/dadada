@@ -332,6 +332,18 @@ def test_nonaktifkan_default_vs_jadikan_default(world, mdb, keep_default):
         ok(call(FINANCE, "POST", f"/cash-bank/accounts/{base['id']}/set-default"))   # pulihkan default agar jalur lain tak terganggu
 
 
+def test_buat_rekening_serentak_tiap_rekening_mendapat_subakun_gl_unik(mdb):
+    """Dulu: dua rekening yang dibuat serentak memilih kode sub-akun yang sama; yang kalah menubruk indeks unik (409) dan
+    rekeningnya tertinggal TANPA akun GL (jurnal otomatis ke rekening itu jatuh ke akun induk)."""
+    names = [f"Rek Serentak HB {_uid()}" for _ in range(4)]
+    rs = race([lambda n=n: call(FINANCE, "POST", "/cash-bank/accounts", json={
+        "kind": "bank", "name": n, "bank_name": "Bank Uji HB", "account_no": _uid("NO"), "opening_balance": 0}) for n in names])
+    assert codes(rs) == [200] * 4, _shown(rs)
+    gl = [r.json()["data"]["gl_account_code"] for r in rs]
+    assert len(set(gl)) == 4 and not {None, "1-1100", "1-1200"} & set(gl), gl
+    assert mdb.bank_accounts.count_documents({"org_id": "org-sipro", "name": {"$in": names}, "gl_account_code": None}) == 0
+
+
 # ================================================================== FA — aset tetap
 def _asset(cost=12_000_000, acc=None):
     body = {"name": f"Aset HB {_uid()}", "category": "komputer_it", "tax_group": "kelompok_1", "method": "garis_lurus",

@@ -47,8 +47,10 @@ class TestMoneyOpUrutan:
             @asynccontextmanager
             async def cm(*a, **kw):
                 log.append((name, "masuk", a, kw))
-                yield f"{name}-hasil"
-                log.append((name, "keluar"))
+                try:
+                    yield f"{name}-hasil"
+                finally:
+                    log.append((name, "keluar"))
             return cm
         monkeypatch.setattr(mo, "once", rec("once"))
         monkeypatch.setattr(mo, "deal_money", rec("deal"))
