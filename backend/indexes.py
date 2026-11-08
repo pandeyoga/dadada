@@ -39,6 +39,9 @@ UNIQUE_INDEXES = [
     # BIASA (org_id, source_event) di seed_indexes.py sengaja dipertahankan — index parsial
     # `$type:string` tidak dipakai planner untuk find_one(source_event=...) (COLLSCAN, terukur).
     ("journal_entries", [("org_id", 1), ("source_event", 1)], "uq_journal_source_event"),
+    # Posting profile (resolver bayangan): satu catatan selisih per jurnal; satu baris statistik per (org, peristiwa).
+    ("posting_shadow_diffs", [("org_id", 1), ("journal_id", 1)], "uq_shadow_diff_journal"),
+    ("posting_shadow_stats", [("org_id", 1), ("event_key", 1)], "uq_shadow_stats_event"),
     # Kunci idempotensi permintaan uang (lihat idempotency.py): satu kunci = satu permintaan.
     ("idempotency_keys", [("key", 1)], "uq_idempotency_key"),
     ("documents", [("org_id", 1), ("doc_number", 1)], "uq_doc_number"),
