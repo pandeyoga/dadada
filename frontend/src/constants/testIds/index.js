@@ -152,3 +152,5 @@ export * from './p101';
 export * from './contactEdit';
 // H-C — layar Keamanan Webhook (Pusat Konfigurasi).
 export * from './webhookSecurity';
+// ===== W2-C — satu master komponen biaya (#16) & permohonan isian biaya kontrak (#6) =====
+export * from './w2c';

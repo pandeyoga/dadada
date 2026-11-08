@@ -22,6 +22,7 @@ async def validate(org: str, contract: dict, payload: dict) -> None:
     """Tolak masukan biaya yang tidak wajar (ValueError → HTTP 400)."""
     import contracts_engine as ce
     gross = None
+    limit = None
     for k in (*RP_FIELDS, "dp_percent"):
         v = payload.get(k)
         if v is None:
@@ -31,6 +32,11 @@ async def validate(org: str, contract: dict, payload: dict) -> None:
                 raise ValueError(f"{LABEL[k]}: nilai negatif tidak sah. Untuk menghapus nilai yang "
                                  "sudah diisi gunakan tombol 'Kosongkan' (kembali menjadi 'belum diisi').")
             continue
+        if k in ce.COST_FIELDS:   # W2-C: batas nominal per komponen biaya (cost.component_max_amount) menurut proyek kontrak
+            import cost_limits
+            if limit is None:
+                limit = await cost_limits.max_amount(org, await cost_limits.project_of_contract(org, contract))
+            cost_limits.check(v, limit, LABEL[k], stored=(contract.get("costs") or {}).get(k))
         if k == "dp_percent":
             if v > 100:
                 raise ValueError("Persentase DP harus antara 0 dan 100.")

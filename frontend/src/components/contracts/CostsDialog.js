@@ -61,9 +61,13 @@ export default function CostsDialog({ contract, open, onOpenChange, onSaved }) {
     setBusy(true);
     try {
       const res = await api.post(`/contracts/${contract.id}/costs`, payload);
-      toast.success("Komponen biaya kontrak diperbarui.");
+      if (res.status === 202) {   // W2-C #6: ditahan menunggu persetujuan Keuangan — angka lama tetap berlaku
+        toast.success(res.data.message || "Isian diajukan, menunggu persetujuan Keuangan.");
+      } else {
+        toast.success("Komponen biaya kontrak diperbarui.");
+      }
       onOpenChange(false);
-      onSaved && onSaved(res.data.data);
+      onSaved && onSaved(res.status === 202 ? undefined : res.data.data);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Gagal menyimpan komponen biaya.");
     } finally { setBusy(false); }
@@ -74,8 +78,9 @@ export default function CostsDialog({ contract, open, onOpenChange, onSaved }) {
     try {
       const res = await api.post(`/contracts/${contract.id}/costs`, { [key]: -1 });
       setForm((f) => ({ ...f, [key]: "" }));
-      toast.success("Nilai dikosongkan kembali menjadi ‘belum diisi’.");
-      onSaved && onSaved(res.data.data);
+      toast.success(res.status === 202 ? (res.data.message || "Pengosongan diajukan, menunggu persetujuan Keuangan.")
+        : "Nilai dikosongkan kembali menjadi ‘belum diisi’.");
+      onSaved && onSaved(res.status === 202 ? undefined : res.data.data);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Gagal mengosongkan nilai.");
     } finally { setBusy(false); }
