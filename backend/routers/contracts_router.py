@@ -163,6 +163,8 @@ async def set_scheme(contract_id: str, payload: ContractSchemeIn,
     except Conflict:
         raise  # 409 lewat penangan global (bentrok dengan permintaan lain)
     except sc.Held as h:   # W1-B: ditahan (pemetaan alokasi Keuangan / amandemen komponen KPR)
+        await audit_log(user, "request_approval", "contract", contract_id,
+                        {"scheme": payload.scheme, "held": h.request.get("id"), "reason": payload.reason})
         return sc.held_response(h)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -106,6 +106,8 @@ async def set_for_contract(contract_id: str, payload: ContractSchemeIn,
         doc = await psx.set_for_contract(org, contract, payload.scheme_id,
                                          user.get("email"), payload.reason)
     except sc.Held as h:   # W1-B (#9): uang nyata sudah masuk → ditahan sampai Keuangan memetakan alokasi
+        await audit_log(user, "request_approval", "contract", contract_id,
+                        {"payment_scheme_id": payload.scheme_id, "held": h.request.get("id"), "reason": payload.reason})
         return sc.held_response(h)
     except LookupError as e:
         raise HTTPException(404, str(e))

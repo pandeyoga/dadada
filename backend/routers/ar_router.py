@@ -225,6 +225,8 @@ async def create_schedule(deal_id: str, payload: ArScheduleChange,
         inv = await fe.create_ar_for_deal(deal, scheme_id=payload.scheme_id, org_id=org,
                                           replace=True, actor=user.get("email"))
     except sc.Held as h:
+        await audit_log(user, "request_approval", "deal", deal_id,
+                        {"scheme_id": payload.scheme_id, "held": h.request.get("id"), "reason": payload.reason})
         return sc.held_response(h)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
