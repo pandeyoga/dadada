@@ -6,6 +6,7 @@ penetapan skema pada satu kontrak.
 from fastapi import APIRouter, Depends, HTTPException
 
 import payment_scheme_engine as psx
+import scheme_change as sc
 from core_utils import serialize_doc
 from db import ORG_ID, db
 from models_p57 import (ContractSchemeIn, InstallmentGenIn, SchemeIn, SchemeSimulateIn,
@@ -104,6 +105,8 @@ async def set_for_contract(contract_id: str, payload: ContractSchemeIn,
     try:
         doc = await psx.set_for_contract(org, contract, payload.scheme_id,
                                          user.get("email"), payload.reason)
+    except sc.Held as h:   # W1-B (#9): uang nyata sudah masuk → ditahan sampai Keuangan memetakan alokasi
+        return sc.held_response(h)
     except LookupError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:

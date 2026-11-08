@@ -53,14 +53,36 @@ async def _cash_by_item(org: str, deal_id: str) -> dict:
     return out
 
 
-async def carry(org: str, deal_id: str, existing: dict, items: list, allocate) -> dict:
+async def carry_mapped(org: str, deal_id: str, existing: dict, items: list, approved: dict) -> dict:
+    """Pindahkan pembayaran ke `items` baru memakai PEMETAAN yang sudah dikonfirmasi Keuangan (W1-B #9, IN-14).
+
+    `approved` = {"alloc": {receipt_id: [(indeks, nominal)]}, "schedule_hash", "request_id", "by", "reason"} (dari
+    `scheme_change.apply`). Divalidasi ULANG terhadap kuitansi & jadwal saat ini — bukan percaya hasil pratinjau lama.
+    """
+    import scheme_change_alloc as sca
+    if sca.schedule_hash(items) != approved["schedule_hash"]:
+        raise ValueError("Jadwal skema baru berubah sejak pratinjau (harga/skema/diskon deal berubah) — pemetaan tidak "
+                         "berlaku lagi. Batalkan permintaan ini lalu ajukan ulang.")
+    receipts = await sca.mappable_receipts(org, deal_id)
+    sca.check_old_ar(existing, receipts)
+    alloc = sca.normalize(sca.to_api(approved["alloc"]), receipts, items)
+    sca.apply_to_items(items, alloc)
+    return {"_mapped": True, "alloc": alloc, "items": items, "request_id": approved.get("request_id"),
+            "by": approved.get("by"), "reason": approved.get("reason")}
+
+
+async def carry(org: str, deal_id: str, existing: dict, items: list, allocate, approved: dict = None) -> dict:
     """Pindahkan pembayaran AR `existing` ke `items` baru (diubah di tempat).
+
+    `approved` (pemetaan dikonfirmasi Keuangan) menggantikan seluruh pemetaan otomatis di bawah ini.
 
     `allocate` = `finance_engine._allocate` (disuntik supaya tidak ada impor melingkar).
     Mengembalikan pemetaan {id termin lama: termin baru} untuk `remap_receipts`.
     Raise `ValueError` bila uang nyata tak bisa dipetakan, atau jadwal baru lebih kecil dari
     pembayaran yang sudah masuk.
     """
+    if approved:
+        return await carry_mapped(org, deal_id, existing, items, approved)
     cash = await _cash_by_item(org, deal_id)
     free = list(range(len(items)))
     mapping, pool, cash_pool = {}, 0, 0
@@ -91,8 +113,8 @@ async def carry(org: str, deal_id: str, existing: dict, items: list, allocate) -
         raise ValueError(
             f"Rp {rp} yang sudah diterima dialokasikan ke termin yang TIDAK ADA lagi pada "
             "jadwal baru. Jadwal tagihan yang sudah dibayar pembeli tidak boleh disusun ulang "
-            "diam-diam (kuitansi dan piutang akan berbeda). Terbitkan adendum, atau kembalikan "
-            "uangnya sebagai titipan/refund dulu.")
+            "diam-diam (kuitansi dan piutang akan berbeda). Ajukan penggantian skema lewat jalur pemetaan Keuangan "
+            "(Keuangan menetapkan alokasi tiap kuitansi ke termin baru), atau kembalikan uangnya sebagai titipan/refund dulu.")
     if pool > 0:
         _, sisa = allocate(items, pool)
         if sisa > 0:
@@ -124,6 +146,25 @@ async def remap_receipts(org: str, deal_id: str, mapping: dict) -> int:
     return n
 
 
+async def remap_receipts_mapped(org: str, deal_id: str, carried: dict) -> int:
+    """Tulis ulang `allocations` kuitansi sesuai pemetaan Keuangan; alokasi LAMA disimpan di `allocation_history`
+    (kuitansi, nominal, nomor, dan jurnal kas TIDAK berubah — hanya penempatannya ke termin)."""
+    ts = now_iso()
+    n = 0
+    items = carried["items"]
+    for rid, lst in carried["alloc"].items():
+        rec = await db.receipts.find_one({"id": rid, "org_id": org, "deal_id": deal_id}, {"_id": 0, "allocations": 1})
+        if rec is None:
+            continue
+        baru = [{"item_id": items[j]["id"], "label": items[j].get("label"), "amount": a, "remapped": True}
+                for j, a in lst]
+        await db.receipts.update_one({"id": rid}, {"$set": {"allocations": baru}, "$push": {"allocation_history": {
+            "at": ts, "by": carried.get("by"), "request_id": carried.get("request_id"),
+            "reason": carried.get("reason"), "previous": rec.get("allocations") or []}}})
+        n += 1
+    return n
+
+
 async def replace_invoice(org: str, deal_id: str, inv: dict, existing: dict, carried: dict) -> None:
     """Tulis AR hasil susun-ulang dengan CAS, lalu arahkan alokasi kuitansi ke termin baru.
 
@@ -134,4 +175,7 @@ async def replace_invoice(org: str, deal_id: str, inv: dict, existing: dict, car
     if res.matched_count != 1:
         raise Conflict("Tagihan (AR) deal ini berubah saat jadwal disusun ulang (ada pembayaran/"
                        "penyesuaian lain). Tidak ada yang diubah — muat ulang lalu ulangi.")
+    if carried.get("_mapped"):
+        await remap_receipts_mapped(org, deal_id, carried)
+        return
     await remap_receipts(org, deal_id, carried)

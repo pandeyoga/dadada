@@ -276,15 +276,21 @@ async def reserve_unit(payload: DealReserve,
                 "Potongan ini memerlukan persetujuan manajer — tulis alasan/dasar potongan (≥5 huruf) "
                 "agar manajer bisa memutuskan. Reservasi akan menunggu persetujuan."))
         ts = now_iso()
-        if await can(user.get("role"), "pricing", "approve"):
+        # W1-B (#8): kebijakan persetujuan (mode + tabel tingkat) yang berlaku SAAT permohonan lahir direkam di
+        # permohonan itu; mengganti pengaturan kemudian tidak mengubah permohonan yang sedang menunggu.
+        import discount_approval as da
+        snap = await da.snapshot(org, unit.get("project_id"), int(calc.get("total_discount_amount") or 0))
+        if await can(user.get("role"), "pricing", "approve") and da.covers(snap, user.get("role")):
             approval = {"state": "approved", "reasons": calc["approval_reasons"], "reason": reason,
                         "requested_by": user.get("email"), "requested_at": ts,
                         "decided_by": user.get("email"), "decided_at": ts, "self_approved": True,
-                        "decision_reason": "Dibuat langsung oleh pemegang izin pricing:approve."}
+                        "decision_reason": "Dibuat langsung oleh pemegang izin pricing:approve.",
+                        "policy_snapshot": snap}
         else:
             approval = {"state": "pending", "reasons": calc["approval_reasons"], "reason": reason,
                         "requested_by": user.get("email"), "requested_at": ts,
-                        "decided_by": None, "decided_at": None, "decision_reason": None}
+                        "decided_by": None, "decided_at": None, "decision_reason": None,
+                        "policy_snapshot": snap}
     # KT-08: kuota kupon dipakai SECARA ATOMIK lebih dulu (deal_id dibuat di sini), baru unit
     # ditahan. Dulu kupon ditebus SESUDAH deal ada: dua reservasi serentak pada kupon kuota 1
     # sama-sama berdiskon (deal kedua tertinggal dengan HTTP 500 dan unit terkunci).
@@ -320,7 +326,7 @@ async def reserve_unit(payload: DealReserve,
             raise HTTPException(status_code=409, detail=str(e))
         raise
     if approval and approval["state"] == "pending":
-        await _notify_pricing_approvers(org, deal, calc)
+        await _notify_pricing_approvers(org, deal, calc, approval.get("policy_snapshot"))
         await audit_log(user, "request_approval", "deals", deal["id"],
                         {"reasons": calc["approval_reasons"], "reason": approval["reason"]})
     elif approval:
@@ -341,11 +347,12 @@ def pricing_approval_block(deal: dict) -> str:
     return None
 
 
-async def _notify_pricing_approvers(org: str, deal: dict, calc: dict) -> None:
+async def _notify_pricing_approvers(org: str, deal: dict, calc: dict, snap: dict = None) -> None:
     import quotation_engine as qe
     from engine import create_notification
     reasons = "; ".join(r.get("label") or "" for r in calc.get("approval_reasons") or [])
-    for email in await qe.approver_emails(org):
+    # Mode bertingkat: hanya penyetuju yang rank-nya mencukupi tingkat ini yang diberi tahu.
+    for email in await qe.approver_emails(org, min_rank=int((snap or {}).get("required_rank") or 0)):
         await create_notification(
             user_email=email, org_id=org, type="sales", title="Persetujuan potongan reservasi (SPR)",
             body=(f"Unit {deal.get('unit_code')} · {deal.get('lead_name')}: potongan Rp "
@@ -364,7 +371,14 @@ async def decide_pricing(deal_id: str, payload: DealPricingDecision,
     pa = d.get("pricing_approval") or {}
     if pa.get("state") != "pending":
         raise HTTPException(status_code=400, detail="Reservasi ini tidak sedang menunggu persetujuan potongan.")
-    if pa.get("requested_by") == user.get("email") and user.get("role") not in ("owner", "super_admin"):
+    import discount_approval as da
+    snap = pa.get("policy_snapshot")
+    if da.is_tiered(snap):   # W1-B (#8): mode bertingkat — tanpa pengecualian pemohon + peran minimal tingkat
+        try:
+            da.check_decider(snap, role=user.get("role"), email=user.get("email"), requester=pa.get("requested_by"))
+        except da.Forbidden as e:
+            raise HTTPException(status_code=403, detail=str(e))
+    elif pa.get("requested_by") == user.get("email") and user.get("role") not in ("owner", "super_admin"):
         raise HTTPException(status_code=403, detail="Pemohon tidak boleh menyetujui potongannya sendiri.")
     ts = now_iso()
     state = "approved" if payload.approve else "rejected"

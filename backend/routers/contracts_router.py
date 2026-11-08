@@ -22,6 +22,7 @@ import contracts_engine as ce
 import customer_convert as cc
 import docgen
 import kpr_engine as kpr
+import scheme_change as sc
 from core_utils import parse_pagination, serialize_doc
 from db import ORG_ID, db
 from models_p53 import (ContractCostsIn, ContractSchemeIn, ConvertToCustomerIn,
@@ -161,6 +162,8 @@ async def set_scheme(contract_id: str, payload: ContractSchemeIn,
                                user.get("email"), payload.reason)
     except Conflict:
         raise  # 409 lewat penangan global (bentrok dengan permintaan lain)
+    except sc.Held as h:   # W1-B: ditahan (pemetaan alokasi Keuangan / amandemen komponen KPR)
+        return sc.held_response(h)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "update", "contract", contract_id, {"scheme": payload.scheme})

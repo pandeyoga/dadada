@@ -415,6 +415,11 @@ async def create(org: str = ORG_ID, *, lead_id: str, unit_id: str, addons: list 
     days = int(valid_days or await cfg.get("quotation.validity_days", org_id=org) or 7)
     ts = now_iso()
     state = "awaiting_approval" if calc["needs_discount_approval"] else "draft"
+    # W1-B (#8): kebijakan persetujuan yang berlaku SAAT penawaran lahir direkam (mode + tingkat + peran yang dibutuhkan).
+    approval_policy = None
+    if calc["needs_discount_approval"]:
+        import discount_approval as da
+        approval_policy = await da.snapshot(org, calc["unit"]["project_id"], int(calc.get("total_discount_amount") or 0))
     doc = {
         "id": new_id(), "org_id": org,
         "no": (version_of or {}).get("no") or await seq.next_number("quotation", org,
@@ -443,6 +448,7 @@ async def create(org: str = ORG_ID, *, lead_id: str, unit_id: str, addons: list 
                                     "terms_total", "as_of")},
         "needs_discount_approval": calc["needs_discount_approval"],
         "approval_reasons": calc.get("approval_reasons") or [],
+        "approval_policy": approval_policy,
         "discount_limit_pct": calc["discount_limit_pct"],
         "state": state, "state_label": _label(state),
         "valid_days": days,
@@ -470,7 +476,7 @@ async def create(org: str = ORG_ID, *, lead_id: str, unit_id: str, addons: list 
     if state == "awaiting_approval":
         reasons = "; ".join(r.get("label") or "" for r in doc.get("approval_reasons") or []) or (
             f"diskon melebihi batas {doc['discount_limit_pct']}%")
-        for mgr in await approver_emails(org):
+        for mgr in await approver_emails(org, min_rank=int((approval_policy or {}).get("required_rank") or 0)):
             await create_notification(
                 user_email=mgr, org_id=org, type="sales",
                 title="Persetujuan diskon penawaran",
@@ -489,15 +495,11 @@ async def get(org: str, quotation_id: str) -> dict:
     return _with_expiry(q)
 
 
-async def approver_emails(org: str) -> list:
-    """Semua pengguna aktif yang memegang izin `pricing:approve` (peran kustom ikut)."""
-    from rbac import can
-    out = []
-    async for u in db.users.find({"org_id": org, "is_active": {"$ne": False}},
-                                 {"_id": 0, "email": 1, "role": 1}):
-        if u.get("email") and await can(u.get("role"), "pricing", "approve"):
-            out.append(u["email"])
-    return out[:30]
+async def approver_emails(org: str, min_rank: int = 0) -> list:
+    """Semua pengguna aktif yang memegang izin `pricing:approve` (peran kustom ikut); `min_rank` > 0 menyaring
+    hanya peran yang cukup tinggi untuk tingkat persetujuan bertingkat (W1-B)."""
+    import discount_approval as da
+    return [e for e, _ in await da.approver_rows(org, min_rank)]
 
 
 def pricing_snapshot(calc: dict) -> dict:
@@ -521,11 +523,19 @@ def _with_expiry(q: dict) -> dict:
 
 
 async def decide_discount(org: str, quotation_id: str, actor: str, approve: bool,
-                          reason: str) -> dict:
-    """Manajer menyetujui/menolak diskon — wajib beralasan (jejak kewenangan)."""
+                          reason: str, actor_role: str = None) -> dict:
+    """Manajer menyetujui/menolak diskon — wajib beralasan (jejak kewenangan).
+
+    W1-B (#8): bila penawaran lahir dengan kebijakan BERTINGKAT (`approval_policy`), penyetuju harus berperan minimal
+    sebesar tingkat yang dibutuhkan dan bukan pembuat penawaran itu sendiri (`discount_approval.Forbidden`)."""
     if len((reason or "").strip()) < MIN_REASON:
         raise ValueError(f"Alasan keputusan minimal {MIN_REASON} huruf.")
     q = await get(org, quotation_id)
+    import discount_approval as da
+    if da.is_tiered(q.get("approval_policy")):
+        if actor_role is None:   # pemanggil lama tanpa peran: baca dari akun
+            actor_role = ((await db.users.find_one({"org_id": org, "email": actor}, {"_id": 0, "role": 1})) or {}).get("role")
+        da.check_decider(q["approval_policy"], role=actor_role, email=actor, requester=q.get("created_by"))
     state = "approved" if approve else "rejected"
     if q["state"] != "awaiting_approval" or not _can_move("awaiting_approval", state):
         raise ValueError(f"Penawaran ini berstatus {q.get('state_label')} — tidak sedang "

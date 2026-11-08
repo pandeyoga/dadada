@@ -32,6 +32,7 @@ DEAL_CHILD_COLLECTIONS = (
     "kpr_disbursements", "cancellations", "late_fees", "warning_letters", "coupon_redemptions",
     "unit_handovers", "refund_debts", "pdc_instruments",
     "complaints", "warranty_claims", "marketing_fees", "faktur_pajak", "conversion_events", "documents",
+    "scheme_change_requests",
 )
 CONTRACT_CHILD_COLLECTIONS = ("doc_submissions", "doc_shares", "wa_doc_shares", "kpr_stages", "contract_documents")
 # Koleksi uang yang disapu ULANG di akhir (penulis yang tak lewat `deal_money`, mis. titipan/booking fee).
