@@ -208,6 +208,25 @@ def test_kompat_menulis_master_bukan_dokumen_lama(world):
     assert _eff()["pph_rate"] == 2.5
 
 
+def test_kompat_juga_menulis_mode_ppn_njop_dan_persen_plafon(world):
+    body = {"ppn_rate": 12, "bphtb_rate": 5, "pph_rate": 2.5, "npoptkp": 80_000_000, "project_id": world.project_id,
+            "reason": "uji kompat: mode PPN, NJOP, % plafon proyek"}
+    try:
+        r = ok(call(FINLEAD, "PUT", "/finance/config/tax", json={**body, "ppn_mode": "bebas_ppn", "njop_per_m2": 5_000_000,
+                                                                  "bank_fee_pct_of_plafon": 0.75}))
+        assert sorted(r["changed"]) == sorted([K_PPN_MODE, K_NJOP, K_BANKFEE])
+        e = _eff(world.project_id)
+        assert (e["ppn_mode"], e["njop_per_m2"], e["bank_fee_pct_of_plafon"]) == ("bebas_ppn", 5_000_000, 0.75)
+        assert e["origins"]["ppn_mode"] == "project" and _eff()["ppn_mode"] == "eksklusif"
+        assert call(FINLEAD, "PUT", "/finance/config/tax", json={**body, "ppn_mode": "ngawur"}).status_code == 400
+        assert call(FINLEAD, "PUT", "/finance/config/tax", json={**body, "njop_per_m2": -1}).status_code == 400
+        assert call(FINANCE, "PUT", "/finance/config/tax", json={**body, "ppn_mode": "inklusif"}).status_code == 403
+    finally:
+        for k in (K_PPN_MODE, K_NJOP, K_BANKFEE):
+            _reset(k, world.project_id)
+    assert _eff(world.project_id)["ppn_mode"] == "eksklusif"
+
+
 # ================================================================== migrasi idempoten
 def test_migrasi_finance_config_ke_master_idempoten():
     import db as dbm
@@ -322,6 +341,16 @@ def test_pph_final_per_proyek_masuk_catatan_pajak(world):
 
 
 # ================================================================== NJOP
+def test_perkiraan_plafon_dari_porsi_bank_skema_atau_simulasi_kpr():
+    import quotation_engine as qe
+    terms = [{"label": "DP 20%", "amount": 100}, {"label": "Pelunasan / KPR 80%", "amount": 400}]
+    assert qe._plafon_estimate(terms, "kpr", 450, 500) == round(400 * 450 / 500)   # diskalakan ke harga bersih
+    assert qe._plafon_estimate(terms, "cash_bertahap", 500, 500) == 0              # bukan skema KPR
+    assert qe._plafon_estimate([{"label": "DP", "amount": 500}], "kpr", 500, 500) == 0   # tanpa termin bank → pakai simulasi KPR/rumus lama
+    assert qe._plafon_estimate(terms, "kpr", 500, 0) == 0
+    assert qe.kpr_estimate(500, {"tenor_months": 120, "annual_rate_pct": 8, "dp_pct": 20})["loan_amount"] == 400
+
+
 def test_njop_menaikkan_dasar_bphtb_hanya_bila_dipakai(world, allin):
     try:
         ok(_put(K_NJOP, 6_000_000, world.project_id, reason="NJOP tanah Rp 6 juta/m² — uji"))
@@ -362,16 +391,23 @@ def test_bank_fee_persen_plafon_hanya_bila_dinyalakan_dan_plafon_diketahui(world
         assert pakai["BANK_FEE"]["amount"] == round(500_000_000 * 0.5 / 100) and "plafon" in pakai["BANK_FEE"]["formula"]
         lain, _ = _preview(allin, "EXCLUDE", world_b.project_id, scheme="kpr", plafon=500_000_000)  # proyek lain tak berubah
         assert lain["BANK_FEE"]["amount"] == lama["BANK_FEE"]["amount"]
-        # penawaran: plafon = estimasi pinjaman dari simulasi KPR (DP 20%)
+        # penawaran/reservasi: plafon = porsi bank pada skema pembayaran KPR terpilih (yang juga dipakai jadwal AR)
         unit = world.units[world.next_unit]
-        kpr_sch = world.scheme["Standar KPR (DP 20%)"]
-        q = ok(call(SALES, "POST", "/quotations/simulate", json={
-            "unit_id": unit["id"], "scheme_id": kpr_sch, "allin_scheme_id": allin["EXCLUDE"],
-            "kpr": {"tenor_months": 120, "annual_rate_pct": 8, "dp_pct": 20}}))["data"]
-        net = int(q["net_price"])
-        bf = [c for c in q["costs"]["components"] if c["code"] == "BANK_FEE"][0]
-        loan = net - round(net * 20 / 100)   # = `kpr_estimate.loan_amount`
-        assert bf["amount"] == round(loan * 0.5 / 100) and "plafon" in bf["formula"], (bf, net, loan)
+
+        def bank_fee(scheme_name, kpr=None):
+            body = {"unit_id": unit["id"], "scheme_id": world.scheme[scheme_name], "allin_scheme_id": allin["EXCLUDE"]}
+            if kpr:
+                body["kpr"] = kpr
+            q = ok(call(SALES, "POST", "/quotations/simulate", json=body))["data"]
+            return [c for c in q["costs"]["components"] if c["code"] == "BANK_FEE"][0], int(q["net_price"])
+        bf, net = bank_fee("KPR (DP 0% + pencairan bank)")          # 100% porsi bank
+        assert abs(bf["amount"] - round(net * 0.5 / 100)) <= 1 and "plafon" in bf["formula"], (bf, net)
+        bf2, net2 = bank_fee("Standar KPR (DP 20%)")                # hanya termin 'Pelunasan / KPR 30%' = porsi bank
+        assert abs(bf2["amount"] - round(net2 * 0.30 * 0.5 / 100)) <= 1 and "plafon" in bf2["formula"], (bf2, net2)
+        # skema non-KPR tidak memuat komponen KPR-only (BANK_FEE) sama sekali
+        q3 = ok(call(SALES, "POST", "/quotations/simulate", json={
+            "unit_id": unit["id"], "scheme_id": world.scheme["Cash Bertahap (3x)"], "allin_scheme_id": allin["EXCLUDE"]}))["data"]
+        assert "BANK_FEE" not in [c["code"] for c in q3["costs"]["components"]]
     finally:
         _reset(K_BANKFEE, world.project_id)
     sesudah, _ = _preview(allin, "EXCLUDE", world.project_id, scheme="kpr", plafon=500_000_000)

@@ -131,6 +131,15 @@ async def _scheme(org: str, scheme_id: str = None) -> dict:
     return await fin.get_default_payment_scheme(org)
 
 
+def _plafon_estimate(terms: list, scheme_kind, net: int, gross: int) -> int:
+    """Perkiraan PLAFON KPR dari porsi bank pada skema pembayaran terpilih (termin bank dari harga kotor, diskalakan ke harga bersih).
+    0 bila bukan skema KPR / tak ada termin bank — pemanggil lalu memakai simulasi KPR (bila lengkap) atau rumus lama."""
+    if scheme_kind != "kpr" or not gross:
+        return 0
+    bank = sum(int(i["amount"]) for i in fin.infer_bank_items([dict(t) for t in terms], True) if fin.is_bank_item(i))
+    return round(bank * int(net) / int(gross))
+
+
 def kpr_estimate(price_after_discount: int, kpr: dict) -> dict:
     """Angsuran KPR anuitas — atau pengakuan jujur bahwa datanya belum ada.
 
@@ -221,7 +230,8 @@ async def simulate(org: str = ORG_ID, *, unit_id: str, addons: list = None,
                                         scheme=scheme.get("kind") or scheme.get("type"),
                                         booking_fee=max(0, bases["booking_fee"] - by_target["booking_fee"]),
                                         land_area=land_area_of(unit),   # W2-A: NJOP master (dasar BPHTB)
-                                        plafon=kpr_estimate(net, kpr).get("loan_amount"))   # W2-A: BANK_FEE % plafon (bila simulasi KPR lengkap)
+                                        plafon=_plafon_estimate(pre_terms, scheme_kind, net, gross)   # W2-A: BANK_FEE % plafon
+                                        or kpr_estimate(net, kpr).get("loan_amount"))
     # SATU KEBENARAN: termin dihitung oleh fungsi yang sama dengan pembuat AR.
     terms = pe.apply_component_discounts(
         fin.compute_scheme_items(scheme, gross - by_target["price"], today_iso_date()), by_target)

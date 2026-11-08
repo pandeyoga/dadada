@@ -16,6 +16,7 @@ tak berlaku tidak ditawarkan, layar menyegarkan diri sesudah galat, dan tidak ad
 | `w1b_diskon_bertingkat.js` | W1-B #8: editor tabel tingkat persetujuan diskon (validasi celah/tumpang tindih/peran menurun, alasan wajib, tingkat proyek) |
 | `w1b_alokasi_skema.js` | W1-B #9: panel 'ganti skema ditahan' di lembar AR — pemetaan alokasi per kuitansi oleh Keuangan (menyemai sendiri lewat `seed_w1b.py`; butuh `PYTHON` berisi requests+pytest) |
 | `w1c_titipan.js` | W1-C #12 deal batal: dialog batal menampilkan kebijakan titipan biaya (bukan kotak pengakuan), Keuangan › Pembatalan & Refund memuat permohonan refund (maker-checker, setujui, bayar, tolak beralasan, putusan basi 400), kunci kebijakan baru + opsi belum tersedia (butuh `seed_w1c.py`; sekali jalan per penyemaian) |
+| `w2a_master_pajak.js` | W2-A #15/#1: Pusat Konfigurasi › Aturan Bisnis › kelompok "Master Pajak & PPN" (7 kunci, bawaan = perilaku lama; pemilih proyek, alasan wajib, riwayat); Keuangan › Konfigurasi › Pajak (lapisan kompatibilitas + pemilih proyek + mode PPN) untuk Manajer Keuangan, hanya-baca bagi staf; tab Biaya All-in menunjuk Master Pajak (menyemai sendiri lewat API; tidak butuh `seed_*.py`) |
 | `ronde_e_aksi_409.js` | Setujui/tolak permintaan material, status izin, status komplain, batal PO `partially_received`, buka-blokir unit, setujui/tolak transfer kas |
 
 ## Menjalankan

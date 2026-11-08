@@ -215,9 +215,10 @@ DEFAULTS_W2A: dict = {d["key"]: d for d in [
        impact="Menaikkan dasar BPHTB (komponen biaya & catatan pajak) bila NJOP lebih tinggi dari harga.",
        minimum=0, maximum=1_000_000_000, **_PAJAK),
     _d("tax.master.bank_fee_pct_of_plafon", 0.0, "pct", "Biaya bank (BANK_FEE) sebagai % dari plafon KPR",
-       "0 = tidak dipakai (komponen BANK_FEE tetap menghitung persen × harga, seperti sebelumnya). Bila > 0 dan plafon KPR diketahui "
-       "(simulasi KPR pada penawaran, atau plafon SP3K pada amandemen skema biaya), BANK_FEE = persen ini × plafon; bila plafon belum "
-       "diketahui komponen memakai rumus aslinya. Tagihan biaya yang sudah terbit tidak dihitung ulang otomatis — pakai amandemen skema biaya.",
+       "0 = tidak dipakai (komponen BANK_FEE tetap menghitung persen × harga, seperti sebelumnya). Bila > 0 dan plafon KPR diketahui, "
+       "BANK_FEE = persen ini × plafon: pada penawaran/reservasi plafon = porsi bank skema pembayaran KPR terpilih (cadangan: simulasi KPR "
+       "lengkap), pada amandemen skema biaya = plafon SP3K kontrak; bila plafon belum diketahui komponen memakai rumus aslinya. Tagihan "
+       "biaya yang sudah terbit tidak dihitung ulang otomatis — pakai amandemen skema biaya.",
        impact="Mengubah nominal BANK_FEE pada komponen biaya yang dihitung/diamandemen SETELAH perubahan.",
        minimum=0, maximum=100, **_PAJAK),
 ]}

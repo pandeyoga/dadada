@@ -27,7 +27,7 @@ import ar_carry  # noqa: E402
 logger = logging.getLogger("sipro.finance")
 
 # Default pajak (acuan konfigurasi, configurable).
-DEFAULT_TAX = {"ppn_rate": 12.0, "bphtb_rate": 5.0, "pph_rate": 2.5, "npoptkp": 80_000_000}
+DEFAULT_TAX = tax_master.DEFAULT_TAX   # W2-A: nilai cadangan satu sumber (master pajak)
 FINANCE_NOTIFY_ROLES = ["finance", "owner", "super_admin"]
 WORKSHEET_NOTE = "Angka worksheet-level (belum GL penuh / e-Faktur)."
 
