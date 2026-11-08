@@ -24,7 +24,8 @@ tidak pernah dijalankan sistem.
 2. **Dedup pembeli** berdasarkan NIK, lalu telepon — satu manusia satu baris pembeli, walau
    ia membeli unit kedua.
 3. **Bukti dulu, status kemudian.** Konversi hanya boleh setelah reservasi DIKONFIRMASI
-   (booking) — atau setelah SPR ditandatangani, sesuai `[CFG] lead.won_trigger`. Sebab
+   (booking). Konversi OTOMATIS mengikuti `[CFG] lead.won_trigger` (bawaan: saat booking dikonfirmasi; bisa
+   ditimpa per proyek; pilihan lain: SPR/PPJB/AJB ditandatangani). Sebab
    penolakan memakai kode SSOT (`convert_block`) supaya layar menyebut sebab yang sama.
 4. **Dokumen tidak diminta dua kali.** Berkas yang sudah `verified` di lead diwarisi pembeli
    (baris baru menunjuk `file_id` yang SAMA, dengan jejak `inherited_from`).
@@ -40,8 +41,8 @@ import contracts_engine as ce
 import idempotency as idem
 import kpr_engine as kprmod
 import lead_lifecycle as lc
+import policy
 import reference as ref
-import settings_store as cfg
 from core_utils import due_in, new_id, now_iso
 from db import db
 from engine import add_activity, auto_create_task, emit
@@ -50,6 +51,35 @@ logger = logging.getLogger("sipro.convert")
 
 CONVERT_TRIGGERS = ("booking_fee_verified", "spr_signed", "ppjb_signed", "ajb_signed")
 SPR_CODES = ("SPR", "SPR_CASH", "SPR_CASH_STAGED", "SPR_KPR")
+TRIGGER_KEY = "lead.won_trigger"
+# Dokumen yang menjadi peristiwa pemicu `*_signed` (awalan `template_code`) dan tahap legal kontrak yang setara.
+DOC_TRIGGERS = {"SPR": "spr_signed", "PPJB": "ppjb_signed", "AJB": "ajb_signed"}
+LEGAL_STAGE = {"ppjb_signed": "ppjb", "ajb_signed": "ajb"}
+BLOCKED_TASK = "convert.auto_blocked:"   # tugas sales bila konversi otomatis tertahan; ditutup saat konversi berhasil
+
+
+async def trigger_for(org: str, deal: dict) -> str:
+    """Pemicu konversi efektif untuk SATU deal (keputusan #7): proyek deal → organisasi → bawaan kode.
+    Tidak ada tingkat kontrak — kontrak lahir DARI konversi ini."""
+    return str(await policy.resolve(TRIGGER_KEY, org_id=org, project_id=(deal or {}).get("project_id")))
+
+
+def deal_and_trigger_of(ev: dict):
+    """(deal_id, pemicu) dari satu peristiwa outbox, atau (None, None) bila peristiwa itu bukan pemicu konversi.
+    booking dikonfirmasi = `deal.booked`; tanda tangan = `document.signed` (SPR*/PPJB*/AJB*); tahap legal kontrak
+    = `deal.ppjb`/`deal.ajb` (kontrak sudah ada, jadi konversinya idempoten)."""
+    t = ev.get("type")
+    if t == "deal.booked":
+        return ev.get("entity_id"), "booking_fee_verified"
+    if t in ("deal.ppjb", "deal.ajb"):
+        return ev.get("entity_id"), f"{t.split('.')[1]}_signed"
+    if t == "document.signed":
+        pl = ev.get("data") or {}   # `emit()` menyimpan muatan di `data` (dulu salah baca `payload` → pemicu SPR tak pernah jalan)
+        code = str(pl.get("template_code") or "")
+        for prefix, trig in DOC_TRIGGERS.items():
+            if code.startswith(prefix):
+                return pl.get("deal_id"), trig
+    return None, None
 
 
 def _blk(code: str, detail: str) -> dict:
@@ -60,6 +90,21 @@ async def _signed_spr(org: str, deal_id: str) -> dict:
     return await db.documents.find_one(
         {"org_id": org, "deal_id": deal_id, "template_code": {"$in": list(SPR_CODES)},
          "status": "signed"}, {"_id": 0, "doc_number": 1, "template_code": 1})
+
+
+async def trigger_met(org: str, deal: dict, contract: dict, trigger: str, spr: dict = None) -> bool:
+    """Sudahkah peristiwa pemicu `trigger` terjadi untuk deal ini? (bukti pada data, bukan pada pengakuan pengguna)"""
+    if trigger == "booking_fee_verified":
+        return deal.get("status") in ("booked", "completed")
+    if trigger == "spr_signed":
+        return bool(spr if spr is not None else await _signed_spr(org, deal["id"]))
+    stage = LEGAL_STAGE.get(trigger)
+    if stage and ((contract or {}).get("legal") or {}).get(stage):
+        return True
+    prefix = [p for p, t in DOC_TRIGGERS.items() if t == trigger]
+    return bool(prefix and await db.documents.find_one(
+        {"org_id": org, "deal_id": deal["id"], "template_code": {"$regex": f"^{prefix[0]}"}, "status": "signed"},
+        {"_id": 1}))
 
 
 async def deal_scheme_kind(org: str, deal: dict) -> str:
@@ -108,7 +153,7 @@ async def preview(org: str, deal_id: str) -> dict:
                                               {"_id": 0, "id": 1, "name": 1, "nik": 1})
     if not existing:
         existing = await _dedup_customer(org, lead)
-    trigger = str(await cfg.get("lead.won_trigger", org_id=org) or "spr_signed")
+    trigger = await trigger_for(org, deal)
     spr = await _signed_spr(org, deal_id)
     blocks = []
     if deal.get("status") in ("cancelled", "expired"):
@@ -123,19 +168,21 @@ async def preview(org: str, deal_id: str) -> dict:
     if contract:
         blocks.append(_blk("sudah_pembeli",
                            f"Deal ini sudah punya kontrak {contract.get('number')}."))
-    # Pemicu `spr_signed` TIDAK dijadikan penahan keras: ia hanya peringatan, karena banyak
-    # developer menandatangani SPR di atas kertas lebih dahulu lalu mengunggah scannya.
+    # Pemicu `*_signed` TIDAK dijadikan penahan keras: ia hanya peringatan (pemicu otomatis belum terjadi), karena
+    # banyak developer menandatangani di atas kertas lebih dahulu lalu mengunggah scannya — dan konversi manual
+    # (tombol 'Jadikan Pembeli') adalah keputusan sadar petugas, bukan pemicu otomatis.
+    met = await trigger_met(org, deal, contract, trigger, spr)
     catatan = None
-    if trigger == "spr_signed" and not spr:
-        catatan = ("Kebijakan Anda (Pusat Konfigurasi → lead.won_trigger) menyebut pembeli "
-                   "lahir saat SPR DITANDATANGANI. Belum ada SPR bertanda tangan untuk deal "
-                   "ini — konversi tetap bisa dilakukan, tetapi terbitkan & tanda tangani "
-                   "SPR-nya agar jejaknya lengkap.")
+    if not met:
+        catatan = (f"Kebijakan Anda (Pusat Konfigurasi → lead.won_trigger) menyebut pembeli lahir otomatis saat "
+                   f"'{ref.label_of('lead_won_trigger', trigger)}'. Peristiwa itu belum terjadi untuk deal ini — "
+                   "konversi manual tetap bisa dilakukan, tetapi lengkapi peristiwanya agar jejaknya utuh.")
     return {
         "can_convert": not blocks,
         "blocks": blocks,
         "note": catatan,
         "trigger": trigger,
+        "trigger_met": met,
         "trigger_label": ref.label_of("lead_stage", "won"),
         "signed_spr": spr,
         "deal": {"id": deal["id"], "status": deal.get("status"),
@@ -401,6 +448,10 @@ async def _convert_locked(org: str, deal_id: str, actor: str, payload: dict) -> 
             logger.warning("Tahap lead tidak bisa dimajukan ke won: %s", e)
 
     # --- tugas administrasi (Dok 26 §2.7)
+    await db.tasks.update_many(   # konversi otomatis yang dulu tertahan kini selesai → tugasnya ikut selesai
+        {"org_id": org, "source_event": f"{BLOCKED_TASK}{deal_id}", "status": {"$in": ["open", "in_progress", "snoozed"]}},
+        {"$set": {"status": "done", "completed_at": ts, "completed_by": actor,
+                  "outcome": "Deal sudah menjadi pembeli", "updated_at": ts}})
     if not (cust.get("nik") and cust.get("npwp")):
         await auto_create_task(
             source_event=f"customer.kyc:{cust['id']}", jobdesk_code="SM-07",
@@ -435,21 +486,47 @@ async def _convert_locked(org: str, deal_id: str, actor: str, payload: dict) -> 
 
 async def auto_convert_if_configured(org: str, deal_id: str, trigger: str,
                                      actor: str = "system") -> dict:
-    """Dipanggil dari penangan peristiwa (booking / SPR ditandatangani).
+    """Dipanggil dari penangan peristiwa (booking dikonfirmasi / SPR, PPJB, AJB ditandatangani).
 
-    Konversi otomatis hanya jalan bila `[CFG] lead.won_trigger` MEMANG menyebut pemicu ini.
+    Konversi otomatis hanya jalan bila `[CFG] lead.won_trigger` — dibaca untuk PROYEK deal ini
+    (penimpaan proyek → organisasi → bawaan `booking_fee_verified`) — MEMANG menyebut pemicu ini.
     Kalau tidak, tidak terjadi apa-apa — dan itu bukan kegagalan: pemilik produk yang
-    menentukan kapan lead menjadi pembeli, bukan kode.
+    menentukan kapan lead menjadi pembeli, bukan kode. Idempoten: deal yang sudah punya kontrak
+    mengembalikan pembeli/kontrak yang sama. Bila pemicunya benar tetapi konversi tertahan
+    (mis. NIK bentrok, data diri kosong), sales diberi TUGAS — tidak dibiarkan diam di log.
     """
-    want = str(await cfg.get("lead.won_trigger", org_id=org) or "spr_signed")
+    deal = await db.deals.find_one({"id": deal_id, "org_id": org}, {"_id": 0})
+    if not deal:
+        return {"created": False, "skipped": True, "note": "Deal tidak ditemukan."}
+    want = await trigger_for(org, deal)
     if want != trigger:
         return {"created": False, "skipped": True,
                 "note": f"Pemicu konversi disetel '{want}', peristiwa ini '{trigger}'."}
+    if not deal.get("scheme_explicit") and not await db.contracts.find_one({"org_id": org, "deal_id": deal_id}, {"_id": 1}):
+        # KT-21: skema yang hanya BAWAAN sistem (sales tidak memilih) boleh disesuaikan saat 'Jadikan Pembeli' — pembeli &
+        # kontrak TIDAK dibuat otomatis dari tebakan (kontrak KPR/varian SPR salah sulit dibetulkan). Sales diberi tugas.
+        why = ("skema pembayaran deal ini masih BAWAAN sistem (belum dipilih sales), sehingga jenis kontrak tidak ditebak. "
+               "Buka 'Jadikan Pembeli', pilih skema yang benar, lalu konfirmasi.")
+        await _flag_blocked(org, deal, trigger, why)
+        return {"created": False, "skipped": True, "note": why}
     try:
         return await convert(org, deal_id, actor, {})
     except ValueError as e:
         logger.info("Konversi otomatis dilewati untuk deal %s: %s", deal_id, e)
+        await _flag_blocked(org, deal, trigger, f"{e} Perbaiki lalu klik 'Jadikan Pembeli' pada deal ini.")
         return {"created": False, "skipped": True, "note": str(e)}
+
+
+async def _flag_blocked(org: str, deal: dict, trigger: str, why: str) -> None:
+    """Pemicu sudah terjadi tetapi konversi otomatis tertahan → tugas untuk sales (sekali; ditutup saat konversi berhasil)."""
+    if deal.get("status") in ("cancelled", "expired"):
+        return
+    await auto_create_task(
+        source_event=f"{BLOCKED_TASK}{deal['id']}",
+        title=f"Konversi pembeli otomatis tertahan: unit {deal.get('unit_code') or '-'} · {deal.get('lead_name') or 'lead'}",
+        type="todo", related_entity_type="deal", related_entity_id=deal["id"],
+        assigned_to=deal.get("assigned_to"), due_date=due_in(days=1), priority="high", org_id=org,
+        description=f"Pemicu '{ref.label_of('lead_won_trigger', trigger)}' sudah terjadi, tetapi lead belum dijadikan pembeli otomatis: {why}")
 
 
 async def customer_of_deal(org: str, deal_id: str) -> dict:

@@ -14,15 +14,19 @@ async def reservation_expiry_sweeper() -> int:
     """Reservasi lewat masa keep unit dilepas dengan rutin pelepasan YANG SAMA dengan pembatalan
     (`deal_cancel.expire`, KT-25): unit bersih, kupon dilepas, tugas ditutup, lead mundur — dan, sejak sisa PK3-08,
     turunan ditutup oleh penutup bersama `deal_cancel_cleanup.close_deal_dependents` (komisi/fee belum disetujui, KPR,
-    pajak, janji temu, dokumen draft) seperti batal manual/formal. Satu deal bermasalah tidak menghentikan sapuan."""
-    import deal_cancel
+    pajak, janji temu, dokumen draft) seperti batal manual/formal. Satu deal bermasalah tidak menghentikan sapuan.
+
+    Keputusan #13: reservasi yang booking fee-nya SUDAH dibayar tidak lagi dilepas diam-diam — perlakuannya mengikuti
+    `reservation.expiry.paid_booking_fee` (perpanjang | antrean_refund | hangus), lihat `reservation_expiry.handle`.
+    Nilai kembalian = jumlah deal yang DILEPAS (yang diperpanjang/ditahan tidak dihitung)."""
+    import reservation_expiry
     swept = 0
     cur = await db.deals.find({"status": {"$in": ["draft", "reserved"]}}).to_list(1000)
     for d in cur:
         ru = d.get("reserved_until")
         if ru and ru < now_iso():
             try:
-                if await deal_cancel.expire(d.get("org_id", ORG_ID), d):
+                if await reservation_expiry.handle(d.get("org_id", ORG_ID), d) == "released":
                     swept += 1
             except Exception:  # noqa: BLE001
                 logger.exception("Kedaluwarsa reservasi deal %s gagal diproses (dilewati)", d.get("id"))

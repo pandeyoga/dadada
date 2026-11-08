@@ -92,6 +92,17 @@ def cleanup():
             call("owner", "DELETE", f"/customers/{c['id']}")
 
 
+@pytest.fixture
+def pemicu_spr():
+    """ASUMSI tes yang memakai ini: konversi lead→pembeli dilakukan MANUAL oleh petugas ('Jadikan Pembeli'). Sejak W1-A pemicu
+    otomatis bawaan adalah booking dikonfirmasi (`lead.won_trigger=booking_fee_verified`), jadi tes menyetel eksplisit
+    `spr_signed` (tingkat org) dan mengembalikannya di akhir — tujuan tes (perilaku konversi manual) tidak berubah."""
+    ok(call("owner", "PUT", "/settings/lead.won_trigger",
+            {"value": "spr_signed", "reason": "uji P0: konversi dilakukan manual", "scope": "org"}))
+    yield
+    call("owner", "POST", "/settings/lead.won_trigger/reset", params={"scope": "org"})
+
+
 def _phone() -> str:
     return "0812" + "".join(random.choice("0123456789") for _ in range(8))
 
@@ -166,7 +177,7 @@ def contract_seq(number: str) -> int:
 
 
 # ============================================================================ KT-02
-def test_kt02_convert_paralel_satu_customer_satu_kontrak(cleanup):
+def test_kt02_convert_paralel_satu_customer_satu_kontrak(cleanup, pemicu_spr):
     """4 permintaan /convert serentak -> semuanya sukses, kontrak & customer SAMA, tanpa 500."""
     lead, deal, _ = booked_deal(cleanup, tag="Race")
     for who in ("sales", "manager"):  # tembakan ke-3/4 dari peran lain pun harus aman
@@ -204,7 +215,7 @@ def test_kt02_convert_paralel_tanpa_lubang_nomor_kontrak(cleanup):
     assert (n2, n3) == (n1 + 1, n1 + 2), f"nomor berlubang: {n1}, {n2}, {n3}"
 
 
-def test_kt02_alur_normal_sekuensial_tetap_idempoten(cleanup):
+def test_kt02_alur_normal_sekuensial_tetap_idempoten(cleanup, pemicu_spr):
     """Alur normal: konversi pertama membuat, konversi ulang mengembalikan yang sama."""
     lead, deal, unit = booked_deal(cleanup, tag="Normal")
     first = ok(call("sales", "POST", f"/deals/{deal['id']}/convert", {}))
@@ -244,7 +255,7 @@ def test_kt01_manager_ppjb_ajb_lewat_gerbang_kontrak(cleanup):
     assert d["status"] == "booked" and not d.get("legal_stage")
 
 
-def test_kt01_deal_tanpa_kontrak_diarahkan_ke_jadikan_pembeli(cleanup):
+def test_kt01_deal_tanpa_kontrak_diarahkan_ke_jadikan_pembeli(cleanup, pemicu_spr):
     lead, deal, unit = booked_deal(cleanup, tag="LegalNoContract")
     code, body = call("manager", "POST", f"/deals/{deal['id']}/ppjb", {})
     assert code == 400 and "Jadikan Pembeli" in str(body), (code, str(body)[:300])
@@ -374,7 +385,7 @@ def test_kt08_reservasi_tanpa_kupon_tetap_normal(cleanup):
 
 
 # ============================================================================ KT-12
-def test_kt12_pembatalan_booked_baru_bayar_booking_fee_menunjuk_jalan_keluar(cleanup):
+def test_kt12_pembatalan_booked_baru_bayar_booking_fee_menunjuk_jalan_keluar(cleanup, pemicu_spr):
     """Pesan penolakan pembatalan satu klik tidak lagi melempar ke 'Pembatalan formal' yang
     sendirinya menyuruh kembali ke daftar deal: ia menyebut langkah nyata (Jadikan Pembeli dulu)."""
     lead, deal, unit = booked_deal(cleanup, tag="BatalBF")

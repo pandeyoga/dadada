@@ -49,7 +49,9 @@ const reset = async (scope, id) => api(OWNER, "POST", `/settings/${KEY}/reset?sc
     await page.getByRole("option", { name: `Khusus proyek: ${NAME}` }).click();
     await row().first().waitFor();
     const n = await page.locator(T("config-rules-row")).count();
-    R.check("tampilan proyek hanya memuat aturan ber-level proyek", n >= 1 && n <= 3, `baris=${n}`);
+    // jumlah aturan ber-level proyek bertambah tiap gelombang kebijakan (W1: reservasi kedaluwarsa, pemicu pembeli) — bandingkan dgn API
+    const expected = ((await api(OWNER, "GET", "/settings")).body.data || []).filter((r) => (r.levels || []).includes("project")).length;
+    R.check("tampilan proyek hanya memuat aturan ber-level proyek", n >= 1 && n === expected, `baris=${n} diharapkan=${expected}`);
     R.check("aturan lama (reservation.hold_days) tidak ditawarkan di tampilan proyek",
       await page.locator(T("config-rules-row")).filter({ hasText: "reservation.hold_days" }).count() === 0);
     R.check("di proyek: nilai mewarisi organisasi, tombol 'ikuti organisasi' nonaktif",

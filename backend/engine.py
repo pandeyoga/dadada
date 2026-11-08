@@ -545,19 +545,13 @@ async def _h_convert_customer(ev):
 
     Kenapa lewat penangan peristiwa: sebelum Fase 53 tidak ada satu jalur pun yang membuat
     `customers` dari sebuah deal, sehingga "lead menjadi pembeli" hanya ada di kepala orang.
-    Pemicunya TETAP keputusan pemilik produk (`booking_fee_verified` atau `spr_signed`);
-    kalau peristiwa ini bukan pemicu yang dipilih, tidak terjadi apa-apa.
+    Pemicunya TETAP keputusan pemilik produk (bawaan `booking_fee_verified`; per proyek bisa `spr_signed`,
+    `ppjb_signed`, `ajb_signed`); kalau peristiwa ini bukan pemicu yang dipilih, tidak terjadi apa-apa.
     """
     import customer_convert as cc
     org = ev.get("org_id", ORG_ID)
-    if ev["type"] == "deal.booked":
-        deal_id, trigger = ev["entity_id"], "booking_fee_verified"
-    else:  # document.signed
-        payload = ev.get("payload") or {}
-        if not str(payload.get("template_code") or "").startswith("SPR"):
-            return
-        deal_id, trigger = payload.get("deal_id"), "spr_signed"
-    if not deal_id:
+    deal_id, trigger = cc.deal_and_trigger_of(ev)
+    if not deal_id or not trigger:
         return
     try:
         await cc.auto_convert_if_configured(org, deal_id, trigger)
@@ -583,7 +577,8 @@ async def _h_deal_won(ev):
 
 
 HANDLERS["deal.sold"] = [_h_deal_won]
-HANDLERS["deal.ajb"] = [_h_deal_won]
+HANDLERS["deal.ajb"] = [_h_deal_won, _h_convert_customer]
+HANDLERS.setdefault("deal.ppjb", []).append(_h_convert_customer)   # pemicu `ppjb_signed`/`ajb_signed` (konversi idempoten)
 HANDLERS["payment.paid_off"] = HANDLERS.get("payment.paid_off", [])
 
 # ----------------------------- Fase 29: Work Hub (jobdesk per divisi) -----------------------------

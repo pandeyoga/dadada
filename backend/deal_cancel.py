@@ -104,14 +104,16 @@ async def _release_unit(org: str, deal: dict, actor: str, reason: str, only_deal
 
 async def _close_tasks_and_rewind_lead(org: str, deal: dict, actor: str, ts: str, outcome: str,
                                        lead_reason: str, source: str) -> None:
-    """Tugas terkait deal ditutup; lead yang tadinya `booking` mundur ke nurturing bila tak ada deal hidup."""
+    """Tugas terkait deal ditutup; lead yang tadinya `booking` mundur ke nurturing bila tak ada deal hidup.
+    Lead `won` yang menjadi pembeli otomatis saat booking dikonfirmasi (bawaan `lead.won_trigger`) ikut mundur: batal satu klik
+    hanya mungkin sebelum ada pembayaran termin, jadi ia bukan pembeli lagi (jalur batal formal menandainya `lost`)."""
     await db.tasks.update_many(
         {"org_id": org, "related_entity_type": "deal", "related_entity_id": deal["id"],
          "status": {"$nin": ["done", "cancelled"]},
          "source_event": {"$not": {"$regex": "^deal\\.cancel_followup:"}}},   # tugas tindak lanjut Keuangan (PK3-08) tetap hidup
         {"$set": {"status": "cancelled", "outcome": outcome, "updated_at": ts}})
     lead = await db.leads.find_one({"id": deal.get("lead_id"), "org_id": org}, {"_id": 0})
-    if lead and lead.get("stage") == "booking":
+    if lead and lead.get("stage") in ("booking", "won"):
         other = await db.deals.find_one({"org_id": org, "lead_id": lead["id"],
                                          "status": {"$in": ["reserved", "booked", "completed"]}},
                                         {"_id": 1})

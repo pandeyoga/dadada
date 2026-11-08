@@ -36,7 +36,7 @@ from datetime import datetime
 import pytest
 
 from test_p0_kontrak import (  # noqa: F401  (fixture `cleanup` ikut diimpor)
-    available_units, booked_deal, call, cleanup, new_lead, ok, pay_booking_fee_and_book, reserve,
+    available_units, booked_deal, call, cleanup, new_lead, ok, pay_booking_fee_and_book, pemicu_spr, reserve,
     scheme_id, upload_proof,
 )
 
@@ -482,7 +482,7 @@ def test_kt22_komponen_biaya_tidak_wajar_ditolak_yang_wajar_diterima(cleanup):
 
 
 # ============================================================================ KT-21
-def test_kt21_skema_bawaan_tidak_dikunci_skema_pilihan_sales_dikunci(cleanup):
+def test_kt21_skema_bawaan_tidak_dikunci_skema_pilihan_sales_dikunci(cleanup, pemicu_spr):
     # (a) reservasi TANPA memilih skema -> skema bawaan sistem, boleh disesuaikan saat Jadikan Pembeli
     lead_a = new_lead(tag="K21a")
     deal_a = ok(reserve(lead_a["id"], available_units(1)[0], scheme=None))

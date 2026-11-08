@@ -10,7 +10,7 @@ import uuid
 import pytest
 
 from test_p0_kontrak import (  # noqa: F401  (fixture `cleanup` ikut diimpor)
-    _lead_names, booked_deal, call, cleanup, ok,
+    _lead_names, booked_deal, call, cleanup, ok, pemicu_spr,   # noqa: F401  (fixture ikut diimpor)
 )
 
 
@@ -90,7 +90,7 @@ def test_kt17_nik_berformat_beda_tetap_terdeteksi_kembar(cleanup):
     assert code == 409
 
 
-def test_kt17_konversi_menolak_nik_tak_sah_dan_menormalisasi(cleanup):
+def test_kt17_konversi_menolak_nik_tak_sah_dan_menormalisasi(cleanup, pemicu_spr):
     lead, deal, _ = booked_deal(cleanup, who="sales", tag="Nik")
     code, body = call("sales", "POST", f"/deals/{deal['id']}/convert", {"nik": "123"})
     assert code == 400, (code, str(body)[:200])

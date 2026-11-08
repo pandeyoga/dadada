@@ -303,6 +303,17 @@ def test_pk307_pengingat_deal_aktif_tetap_disiapkan(world):
 
 # ================================================================== PK3-19 — lead lost saat deal booked
 def test_pk319_lead_tidak_bisa_lost_atau_daur_ulang_saat_deal_booked(world):
+    # ASUMSI tes: lead masih `booking` selama deal booked (belum menjadi pembeli). Sejak W1-A pemicu bawaan = booking dikonfirmasi
+    # (lead langsung `won`), jadi tes menyetel eksplisit `spr_signed` pada PROYEK ujinya — tujuan (gerbang 'deal aktif') sama.
+    ok(call(OWNER, "PUT", "/settings/lead.won_trigger", json={
+        "value": "spr_signed", "reason": "uji siklus: lead tetap booking", "scope": "project", "scope_id": world.project_id}))
+    try:
+        _pk319(world)
+    finally:
+        call(OWNER, "POST", "/settings/lead.won_trigger/reset", params={"scope": "project", "scope_id": world.project_id})
+
+
+def _pk319(world):
     d = world.new_deal()
     r = call(SALES, "POST", f"/leads/{d['lead_id']}/stage", json={"stage": "lost", "note": "uji siklus lost saat booked"})
     assert r.status_code == 400 and "deal aktif" in r.text, (r.status_code, r.text[:300])

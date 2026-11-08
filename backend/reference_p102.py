@@ -11,4 +11,13 @@ GROUPS_P102 = {
             _o("tolak", "Ditolak (catat lewat jalur lain)"),
         ],
     },
+    "reservation_expiry_paid_fee_policy": {
+        "label": "Reservasi Kedaluwarsa, Booking Fee Sudah Dibayar", "strict": True,
+        "help": "Setting `reservation.expiry.paid_booking_fee` (keputusan #13).",
+        "options": [
+            _o("perpanjang", "Perpanjang reservasi — unit TIDAK dilepas (berbatas, lalu tugas tindak lanjut)"),
+            _o("antrean_refund", "Lepas unit + booking fee masuk antrean refund Keuangan"),
+            _o("hangus", "Lepas unit + booking fee diakui hangus"),
+        ],
+    },
 }

@@ -29,7 +29,7 @@ _TTL = 3.0
 
 
 def _d(key, value, type_, group, label, help_, *, impact="", sensitive=False, minimum=None,
-       maximum=None, options=None, src="SISTEM", ref_group=None):
+       maximum=None, options=None, src="SISTEM", ref_group=None, levels=None):
     # CFG-03: enum WAJIB menunjuk grup registry (/api/reference) supaya label pilihan satu sumber.
     if type_ == "enum" and not ref_group:
         raise ValueError(f"Setting enum '{key}' harus punya ref_group")
@@ -40,6 +40,7 @@ def _d(key, value, type_, group, label, help_, *, impact="", sensitive=False, mi
         "key": key, "value": value, "type": type_, "group": group, "label": label,
         "help": help_, "impact": impact, "sensitive": sensitive, "min": minimum,
         "max": maximum, "options": options or [], "source": src, "ref_group": ref_group,
+        **({"levels": tuple(levels)} if levels else {}),   # tingkat penimpaan sah (docs/audit/12); kosong = aturan lama
     }
 
 
@@ -52,7 +53,7 @@ DEFAULTS: dict = {d["key"]: d for d in [
        impact="Menaikkan nilai ini membuat stok unit tampak habis padahal dipegang satu orang.",
        sensitive=True, minimum=1, maximum=5),
     _d("reservation.hold_days", 7, "int", "reservasi", "Masa keep unit (hari)",
-       "Lama unit dipegang sebelum otomatis dilepas bila tidak ada kelanjutan.",
+       "Lama unit dipegang sebelum otomatis dilepas bila tidak ada kelanjutan (booking fee sudah dibayar: lihat Kebijakan › Reservasi kedaluwarsa).",
        impact="Terlalu panjang = unit mati; terlalu pendek = pembeli serius kehilangan unit.",
        minimum=1, maximum=90, src="DOC"),
     _d("reservation.override_roles", ["sales_manager", "super_admin"], "list", "reservasi",
@@ -63,10 +64,13 @@ DEFAULTS: dict = {d["key"]: d for d in [
        "Booking fee wajib sebelum SPR",
        "SPR tidak bisa diterbitkan sebelum booking fee tercatat.", sensitive=True, src="DOC"),
     # ============ lead ============
-    _d("lead.won_trigger", "spr_signed", "enum", "lead", "Pemicu lead menjadi Customer",
-       "Peristiwa yang mengubah lead menjadi customer (akhir lifecycle lead).",
-       impact="Menentukan kapan proses legal berpindah ke domain Customer.",
-       sensitive=True, ref_group="lead_won_trigger"),
+    _d("lead.won_trigger", "booking_fee_verified", "enum", "lead", "Pemicu lead menjadi Customer",
+       "Peristiwa yang otomatis mengubah lead menjadi customer (akhir lifecycle lead): booking dikonfirmasi, SPR/PPJB/AJB "
+       "ditandatangani. Bawaan (keputusan pemilik #7): saat booking dikonfirmasi. Bisa ditimpa per proyek; tombol "
+       "'Jadikan Pembeli' manual tetap tersedia kapan pun.",
+       impact="Menentukan kapan pembeli + kontrak + jadwal tagihan lahir otomatis dan proses legal berpindah ke domain Customer. "
+              "Mengganti pemicu berlaku ke depan: deal yang sudah menjadi pembeli tidak berubah.",
+       sensitive=True, ref_group="lead_won_trigger", levels=("org", "project")),
     # ============ SLA & umur tahap (Fase 41) ============
     # Ambang ini DULU angka mati di komponen frontend (72 jam di daftar Lead, 48 di Tugas &
     # Komplain, 168 di Deal, 336 di Pembeli, 720 di AR). Sekarang satu tempat, dan
