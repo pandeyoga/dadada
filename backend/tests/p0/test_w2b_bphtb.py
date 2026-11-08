@@ -93,6 +93,17 @@ def test_apply_to_components_tiap_opsi_dan_idempoten():
     assert bp.apply_to_components([notaris], DEVELOPER, 50, "org") == [notaris]
 
 
+def test_apply_to_components_teks_rumus_tidak_menumpuk_saat_diterapkan_berulang():
+    import bphtb_policy as bp
+    comps_ = [_komp()]
+    for pct in (50, 70, 30):
+        comps_ = bp.apply_to_components(comps_, DIBAGI, pct, "contract")
+    by = {c["code"]: c["formula"] for c in comps_}
+    assert by["BPHTB"] == "5% × (harga − NPOPTKP Rp 80.000.000) · bagian pembeli 70%", by["BPHTB"]
+    assert by["BPHTB_DEV"] == "5% × (harga − NPOPTKP Rp 80.000.000) · bagian developer 30%", by["BPHTB_DEV"]
+    assert bp.apply_to_components(comps_, PEMBELI, 30, "contract")[0]["formula"] == "5% × (harga − NPOPTKP Rp 80.000.000)"
+
+
 def test_apply_to_components_memutar_ulang_potongan_promo_pada_bagian_pembeli():
     import bphtb_policy as bp
     promo = {"code": "PROMO-X", "name": "Promo BPHTB", "amount": 5_000_000, "source": "promo"}
@@ -253,6 +264,23 @@ def test_pratinjau_skema_mengikuti_pilihan_proyek(world):
         pv = ok(call(OWNER, "GET", f"/allin-schemes/{sid}/preview", params={"price": 500_000_000, "project_id": world.project_id}))["data"]
     by = {c["code"]: (c["treatment"], c["amount"]) for c in pv["components"]}
     assert by["BPHTB"] == ("customer_pass_through", 15_750_000) and by["BPHTB_DEV"] == ("developer_borne", 5_250_000)
+
+
+def test_promo_bersasaran_bphtb_memotong_bagian_pembeli_saja_pada_dibagi(world):
+    """PROMO-BPHTB (potongan 100% komponen BPHTB) menempel pada baris BPHTB = bagian PEMBELI; porsi developer tidak dipotong."""
+    with settings(world.project_id, **{K_BY: DIBAGI, K_PCT: 40}):
+        d = new_contract(world, "EXCLUDE", promo="PROMO-BPHTB")
+    cid = d["contract_id"]
+    rows = {c["code"]: c for c in contract(cid)["costs"]["components"]}
+    assert rows["BPHTB"]["amount"] == 0 and rows["BPHTB"]["discount"] == 12_600_000
+    assert rows["BPHTB_DEV"]["amount"] == 8_400_000 and not rows["BPHTB_DEV"].get("discount")
+    assert _items(cid) == {"NOTARY_FEE": NOTARIS}, "bagian pembeli lunas oleh promo; invoice hanya notaris"
+    s = ledger(cid)["bphtb"]
+    assert (s["total"], s["buyer"], s["developer"], s["discount"]) == (BPHTB_500JT, 0, 8_400_000, 12_600_000)
+    # ubah porsi pada kontrak: potongan promo diputar ulang pada bagian pembeli yang baru
+    ok(put(cid, K_PCT, 60, "porsi developer dinaikkan menjadi 60 persen"))
+    rows = {c["code"]: c for c in contract(cid)["costs"]["components"]}
+    assert rows["BPHTB"]["amount"] == 0 and rows["BPHTB"]["discount"] == 8_400_000 and rows["BPHTB_DEV"]["amount"] == 12_600_000
 
 
 def test_penawaran_dan_reservasi_baru_memakai_pilihan_eksplisit_tapi_tidak_mengubah_yang_lama(world):

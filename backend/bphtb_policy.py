@@ -122,7 +122,11 @@ async def decide(org: str, project_id: str = None, contract: dict = None, *, ski
 
 # ----------------------------------------------------------------------------- menerapkan keputusan ke komponen biaya
 def _base_formula(row: dict) -> str:
-    return str(row.get("formula") or "").split(_CUT)[0]
+    """Teks rumus asal baris (tanpa akhiran potongan promo dan akhiran bagian pembeli/developer dari penerapan sebelumnya)."""
+    f = str(row.get("formula") or "")
+    for sep in (_CUT, " · bagian pembeli", " · bagian developer"):
+        f = f.split(sep)[0]
+    return f
 
 
 def apply_to_components(components: list, borne_by: str, share_pct=0, origin: str = "org", *, mark: bool = True,

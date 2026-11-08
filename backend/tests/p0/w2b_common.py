@@ -22,8 +22,9 @@ def allin_id(code="EXCLUDE"):
     return next(s["id"] for s in ok(call(OWNER, "GET", "/allin-schemes"))["data"] if s["code"] == code)
 
 
-def new_contract(world, code="EXCLUDE", scheme="Cash Bertahap (3x)", who=SALES, allin=True):
-    """Reservasi → booking → kontrak (otomatis saat booking terverifikasi, atau lewat konversi). Skema biaya all-in `code`."""
+def new_contract(world, code="EXCLUDE", scheme="Cash Bertahap (3x)", who=SALES, allin=True, promo=None):
+    """Reservasi → booking → kontrak (otomatis saat booking terverifikasi, atau lewat konversi). Skema biaya all-in `code`;
+    `promo` = kode promo (mis. PROMO-BPHTB) yang dipilih saat reservasi."""
     unit = world.units[world.next_unit]
     world.next_unit += 1
     phone = "+62812" + str(int(time.time() * 1000))[-9:]
@@ -31,6 +32,10 @@ def new_contract(world, code="EXCLUDE", scheme="Cash Bertahap (3x)", who=SALES, 
     body = {"unit_id": unit["id"], "lead_id": lead["id"], "booking_fee": 0, "scheme_id": world.scheme[scheme]}
     if allin:
         body["allin_scheme_id"] = allin_id(code)
+    if promo:
+        opts = ok(call(who, "GET", "/pricing/options", params={"unit_id": unit["id"]}))["data"]
+        body["promo_id"] = next(p["id"] for p in opts["promos"] if p["code"] == promo)
+        body["discount_reason"] = "uji W2-B promo bersasaran BPHTB"
     deal = ok(call(who, "POST", "/deals/reserve", json=body))["data"]
     ok(call(who, "POST", f"/deals/{deal['id']}/book", json={}))
     d = {"deal_id": deal["id"], "unit_id": unit["id"], "unit_code": unit["code"], "project_id": world.project_id, "reserve_costs": deal.get("costs")}
