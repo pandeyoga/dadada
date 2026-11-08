@@ -41,6 +41,9 @@ class TaxConfigIn(TaxConfigUpdate):
     """Bentuk lama + alasan (kunci pajak sensitif) dan proyek (penimpaan) — W2-A."""
     reason: Optional[str] = None
     project_id: Optional[str] = None
+    ppn_mode: Optional[str] = None            # tax.ppn.mode
+    njop_per_m2: Optional[int] = None         # tax.master.njop_per_m2 (0 = tidak dipakai)
+    bank_fee_pct_of_plafon: Optional[float] = None   # tax.master.bank_fee_pct_of_plafon (0 = tidak dipakai)
 
 
 @router.get("/config/tax")
@@ -69,10 +72,12 @@ async def put_tax(payload: TaxConfigIn, user: dict = Depends(require_permission(
             raise HTTPException(status_code=404, detail="Proyek tidak ditemukan")
         if len(reason) < 10:
             raise HTTPException(status_code=400, detail="Menimpa pajak di tingkat proyek wajib beralasan (minimal 10 karakter).")
+    extra = {k: v for k, v in ((tax_master.K_PPN_MODE, payload.ppn_mode), (tax_master.K_NJOP, payload.njop_per_m2),
+                               (tax_master.K_BANK_FEE, payload.bank_fee_pct_of_plafon)) if v is not None}
     try:
         changed = await tax_master.write_legacy(
             org, ppn_rate=rates[0], bphtb_rate=rates[1], pph_rate=rates[2], npoptkp=rates[3], actor=user.get("email"),
-            reason=reason or "Diubah lewat Keuangan › Konfigurasi › Pajak", project_id=payload.project_id)
+            reason=reason or "Diubah lewat Keuangan › Konfigurasi › Pajak", project_id=payload.project_id, extra=extra)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "update", "tax_master", payload.project_id or org, {"keys": changed, "reason": reason or None})

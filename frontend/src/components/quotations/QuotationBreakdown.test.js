@@ -35,3 +35,21 @@ test("tanpa data pajak → catatan pajak tidak dirender, calc null → kosong", 
   rerender(<QuotationBreakdown calc={null} />);
   expect(container.textContent).toBe("");
 });
+
+// W2-A: catatan pajak mengikuti mode PPN proyek (bawaan = teks lama "di luar harga").
+test("mode PPN: eksklusif (bawaan) = di luar harga; inklusif = sudah termasuk harga; bebas = PPN bebas 0%", () => {
+  const note = (taxes) => {
+    const { container, unmount } = render(<QuotationBreakdown calc={{ ...calc, taxes }} />);
+    const t = screen.getByTestId("quotation-tax-note").textContent;
+    expect(container.textContent).not.toContain("{");
+    unmount();
+    return t;
+  };
+  const lama = note({ ppn: 78000000, ppn_rate: 12, bphtb: 1, bphtb_rate: 5 });
+  expect(lama).toContain("(di luar harga): PPN 12% 78000000");
+  expect(note({ ppn: 78000000, ppn_rate: 12, ppn_mode: "eksklusif", bphtb: 1, bphtb_rate: 5 })).toBe(lama);
+  const inkl = note({ ppn: 69642857, ppn_rate: 12, ppn_mode: "inklusif", bphtb: 1, bphtb_rate: 5 });
+  expect(inkl).toContain("PPN 12% 69642857 (sudah termasuk dalam harga)");
+  expect(inkl).not.toContain("di luar harga");
+  expect(note({ ppn: 0, ppn_rate: 0, ppn_mode: "bebas_ppn", bphtb: 1, bphtb_rate: 5 })).toContain("PPN bebas (0%)");
+});

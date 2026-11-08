@@ -147,18 +147,20 @@ def record_rows(taxes: dict, price: int) -> list:
 
 # ----------------------------------------------------------------------------- lapisan kompatibilitas `/finance/config/tax`
 async def write_legacy(org_id: str, *, ppn_rate, bphtb_rate, pph_rate, npoptkp, actor: str, reason: str,
-                       project_id: str = None) -> list:
-    """Tulis empat nilai bentuk lama ke MASTER (level organisasi, atau proyek bila `project_id`). Hanya nilai yang BERUBAH yang
-    ditulis (riwayat tidak dikotori). Validasi tipe/rentang = spesifikasi kunci. Kembalikan daftar kunci yang berubah."""
+                       project_id: str = None, extra: dict = None) -> list:
+    """Tulis empat nilai bentuk lama ke MASTER (level organisasi, atau proyek bila `project_id`); `extra` = {kunci master: nilai}
+    untuk kunci lain (mode PPN, NJOP, % plafon). Hanya nilai yang BERUBAH yang ditulis (riwayat tidak dikotori). Validasi
+    tipe/rentang = spesifikasi kunci. Kembalikan daftar kunci yang berubah."""
     scope, scope_id = ("project", project_id) if project_id else ("org", org_id)
-    wanted = {K_PPN_RATE: ppn_rate, K_BPHTB: bphtb_rate, K_PPH: pph_rate, K_NPOPTKP: npoptkp}
+    wanted = {K_PPN_RATE: ppn_rate, K_BPHTB: bphtb_rate, K_PPH: pph_rate, K_NPOPTKP: npoptkp, **(extra or {})}
     now = await resolve(project_id, org_id=org_id)
     by_key = {v: k for k, v in FIELDS.items()}
     for key, val in wanted.items():
         cfg.coerce(cfg.DEFAULTS[key], val)   # semua divalidasi dulu — jangan menulis sebagian
     changed = []
     for key, val in wanted.items():
-        if float(now[by_key[key]]) == float(val):
+        cur = now[by_key[key]]
+        if (cur == val) if isinstance(cur, str) else (float(cur) == float(val)):
             continue
         await cfg.set_value(key, val, actor=actor, reason=reason, org_id=org_id, scope=scope, scope_id=scope_id)
         changed.append(key)
