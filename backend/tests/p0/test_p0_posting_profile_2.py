@@ -274,6 +274,24 @@ def test_biaya_bayangan_tidak_menambah_kueri_di_luar_satu_tulis_per_jurnal(fo):
     assert calls == [("posting_shadow_stats", "update_one")], calls   # profil di kode: 0 baca; sama: 1 tulis statistik saja
 
 
+def test_dimensi_jurnal_deal_dan_rekening_terisi_tanpa_mengubah_nilai(fo):
+    """Fase 3 (opsional): `dimensions` ditambahkan pada jurnal BARU — deal dari source_deal_id, rekening dari sub-akun kas/bank.
+    Hanya metadata: baris & total identik dengan profil v0; jurnal tanpa deal/kas tidak mendapat kunci yang tidak relevan."""
+    rid, deal = uuid.uuid4().hex, uuid.uuid4().hex
+    fo.seed("receipts", {"id": rid})
+    fo.run(_h("_gl_payment_received")(fo.ev({"amount": 100, "receipt_id": rid, "split": None}, deal)))
+    j = fo.journal(source_type="receipt")
+    bank = fo.one("bank_accounts", {"kind": "bank", "is_default": True})
+    assert j["dimensions"] == {"deal_id": deal, "cash_account_id": bank["id"], "cash_account_ids": [bank["id"]]}
+    assert j["source_deal_id"] == deal and "project_id" not in j["dimensions"], "project/unit sengaja belum diisi"
+    fo.assert_equal(j, "sales.receipt", {"amount": 100})
+    fo.run(_h("_gl_commission_paid")(fo.ev({"amount": 5}, "c1")))     # kas keluar, tanpa deal
+    c = fo.journal(source_type="commission")
+    assert c["dimensions"] == {"cash_account_id": bank["id"], "cash_account_ids": [bank["id"]]}
+    fo.post_manual([{"account_code": "6-1300", "debit": 7, "credit": 0}, {"account_code": "2-1100", "debit": 0, "credit": 7}])
+    assert "dimensions" not in fo.journal(source_type="manual"), "tanpa deal & kas: tidak ada kunci dimensi"
+
+
 # ============================================================================ D. skenario API
 TAG = uuid.uuid4().hex[:5].upper()
 SEEN = {}          # peristiwa -> jumlah jurnal yang dibandingkan
@@ -287,7 +305,12 @@ def world():
 
 @pytest.fixture(scope="module", autouse=True)
 def baseline():
-    rep = ok(call(FINANCE, "GET", "/gl/posting-profile/shadow-report"))["data"]
+    """Cacah bayangan SEBELUM skenario D (dipakai tes penutup). Toleran: bila endpoint belum ada (kode lama) → None,
+    sehingga tes C (dalam-proses) tidak ikut gagal karena server."""
+    r = call(FINANCE, "GET", "/gl/posting-profile/shadow-report")
+    if r.status_code != 200:
+        return None
+    rep = r.json()["data"]
     return {"enabled": rep["enabled"], "ev": {e["event"]: (e["checked"], e["diff"]) for e in rep["events"]}}
 
 
@@ -335,8 +358,10 @@ def receipt_id(resp):
 def test_d1_penerimaan_dan_pembatalan_penerimaan(world):
     d = world.new_deal()["deal_id"]
     rid = receipt_id(ok(pay(d, 100_000_000)))
-    same_as_profile(wait_journal("sales.receipt", source_type="receipt", source_id=rid), "sales.receipt",
-                    {"amount": 100_000_000})
+    jr = same_as_profile(wait_journal("sales.receipt", source_type="receipt", source_id=rid), "sales.receipt",
+                         {"amount": 100_000_000})
+    cash_ids = {a["id"] for a in ok(call(FINANCE, "GET", "/cash-bank/accounts"))["data"]}
+    assert jr["dimensions"]["deal_id"] == d and jr["dimensions"]["cash_account_id"] in cash_ids   # dimensi Fase 3
     ok(call(FINLEAD, "POST", f"/finance/ar/receipts/{rid}/void", json={"reason": "uji H-D batalkan penerimaan"}))
     same_as_profile(wait_journal("sales.receipt_void", source_type="receipt_void", source_id=rid),
                     "sales.receipt_void", {"amount": 100_000_000})
@@ -554,6 +579,7 @@ def test_d11_pembatalan_keputusan_dan_refund_bank_serta_tunai(world):
 
 def test_zz_bayangan_tidak_mencatat_selisih_pada_skenario_ini(baseline):
     """Bila server berjalan dengan POSTING_SHADOW=1: setiap peristiwa yang kita jalankan dicek bayangan dan TIDAK ada selisih."""
+    assert baseline is not None, "endpoint shadow-report tidak ada"
     assert set(SEEN) >= {"sales.receipt", "sales.revrec", "ap.approve", "ap.pay", "commission.approve",
                          "mktfee.approve", "tax.accrue", "staff.advance_settle", "fixed_asset.dispose", "cancel.decision"}, SEEN
     rep = ok(call(FINANCE, "GET", "/gl/posting-profile/shadow-report", params={"limit": 100}))["data"]

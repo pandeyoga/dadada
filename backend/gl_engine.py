@@ -192,7 +192,7 @@ async def post_journal(org_id, memo, lines, *, date=None, source_type=None, sour
     }
     if source_deal_id:
         doc["source_deal_id"] = source_deal_id
-    _shadow.stamp(doc, profile)   # jejak profile_event/profile_version (metadata saja, tak pernah melempar)
+    _shadow.stamp(doc, profile, acct_map)   # jejak profile_event/profile_version/dimensions (metadata saja, tak melempar)
     try:
         await db.journal_entries.insert_one(dict(doc))
     except DuplicateKeyError:

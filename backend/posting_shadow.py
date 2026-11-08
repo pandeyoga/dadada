@@ -107,10 +107,13 @@ def compare(event_key: str, lines: list, acct_map: dict, hint_inputs: dict = Non
 
 
 # ------------------------------------------------------------------------------------------ jalur posting
-def stamp(doc: dict, hint=None) -> None:
-    """Cap jejak pada dokumen jurnal baru (`profile_event`, `profile_version`) — metadata saja, tak pernah melempar.
-    Dilakukan SELALU (bukan hanya saat bayangan hidup): murni komputasi, tanpa kueri."""
+def stamp(doc: dict, hint=None, acct_map: dict = None) -> None:
+    """Cap jejak pada dokumen jurnal baru (`profile_event`, `profile_version`, `dimensions`) — metadata saja, tak pernah
+    melempar. Dilakukan SELALU (bukan hanya saat bayangan hidup): murni komputasi, tanpa kueri."""
     try:
+        dims = dimensions_of(doc, acct_map or {})
+        if dims:
+            doc["dimensions"] = dims
         key = event_key_of(doc.get("source_type"), doc.get("source_event"), hint[0] if hint else None)
         if key:
             doc["profile_event"] = key
@@ -118,6 +121,28 @@ def stamp(doc: dict, hint=None) -> None:
                 doc["profile_version"] = pp.VERSION
     except Exception:  # noqa: BLE001 — cap jejak tidak boleh menggagalkan posting
         logger.exception("posting_shadow: gagal mencap jejak jurnal %s", (doc or {}).get("source_event"))
+
+
+def dimensions_of(doc: dict, acct_map: dict) -> dict:
+    """Dimensi jurnal (Fase 3, tambahan opsional): `deal_id` dari `source_deal_id`, `cash_account_id` dari sub-akun kas/bank
+    yang tersentuh baris (sub-akun rekening menyimpan `cash_account_id` di Bagan Akun). Tanpa kueri. `project_id`/`unit_id`
+    SENGAJA belum diisi: butuh pencarian deal (+1 kueri per jurnal) dan keputusan backfill — lihat 06_STATUS_PERBAIKAN 8.H-D."""
+    try:
+        ids = []
+        for ln in doc.get("lines", ()):
+            cid = (acct_map.get(ln["account_code"]) or {}).get("cash_account_id")
+            if cid and cid not in ids:
+                ids.append(cid)
+        out = {}
+        if doc.get("source_deal_id"):
+            out["deal_id"] = doc["source_deal_id"]
+        if ids:
+            out["cash_account_id"] = ids[0] if len(ids) == 1 else None
+            out["cash_account_ids"] = ids
+        return out
+    except Exception:  # noqa: BLE001 — dimensi hanyalah metadata; tak boleh menggagalkan posting
+        logger.exception("posting_shadow: gagal menyusun dimensi jurnal %s", (doc or {}).get("entry_no"))
+        return {}
 
 
 async def observe(org_id: str, doc: dict, acct_map: dict, hint=None) -> None:
