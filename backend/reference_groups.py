@@ -417,7 +417,7 @@ GROUPS: dict = {
     "document_status": {
         "label": "Status Dokumen", "strict": True, "options": [
             _o("draft", "Draft"), _o("finalized", "Final (siap tanda tangan)"),
-            _o("signed", "Ditandatangani"),
+            _o("signed", "Ditandatangani"), _o("cancelled", "Dibatalkan (deal/kontrak batal)"),
         ],
     },
     "deal_status": {

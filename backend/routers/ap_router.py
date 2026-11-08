@@ -12,6 +12,7 @@ from db import db, ORG_ID
 from org_scope import exists_in_org
 from core_utils import serialize_doc, parse_pagination
 from rbac import require_permission, audit_log
+import finance_ap as fap
 import finance_engine as fe
 import withholding_engine as wh
 from models import ApBillCreate, ApPay
@@ -39,15 +40,21 @@ async def _value_date(org: str, value, cash_account_id: str = None):
 
 
 @router.get("/bills")
-async def list_bills(status: str = None, skip: int = 0, limit: int = 50,
+async def list_bills(status: str = None, po_cancelled: bool = None, skip: int = 0, limit: int = 50,
                      user: dict = Depends(require_permission("finance", "view"))):
+    """Daftar tagihan AP. Tiap baris ber-PO diberi `po_cancelled` (PG-06 sisa: tagihan atas PO yang sudah batal tidak boleh
+    disetujui/dibayar); `po_cancelled=true|false` menyaring."""
     org = user.get("org_id", ORG_ID)
     skip, limit = parse_pagination(skip, limit)
     q = {"org_id": org}
     if status:
         q["status"] = status
+    if po_cancelled is not None:
+        ids = await fap.cancelled_po_ids(org)
+        q["po_id"] = {"$in": ids} if po_cancelled else {"$nin": ids}
     total = await db.ap_invoices.count_documents(q)
     rows = await db.ap_invoices.find(q, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    await fap.annotate_po_cancelled(org, rows)
     return {"data": serialize_doc(rows), "total": total}
 
 
@@ -90,8 +97,9 @@ async def bill_detail(bill_id: str, user: dict = Depends(require_permission("fin
     spk = (await db.spk.find_one({"org_id": org, "id": (claim or bill).get("spk_id")}, {"_id": 0, "id": 1, "spk_number": 1, "title": 1,
                                                                                            "contract_value": 1, "progress_pct": 1, "status": 1})
            if (claim or bill).get("spk_id") else None)
-    po = (await db.purchase_orders.find_one({"org_id": org, "id": bill["po_id"]}, {"_id": 0, "id": 1, "po_number": 1, "po_type": 1, "vendor": 1, "total": 1})
+    po = (await db.purchase_orders.find_one({"org_id": org, "id": bill["po_id"]}, {"_id": 0, "id": 1, "po_number": 1, "po_type": 1, "vendor": 1, "total": 1, "status": 1})
           if bill.get("po_id") else None)
+    await fap.annotate_po_cancelled(org, [bill])   # PG-06: tanda PO induk batal
     fund_reqs = await db.fund_requests.find({"org_id": org, "ap_bill_id": bill_id}, {"_id": 0, "id": 1, "no": 1, "status": 1, "amount": 1,
                                                                                      "disbursed_amount": 1, "requested_by": 1, "created_at": 1}).to_list(50)
     withholding = await db.withholding_docs.find({"org_id": org, "bill_id": bill_id}, {"_id": 0}).to_list(50)

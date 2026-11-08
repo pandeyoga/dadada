@@ -7,10 +7,19 @@ Aturan:
   * Sudah ada pembayaran TERMIN (AR) → arahkan ke pembatalan kontrak formal (Kontrak & Legal).
 Efek: unit kembali `available`, tagihan BF/AR yang belum dibayar ditutup, kontrak draft
 dibatalkan, kupon dilepas, tugas terkait ditutup, tahap lead mundur ke nurturing.
+
+Gerbang biaya (sisa FN-03): bila deal masih punya saldo titipan biaya (2-1470) atau invoice biaya terbuka, batal
+satu-klik DITOLAK kecuali `acknowledge_costs=true` + `cost_note` ≥ 10 huruf (gerbang yang sama dengan jalur formal,
+`cancellation_costs.assert_ack`). Pengakuan dicatat di deal & audit; TIDAK ada jurnal baru — perlakuan uang biayanya
+tetap keputusan pemilik.
+
+Penutup turunan (tugas, komisi/fee belum disetujui, KPR, kupon, pajak, janji temu, dokumen draft) = SATU fungsi
+`deal_cancel_cleanup.close_deal_dependents`, dipakai tiga jalur: batal satu-klik, batal formal, dan kedaluwarsa.
 """
 import logging
 
 import booking_fee as bf
+import cancellation_costs as cc
 import lead_lifecycle as lc
 import stage_clock as clock
 from core_utils import now_iso
@@ -40,6 +49,7 @@ async def preview(org: str, deal: dict, user: dict) -> dict:
                                            {"_id": 0, "id": 1, "no": 1, "state": 1})
     admin = await is_admin(user)
     requires_admin = refundable > 0
+    cost_holds = await cc.holds_of_deal(org, deal)   # FN-03: ditampilkan sebelum klik; pengakuan wajib di `cancel`
     blocked = None
     if deal.get("status") not in ("reserved", "booked"):
         blocked = f"Deal berstatus '{deal.get('status')}' tidak bisa dibatalkan dari sini."
@@ -66,6 +76,7 @@ async def preview(org: str, deal: dict, user: dict) -> dict:
         "deposit_balance": int((await get_deposit(org, deal["id"])).get("balance") or 0),
         "ar_paid": ar_paid,
         "contract": contract,
+        "cost_holds": cost_holds, "requires_cost_ack": bool(cost_holds["has_holds"]),
         "requires_admin": requires_admin, "is_admin": admin,
         "refund_modes": list(REFUND_MODES) if refundable > 0 else [],
         "can_cancel": blocked is None, "blocked_reason": blocked,
@@ -124,14 +135,22 @@ async def expire(org: str, deal: dict, actor: str = "scheduler") -> bool:
         return False
     if deal.get("unit_id"):
         await _release_unit(org, deal, actor, "Reservasi kedaluwarsa", only_deal=True)
-    import pricing_engine as pe
-    await pe.release_coupon(org, ref_type="deal", ref_id=deal["id"], actor=actor)
+    # Sisa PK3-08: penutup turunan YANG SAMA dengan batal manual/formal (tugas, komisi/fee belum disetujui, KPR, kupon,
+    # pajak, janji temu, dokumen draft). Idempoten; gagal di tengah tidak boleh membatalkan pelepasan unit.
+    import deal_cancel_cleanup as dcc
+    try:
+        holds = await cc.holds_of_deal(org, deal)
+        cleanup = await dcc.close_deal_dependents(org, deal, actor=actor, reason="Reservasi kedaluwarsa",
+                                                  source="kedaluwarsa", cost_holds=holds)
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger("sipro.deal_cancel").exception("Penutupan turunan deal %s (kedaluwarsa) gagal", deal["id"])
+        cleanup = {"error": str(e)[:200]}
     await bf.cancel(org, deal["id"], actor)
     await _close_tasks_and_rewind_lead(org, deal, actor, ts, "Reservasi kedaluwarsa",
                                        f"Reservasi unit {deal.get('unit_code')} kedaluwarsa", "deal_expired")
     await add_activity(entity_type="lead", entity_id=deal.get("lead_id"), type="system", actor=actor,
                        org_id=org, body=f"Reservasi unit {deal.get('unit_code')} KEDALUWARSA — unit dilepas ke stok.")
-    await emit("deal.expired", "deal", deal["id"], {"unit_id": deal.get("unit_id")}, org_id=org)
+    await emit("deal.expired", "deal", deal["id"], {"unit_id": deal.get("unit_id"), "cleanup": cleanup}, org_id=org)
     return True
 
 
@@ -156,10 +175,14 @@ async def cancel(org: str, deal: dict, user: dict, **kw) -> dict:
 
 
 async def _cancel_unlocked(org: str, deal: dict, user: dict, *, reason: str, refund_mode: str = None,
-                           refund_amount: int = None, method: str = "transfer", note: str = None) -> dict:
+                           refund_amount: int = None, method: str = "transfer", note: str = None,
+                           acknowledge_costs: bool = False, cost_note: str = None) -> dict:
     pv = await preview(org, deal, user)
     if not pv["can_cancel"]:
         raise ValueError(pv["blocked_reason"])
+    # FN-03 (sisa): gerbang biaya yang SAMA dengan jalur formal — dicek SEBELUM klaim/efek apa pun, di bawah mutex deal.
+    cost_ack = cc.assert_ack(pv["cost_holds"], {"acknowledge": acknowledge_costs, "reason": cost_note},
+                             user.get("email"), now_iso(), aksi="dilakukan")
     refundable = pv["booking_fee"]["refundable"]
     if refundable > 0:
         if refund_mode not in REFUND_MODES:
@@ -184,6 +207,7 @@ async def _cancel_unlocked(org: str, deal: dict, user: dict, *, reason: str, ref
         {"$set": {
             "status": "cancelled", "cancelled_at": ts, "cancelled_by": actor, "cancel_reason": reason,
             "cancel_refund_mode": refund_mode if refundable > 0 else None, "updated_at": ts,
+            **({"cancel_cost_ack": cost_ack} if cost_ack else {}),
             **({"cancel_refund_request": {"mode": refund_mode, "amount": int(refund_amount or 0),
                                           "method": method or "transfer", "requested_by": actor,
                                           "requested_at": ts}} if defer_refund else {}),
@@ -234,4 +258,4 @@ async def _cancel_unlocked(org: str, deal: dict, user: dict, *, reason: str, ref
     await dispatch_pending()
     fresh = await db.deals.find_one({"id": deal["id"]}, {"_id": 0})
     return {"deal": fresh, "refund": refund, "refund_mode": refund_mode if refundable > 0 else None,
-            "refund_deferred": bool(defer_refund), "cleanup": cleanup}
+            "refund_deferred": bool(defer_refund), "cleanup": cleanup, "cost_ack": cost_ack}

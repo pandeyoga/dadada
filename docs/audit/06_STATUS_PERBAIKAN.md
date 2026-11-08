@@ -197,3 +197,28 @@ Perubahan perilaku yang akan terlihat pemakai:
 - PO yang sudah menerima barang tidak bisa dibatalkan (lakukan retur dulu); retur tidak bisa melebihi stok yang ada.
 - Permintaan material memiliki status sementara `issuing` selama stok dikeluarkan (bisa tertinggal bila proses mati tepat di tengah; Conflict-nya jelas, admin dapat memulihkannya ke `approved`).
 - Janji temu dengan lead + waktu yang sama ditolak (409). Sesi impor yang sudah `committed` tidak bisa di-commit lagi.
+
+### 8.H-A — Sisa siklus hidup deal (batal/kedaluwarsa/hapus) & sisa PG-06 (kode H-A)
+
+Pola perbaikan: **satu penutup bersama** (`deal_cancel_cleanup.close_deal_dependents`) dipakai TIGA jalur — batal satu-klik, batal formal, kedaluwarsa reservasi — dan
+**gerbang biaya yang sama** (`cancellation_costs`) di semua jalur batal. Tidak ada jurnal baru; perlakuan akuntansi titipan/akrual pada deal batal tetap ⚖ keputusan pemilik.
+Tes: `test_p0_sisa_siklus.py` (12) + `test_p0_sisa_siklus_2.py` (9) — **seluruhnya merah di kode lama 4582e8a, hijau di kode baru**.
+
+| ID | Status | Perubahan | Tes |
+|---|:-:|---|---|
+| PK3-08 (sisa) kedaluwarsa | ✔ | `deal_cancel.expire` (← `reservation_expiry_sweeper`) kini memanggil penutup bersama: komisi/fee belum disetujui → batal, KPR → batal, kupon dilepas, pajak pending → batal, tugas ditutup, yang sudah disetujui/dibayar ditandai tindak lanjut Keuangan (tanpa jurnal balik); unit tetap dilepas. Uang biaya yang menggantung (titipan 2-1470 / invoice biaya terbuka) dicatat di tugas tindak lanjut Keuangan. Satu deal bermasalah tidak lagi menghentikan seluruh sapuan | `test_kedaluwarsa_*` |
+| PK3-08 (sisa) janji temu | ✔ | Penutup bersama membatalkan janji temu **mendatang** (`scheduled`) milik lead deal (+ tugas survei yang lahir darinya) bila lead tak punya deal hidup lain; `done`, `no_show`, dan yang sudah lewat tidak disentuh. Berlaku di ketiga jalur | `test_batal_manual_*`, `test_batal_formal_*`, `test_kedaluwarsa_membatalkan_*`, `test_janji_temu_lead_dengan_deal_hidup_lain_*` |
+| PK3-08 (sisa) dokumen draft | ✔ | Dokumen `draft` terikat deal/kontrak batal → `status=cancelled` + penanda (`cancelled_at/by`, `cancel_reason`, `status_before_cancel`); final/ditandatangani dan BAP pembatalan tidak disentuh; tidak ada yang dihapus. Status baru `cancelled` masuk kosakata `document_status` (tanpa SLA) | idem, `test_dokumen_draft_batal_*` |
+| FN-03 (sisa) gerbang batal satu-klik | ✔ | `POST /deals/{id}/cancel` menolak (400) bila deal masih punya titipan biaya 2-1470 > 0 atau invoice biaya terbuka, kecuali `acknowledge_costs=true` + `cost_note` ≥ 10 huruf; dicatat di `deals.cancel_cost_ack` dan audit log. Memakai `cancellation_costs.holds_of_deal/assert_ack` (tanpa menyalin). `cancel-preview` memuat `cost_holds` + `requires_cost_ack` | `test_batal_satu_klik_*` |
+| FN-03 (sisa) uang biaya sesudah batal | ✔ | `POST /cost-invoices/{id}/pay` dan `POST /contracts/{id}/cost-disbursements` pada deal BATAL (`deal_state.is_cancelled`, atau kedaluwarsa/kontrak batal) ditolak 400; terobosan hanya `override_cancelled=true` + `override_reason` ≥ 10 huruf oleh pemegang `finance:approve` — dicatat di kuitansi/penyaluran (`cancel_override`) dan audit (`override_cancelled`). Dicek di bawah mutex deal yang sama dengan pembatalan (tak ada celah cek-lalu-bayar). Tidak ada jurnal tambahan | `test_bayar_dan_salur_*`, `test_terobosan_*`, `test_uang_biaya_ditolak_juga_*` |
+| PG-06 (sisa) | ✔ | Tagihan AP atas PO `cancelled` **tidak bisa disetujui** (`approve_ap_bill`) atau **dibayar** (`pay_ap_bill`, termasuk `pay-withholding` dan pencairan pengajuan dana); tagihan baru atas PO batal ditolak dengan pesan jelas. Tagihan lama TIDAK dihapus: daftar AP (`GET /finance/ap/bills`) memberi `po_cancelled` + filter `?po_cancelled=true|false`, detail tagihan, `GET /procurement/pos/{id}` dan `/threeway` ikut bertanda. Pengecualian sadar: pembayaran dari **rekonsiliasi bank** (`skip_funds_check`, uang sudah benar-benar keluar) tetap dicatat | `test_tagihan_*po_batal*` |
+| PK3-09 (sisa) hapus-paksa | ✔ | `wa_reminders` (log kirim pengingat; tak berkunci `deal_id`) ikut terhapus lewat `entity_type/entity_id` tagihan AR / booking fee / BAST dan `dedup_key` peringatan tunggakan. Tes pemindai SEMUA koleksi menemukan kebocoran lain yang kini ditutup: notifikasi/aktivitas/tugas/peristiwa yang menunjuk dokumen turunan (mis. "Pengajuan marketing fee", "Pembatalan menunggu keputusan"), dan `customers.converted_from_deal` | `test_hapus_paksa_*` |
+
+Perubahan perilaku yang akan terlihat pemakai:
+- Batal satu-klik pada deal yang masih punya titipan/invoice biaya kini **400** sampai pengakuan biaya diisi (frontend perlu kotak pengakuan di dialog batal; `cancel-preview.cost_holds` menyediakan datanya).
+- Bayar invoice biaya / salurkan titipan pada deal batal **400** (terobosan: `override_cancelled` + `override_reason`, hanya `finance:approve`).
+- Tagihan AP atas PO batal tidak bisa disetujui/dibayar; di daftar AP muncul `po_cancelled` (frontend belum menampilkan label/filter).
+- Dokumen draft dan janji temu mendatang milik deal batal/kedaluwarsa otomatis `cancelled`; status dokumen baru `cancelled` (label "Dibatalkan").
+
+Butuh keputusan pemilik / belum dikerjakan: perlakuan akuntansi titipan 2-1470 & invoice biaya pada deal batal (⚖, hanya diakui+dicatat); reservasi kedaluwarsa yang booking fee-nya sudah dibayar (sweeper tetap melepas unit tanpa refund — ⚖);
+`record_developer_expense` (beban developer-borne) pada deal batal belum digerbang; janji temu untuk lead yang masih punya deal hidup lain sengaja dibiarkan.

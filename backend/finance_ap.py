@@ -8,6 +8,39 @@ from engine import emit, dispatch_pending
 from idempotency import once, reserved
 
 
+# ------------------------------------------------------------------ PG-06 (sisa): tagihan atas PO yang BATAL
+async def cancelled_po_ids(org_id) -> list:
+    """Id PO org ini yang berstatus `cancelled` (dasar filter `po_cancelled` di daftar AP)."""
+    return [p["id"] async for p in db.purchase_orders.find({"org_id": org_id, "status": "cancelled"}, {"_id": 0, "id": 1})]
+
+
+async def annotate_po_cancelled(org_id, rows: list) -> list:
+    """Beri tanda `po_cancelled` (dihitung saat dibaca, jadi tagihan LAMA atas PO yang sudah telanjur batal pun
+    terlihat) pada setiap tagihan yang punya `po_id`. Tidak mengubah/menghapus data."""
+    po_ids = sorted({r["po_id"] for r in rows if r.get("po_id")})
+    gugur = set()
+    if po_ids:
+        gugur = {p["id"] async for p in db.purchase_orders.find(
+            {"org_id": org_id, "id": {"$in": po_ids}, "status": "cancelled"}, {"_id": 0, "id": 1})}
+    for r in rows:
+        r["po_cancelled"] = bool(r.get("po_id")) and r["po_id"] in gugur
+        if r["po_cancelled"]:
+            r["po_cancelled_note"] = "PO induk DIBATALKAN — tagihan ini tidak boleh disetujui/dibayar (koreksi/nota kredit)."
+    return rows
+
+
+async def assert_po_alive(org_id, bill: dict, aksi: str) -> None:
+    """Tagihan atas PO yang sudah `cancelled` tidak boleh DISETUJUI/DIBAYAR (PG-06): status batal tidak menarik
+    kewajiban yang sudah terbentuk, dan uang tidak boleh keluar atas dokumen yang gugur."""
+    if not (bill or {}).get("po_id"):
+        return
+    po = await db.purchase_orders.find_one({"id": bill["po_id"], "org_id": org_id, "status": "cancelled"},
+                                           {"_id": 0, "po_number": 1})
+    if po:
+        raise ValueError(f"PO {po.get('po_number') or bill['po_id']} sudah DIBATALKAN — tagihan ini tidak boleh {aksi}. "
+                         "Koreksi lewat retur ke vendor / nota kredit, atau minta PO dibuka kembali oleh yang berwenang.")
+
+
 async def create_ap_bill(vendor, project_id, claimed, retention_pct, due_date, note, actor, org_id=ORG_ID,
                          vendor_invoice_no=None) -> dict:
     from finance_engine import notify_finance
@@ -63,6 +96,7 @@ async def approve_ap_bill(bill_id, approver, org_id=ORG_ID) -> dict:
         raise ValueError("Tagihan AP tidak ditemukan.")
     if bill.get("status") != "pending_approval":
         raise ValueError("Tagihan sudah diproses (bukan status menunggu approval).")
+    await assert_po_alive(org_id, bill, "disetujui")   # PG-06
     if int(bill.get("net", 0)) < 0:
         # PK-08: tagihan lama bernilai negatif tidak boleh "disetujui" (jurnalnya tak bisa terbit).
         raise ValueError("Nilai bersih tagihan negatif — tidak dapat disetujui. Perbaiki retensi/klaim.")
@@ -130,10 +164,14 @@ async def pay_ap_bill(bill_id, amount, note, actor, org_id=ORG_ID, withhold: dic
     # ("sudah dibayar"/"melebihi sisa"), bukan 409 generik.
     bill = await db.ap_invoices.find_one({"id": bill_id, "org_id": org_id}, {"_id": 0})
     _validate_payment(bill, amount, withheld)
+    if not skip_funds_check:   # rekonsiliasi bank (uang SUDAH keluar) mengikuti kenyataan; selain itu PO batal = tolak
+        await assert_po_alive(org_id, bill, "dibayar")   # PG-06
     async with once("ap.pay", bill_id, amount, withheld, cash_account_id, actor,
                     client_ref=client_ref, what="Pembayaran tagihan ini"):
         bill = await db.ap_invoices.find_one({"id": bill_id, "org_id": org_id}, {"_id": 0})
         _validate_payment(bill, amount, withheld)  # keadaan terbaru setelah kunci didapat
+        if not skip_funds_check:
+            await assert_po_alive(org_id, bill, "dibayar")
         paid_before = bill.get("paid")
         paid = int(paid_before or 0) + amount
         outstanding = int(bill.get("net", 0)) - paid

@@ -418,8 +418,25 @@ async def _issue_cost_invoice_locked(org: str, contract: dict, actor: str) -> di
 
 
 async def pay_cost_invoice(org: str, invoice_id: str, amount: int, method: str, note: str, actor: str,
-                           proof_file_ids: list = None, cash_account_id: str = None) -> dict:
-    """Kuitansi biaya → jurnal Kas / Titipan biaya customer (kewajiban, BUKAN pendapatan)."""
+                           proof_file_ids: list = None, cash_account_id: str = None,
+                           cancelled_override: dict = None) -> dict:
+    """Kuitansi biaya → jurnal Kas / Titipan biaya customer (kewajiban, BUKAN pendapatan).
+
+    FN-03 (sisa): pada deal yang sudah BATAL/kedaluwarsa pembayaran ditolak (`cancellation_costs.assert_movable`) kecuali
+    `cancelled_override` (terobosan berizin `finance:approve` + alasan, disahkan router). Dicek di bawah mutex deal yang
+    sama dengan pembatalan, jadi tak ada celah antara cek dan jurnal. Tidak ada jurnal tambahan akibat gerbang ini."""
+    import cancellation_costs as cc
+    from deal_money import deal_money
+    inv0 = await db.cost_invoices.find_one({"org_id": org, "id": invoice_id}, {"_id": 0, "deal_id": 1, "contract_id": 1})
+    async with deal_money(org, (inv0 or {}).get("deal_id")):
+        ov = (await cc.assert_movable(org, deal_id=inv0.get("deal_id"), contract_id=inv0.get("contract_id"),
+                                      what="Pembayaran invoice biaya", override=cancelled_override)) if inv0 else None
+        return await _pay_cost_invoice(org, invoice_id, amount, method, note, actor, proof_file_ids,
+                                       cash_account_id, ov)
+
+
+async def _pay_cost_invoice(org: str, invoice_id: str, amount: int, method: str, note: str, actor: str,
+                            proof_file_ids: list, cash_account_id: str, cancel_ov: dict) -> dict:
     inv = await db.cost_invoices.find_one({"org_id": org, "id": invoice_id}, {"_id": 0})
     if not inv or inv.get("status") == "void":
         raise ValueError("Invoice biaya tidak ditemukan.")
@@ -452,7 +469,8 @@ async def pay_cost_invoice(org: str, invoice_id: str, amount: int, method: str, 
               "amount": amount, "method": method or "transfer", "note": note, "status": "posted",
               "proof_file_ids": [str(f) for f in (proof_file_ids or []) if f],
               "cash_account_id": cash_acc.get("id"), "cash_account_name": cash_acc.get("name"),
-              "cash_account_code": cash_code, "actor": actor, "created_at": ts}
+              "cash_account_code": cash_code, "actor": actor, "created_at": ts,
+              **({"cancel_override": cancel_ov} if cancel_ov else {})}
         await db.cost_receipts.insert_one(dict(rc))
         rc.pop("_id", None)
         je = await gl.post_journal(org, f"Titipan biaya pembeli diterima — {rc['receipt_no']}", [
@@ -470,13 +488,27 @@ async def pay_cost_invoice(org: str, invoice_id: str, amount: int, method: str, 
 
 
 async def disburse_titipan(org: str, contract: dict, component_code: str, amount: int,
-                           payee: str, note: str, actor: str, cash_account_id: str = None) -> dict:
+                           payee: str, note: str, actor: str, cash_account_id: str = None,
+                           cancelled_override: dict = None) -> dict:
     """Salurkan titipan ke notaris/BPN → Titipan / Kas. Tidak boleh melebihi sisa titipan.
+
+    FN-03 (sisa): pada deal/kontrak yang sudah BATAL penyaluran ditolak kecuali `cancelled_override` (lihat
+    `pay_cost_invoice`); dicek di bawah mutex deal yang sama dengan pembatalan.
 
     PK-02: dua penyaluran bersamaan dulu sama-sama membaca sisa titipan yang sama lalu keduanya
     mengeluarkan kas. Sekarang diserialkan per kontrak (mutex) dengan kunci klik ganda; sisa titipan
     dibaca ULANG di dalam kunci, lalu dana kas diperiksa (PK-06).
     """
+    import cancellation_costs as cc
+    from deal_money import deal_money
+    async with deal_money(org, contract.get("deal_id")):
+        ov = await cc.assert_movable(org, deal_id=contract.get("deal_id"), contract_id=contract.get("id"),
+                                     what="Penyaluran titipan biaya", override=cancelled_override)
+        return await _disburse_titipan(org, contract, component_code, amount, payee, note, actor, cash_account_id, ov)
+
+
+async def _disburse_titipan(org: str, contract: dict, component_code: str, amount: int,
+                            payee: str, note: str, actor: str, cash_account_id: str, cancel_ov: dict) -> dict:
     amount = int(amount or 0)
     if amount <= 0:
         raise ValueError("Nominal penyaluran wajib > 0.")
@@ -500,7 +532,8 @@ async def disburse_titipan(org: str, contract: dict, component_code: str, amount
                 doc = {"id": new_id(), "org_id": org, "contract_id": contract.get("id"),
                        "deal_id": contract.get("deal_id"), "component_code": component_code,
                        "amount": amount, "payee": payee.strip(), "note": note,
-                       "actor": actor, "created_at": ts}
+                       "actor": actor, "created_at": ts,
+                       **({"cancel_override": cancel_ov} if cancel_ov else {})}
                 await db.cost_disbursements.insert_one(dict(doc))
                 doc.pop("_id", None)
                 je = await gl.post_journal(org, f"Penyaluran titipan biaya ({component_code}) ke {payee.strip()}", [

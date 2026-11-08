@@ -51,6 +51,9 @@ class PayIn(BaseModel):
     proof_file_ids: List[str] = Field(min_length=1)
     client_ref: Optional[str] = Field(default=None, max_length=64)   # penanda sekali-pakai (anti ganda)
     cash_account_id: Optional[str] = None   # GL-17: rekening/kas tujuan (kosong = default menurut metode)
+    # FN-03 (sisa): pada deal yang sudah BATAL, bayar biaya ditolak kecuali terobosan sadar oleh pemegang finance:approve.
+    override_cancelled: bool = False
+    override_reason: Optional[str] = None
 
 
 class DisburseIn(BaseModel):
@@ -61,6 +64,8 @@ class DisburseIn(BaseModel):
     note: Optional[str] = None
     client_ref: Optional[str] = Field(default=None, max_length=64)
     cash_account_id: Optional[str] = None   # GL-17: rekening/kas sumber penyaluran (kosong = bank default)
+    override_cancelled: bool = False        # FN-03: terobosan pada deal batal (finance:approve + alasan ≥ 10 huruf)
+    override_reason: Optional[str] = None
 
 
 class KprSchemeIn(BaseModel):
@@ -272,29 +277,51 @@ async def issue_cost_invoice(cid: str, user: dict = Depends(require_permission("
         raise _err(e)
 
 
+async def _cancel_override(user: dict, requested: bool, reason: str):
+    """Terobosan larangan uang-biaya-setelah-batal: hanya `finance:approve` + alasan ≥ 10 huruf (403/400 bila tidak)."""
+    import cancellation_costs as cc
+    from rbac import can
+    try:
+        return cc.override_of(user, await can(user.get("role"), "finance", "approve") if requested else False,
+                              requested, reason)
+    except (ValueError, PermissionError) as e:
+        raise _err(e)
+
+
 @router.post("/cost-invoices/{iid}/pay")
 async def pay_cost_invoice(iid: str, p: PayIn, user: dict = Depends(require_permission("finance", "create"))):
     await exists_in_org(db.cost_invoices, iid, user, name="Invoice biaya")
+    ov = await _cancel_override(user, p.override_cancelled, p.override_reason)
     try:
         async with once("allin.cost_pay", iid, p.amount, p.method, user.get("email"),
                         client_ref=p.client_ref, what="Pembayaran invoice biaya yang sama"):
-            return {"data": await ae.pay_cost_invoice(_org(user), iid, p.amount, p.method, p.note,
-                                                      user.get("email"), proof_file_ids=p.proof_file_ids,
-                                                      cash_account_id=p.cash_account_id)}
+            out = await ae.pay_cost_invoice(_org(user), iid, p.amount, p.method, p.note,
+                                            user.get("email"), proof_file_ids=p.proof_file_ids,
+                                            cash_account_id=p.cash_account_id, cancelled_override=ov)
     except ValueError as e:
         raise _err(e)
+    if (out.get("receipt") or {}).get("cancel_override"):
+        await audit_log(user, "override_cancelled", "cost_invoices", iid,
+                        {"amount": p.amount, "reason": ov["reason"], "receipt_id": out["receipt"]["id"]})
+    return {"data": out}
 
 
 @router.post("/contracts/{cid}/cost-disbursements")
 async def disburse_titipan(cid: str, p: DisburseIn, user: dict = Depends(require_permission("finance", "create"))):
     c = await _contract(cid, user)
+    ov = await _cancel_override(user, p.override_cancelled, p.override_reason)
     try:
         async with once("allin.titipan_out", cid, p.component_code, p.amount, p.payee, user.get("email"),
                         client_ref=p.client_ref, what="Penyaluran titipan yang sama"):
-            return {"data": await ae.disburse_titipan(_org(user), c, p.component_code, p.amount, p.payee,
-                                                      p.note, user.get("email"), cash_account_id=p.cash_account_id)}
+            out = await ae.disburse_titipan(_org(user), c, p.component_code, p.amount, p.payee,
+                                            p.note, user.get("email"), cash_account_id=p.cash_account_id,
+                                            cancelled_override=ov)
     except ValueError as e:
         raise _err(e)
+    if (out.get("disbursement") or {}).get("cancel_override"):
+        await audit_log(user, "override_cancelled", "cost_disbursements", out["disbursement"]["id"],
+                        {"amount": p.amount, "reason": ov["reason"], "contract_id": cid})
+    return {"data": out}
 
 
 @router.post("/contracts/{cid}/cost-expenses")

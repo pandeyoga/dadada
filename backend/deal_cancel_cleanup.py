@@ -14,10 +14,22 @@ Aturan (idempoten — aman dipanggil dua kali):
   * pengajuan KPR yang masih berjalan → `status=cancelled`, tahap `batal`;
   * kupon dilepas, kuota dikembalikan;
   * catatan pajak `pending` → `cancelled` (laporan pajak mengecualikannya); yang sudah dilaporkan/disetor
-    hanya ditandai butuh tindak lanjut.
+    hanya ditandai butuh tindak lanjut;
+  * janji temu MENDATANG milik lead deal ini (`scheduled`) → `cancelled` bila lead tak punya deal hidup lain —
+    yang `done`/`no_show`/sudah lewat TIDAK disentuh (sejarah), tugas survei yang menempel ikut ditutup;
+  * dokumen `draft` terikat deal/kontrak ini → `cancelled` dengan penanda (`cancelled_at/by`, `cancel_reason`,
+    `status_before_cancel`); dokumen final/ditandatangani dan BAP pembatalan TIDAK disentuh (tidak ada yang dihapus).
+
+DIPAKAI TIGA JALUR: batal satu-klik (`deal_cancel.cancel`), batal formal (`cancellation_engine.decide`), dan
+kedaluwarsa reservasi (`deal_cancel.expire` ← sweeper) — sisa PK3-08.
 """
-from core_utils import now_iso
+import logging
+from datetime import datetime, timedelta, timezone
+
+from core_utils import WIB, now, now_iso
 from db import db
+
+logger = logging.getLogger("sipro.deal_cancel_cleanup")
 
 OPEN_TASK = {"$nin": ["done", "cancelled"]}
 FOLLOWUP_SRC = "deal.cancel_followup:"   # tugas tindak lanjut Keuangan — TIDAK ikut ditutup oleh penutupan ini
@@ -53,6 +65,67 @@ async def _close_tasks(org: str, deal: dict, contract_ids: list, lead_closing: b
     return res.modified_count
 
 
+LIVE_DEAL = ["draft", "reserved", "booked", "completed"]
+
+
+def _is_upcoming(value) -> bool:
+    """Janji temu masih di depan? Waktu tanpa zona dibaca WIB; tanggal polos = sampai akhir hari itu (WIB).
+    Tak terbaca → BUKAN mendatang (tidak disentuh)."""
+    s = str(value or "").strip()
+    if not s:
+        return False
+    try:
+        if len(s) <= 10:
+            dt = datetime.fromisoformat(s).replace(tzinfo=WIB) + timedelta(days=1)
+        else:
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=WIB)
+    except ValueError:
+        return False
+    return dt.astimezone(timezone.utc) >= now()
+
+
+async def _cancel_appointments(org: str, deal: dict, ts: str, actor: str, why: str) -> int:
+    """Janji temu MENDATANG milik lead deal yang batal → `cancelled` (tanpa menyentuh `done`/`no_show`/yang lewat).
+    Bila lead masih punya deal hidup lain, janji temunya bisa jadi untuk deal itu → dibiarkan."""
+    lead_id = deal.get("lead_id")
+    if not lead_id or await db.deals.count_documents({"org_id": org, "lead_id": lead_id, "id": {"$ne": deal["id"]},
+                                                      "status": {"$in": LIVE_DEAL}}):
+        return 0
+    rows = await db.appointments.find({"org_id": org, "lead_id": lead_id, "status": "scheduled"},
+                                      {"_id": 0, "id": 1, "scheduled_at": 1}).to_list(500)
+    ids = [r["id"] for r in rows if _is_upcoming(r.get("scheduled_at"))]
+    if not ids:
+        return 0
+    res = await db.appointments.update_many(
+        {"org_id": org, "id": {"$in": ids}, "status": "scheduled"},
+        {"$set": {"status": "cancelled", "cancelled_at": ts, "cancelled_by": actor, "cancel_reason": why,
+                  "cancelled_by_deal": deal["id"], "updated_at": ts}})
+    # tugas survei yang lahir dari janji temu itu (source_event `appointment:<id>`) ikut ditutup
+    await db.tasks.update_many(
+        {"org_id": org, "source_event": {"$in": [f"appointment:{i}" for i in ids]}, "status": OPEN_TASK},
+        {"$set": {"status": "cancelled", "outcome": why, "updated_at": ts}})
+    return res.modified_count
+
+
+async def _cancel_draft_documents(org: str, deal: dict, contract_ids: list, ts: str, actor: str, why: str) -> int:
+    """Dokumen `draft` (SPR/PPJB/adendum…) terikat deal/kontrak batal → `cancelled` + penanda. Final/ditandatangani dan
+    BAP pembatalan (`cancellation_id`) tidak disentuh; tidak ada dokumen yang dihapus."""
+    ors = [{"deal_id": deal["id"]}] + ([{"contract_id": {"$in": contract_ids}}] if contract_ids else [])
+    try:
+        import stage_clock as clock
+        clk = await clock.patch_for("document", "cancelled", org_id=org, at=ts, pol={"cancelled": 0})   # tahap akhir: tanpa SLA
+    except Exception as e:  # noqa: BLE001  — jam tahap hanya pelengkap; pembatalan dokumen tetap jalan
+        logger.warning("Jam tahap dokumen batal tidak diisi: %s", e)
+        clk = {}
+    res = await db.documents.update_many(
+        {"org_id": org, "status": "draft", "cancellation_id": None, "$or": ors},
+        {"$set": {"status": "cancelled", "status_before_cancel": "draft", "cancelled_at": ts, "cancelled_by": actor,
+                  "cancel_reason": why, "updated_at": ts, **clk}})
+    return res.modified_count
+
+
 async def _flag(coll: str, q: dict, ts: str, reason: str) -> list:
     """Tandai dokumen yang TIDAK boleh disentuh otomatis (sudah disetujui/dibayar) sebagai butuh tindak lanjut."""
     rows = await db[coll].find({**q, "cancel_followup": {"$exists": False}},
@@ -64,14 +137,18 @@ async def _flag(coll: str, q: dict, ts: str, reason: str) -> list:
 
 
 async def close_deal_dependents(org: str, deal: dict, *, actor: str, reason: str, source: str,
-                                lead_closing: bool = False) -> dict:
-    """Tutup turunan `deal` yang batal. `lead_closing=True` bila lead ikut ditandai `lost` (jalur formal)."""
+                                lead_closing: bool = False, cost_holds: dict = None) -> dict:
+    """Tutup turunan `deal` yang batal. `lead_closing=True` bila lead ikut ditandai `lost` (jalur formal).
+    `cost_holds` (opsional, dari `cancellation_costs.holds*`) dimasukkan ke tindak lanjut Keuangan — dipakai jalur
+    kedaluwarsa, tempat tak ada orang yang bisa mengakui titipan/invoice biaya yang menggantung."""
     did = deal["id"]
     ts = now_iso()
     why = f"Penjualan dibatalkan ({source}): {reason}"[:300]
     out = {}
     contract_ids = [c["id"] async for c in db.contracts.find({"org_id": org, "deal_id": did}, {"_id": 0, "id": 1})]
     out["tasks_closed"] = await _close_tasks(org, deal, contract_ids, lead_closing, ts, why)
+    out["appointments_cancelled"] = await _cancel_appointments(org, deal, ts, actor, why)
+    out["documents_cancelled"] = await _cancel_draft_documents(org, deal, contract_ids, ts, actor, why)
     cancel_set = {"status": "cancelled", "cancelled_at": ts, "cancelled_by": actor, "cancel_reason": why,
                   "updated_at": ts}
 
@@ -124,6 +201,9 @@ async def close_deal_dependents(org: str, deal: dict, *, actor: str, reason: str
         items.append(f"fee marketing disetujui/dibayar {len(fee_fu)} ({_rp(sum(int(r.get('amount_net') or 0) for r in fee_fu))})")
     if tax_fu:
         items.append(f"catatan pajak sudah dilapor/disetor {len(tax_fu)} ({_rp(sum(int(r.get('amount') or 0) for r in tax_fu))})")
+    if (cost_holds or {}).get("has_holds"):
+        items.append(f"uang biaya menggantung: saldo titipan biaya {_rp(cost_holds['titipan_balance'])} (2-1470) dan invoice "
+                     f"biaya terbuka {_rp(cost_holds['open_invoice_total'])}")
     if items:
         from engine import auto_create_task
         from finance_engine import notify_finance

@@ -11,6 +11,7 @@ from org_scope import get_in_org
 import lead_lifecycle as lc
 from engine import emit, add_activity, dispatch_pending
 from models import DealReserve, DealAction, DealCancel, DealPricingDecision, PpjbSign, AjbSign
+from models_p56 import DealCancelIn
 
 router = APIRouter(tags=["deals"])
 
@@ -488,9 +489,10 @@ async def cancel_preview(deal_id: str, user: dict = Depends(require_permission("
 
 
 @router.post("/deals/{deal_id}/cancel")
-async def cancel_deal(deal_id: str, payload: DealCancel,
+async def cancel_deal(deal_id: str, payload: DealCancelIn,
                       user: dict = Depends(require_permission("deals", "update"))):
-    """Batalkan reservasi/booking SATU langkah (unit dilepas, tagihan ditutup, refund/hangus)."""
+    """Batalkan reservasi/booking SATU langkah (unit dilepas, tagihan ditutup, refund/hangus).
+    Titipan biaya / invoice biaya terbuka wajib diakui (`acknowledge_costs` + `cost_note`) — FN-03."""
     import deal_cancel as dc
     from idempotency import Conflict
     d = await _get_deal_editable(deal_id, user)
@@ -498,14 +500,16 @@ async def cancel_deal(deal_id: str, payload: DealCancel,
     try:
         out = await dc.cancel(org, d, user, reason=payload.reason.strip(),
                               refund_mode=payload.refund_mode, refund_amount=payload.refund_amount,
-                              method=payload.method, note=payload.note)
+                              method=payload.method, note=payload.note,
+                              acknowledge_costs=payload.acknowledge_costs, cost_note=payload.cost_note)
     except Conflict:
         raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "cancel", "deals", deal_id,
                     {"reason": payload.reason.strip(), "refund_mode": out["refund_mode"],
-                     "refund_deferred": out.get("refund_deferred"), "unit_code": d.get("unit_code")})
+                     "refund_deferred": out.get("refund_deferred"), "unit_code": d.get("unit_code"),
+                     **({"cost_ack": out["cost_ack"]} if out.get("cost_ack") else {})})
     return {"data": serialize_doc(out["deal"]), "refund": serialize_doc(out["refund"]),
             "message": ("Reservasi dibatalkan — unit kembali tersedia. Refund booking fee menunggu "
                         "eksekusi Keuangan (kas keluar harus oleh pemegang izin Keuangan)."

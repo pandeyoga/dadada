@@ -8,6 +8,8 @@ from typing import Optional
 
 from pydantic import BaseModel, field_validator
 
+from models import DealCancel
+
 MIN_REASON = 10
 
 
@@ -42,6 +44,13 @@ class CancellationDecisionIn(BaseModel):
     @classmethod
     def _v_note(cls, v):
         return _reason(v, MIN_REASON, "catatan keputusan")
+
+
+class DealCancelIn(DealCancel):
+    """Batal satu-klik + pengakuan biaya (FN-03): bila deal masih punya titipan biaya (2-1470) / invoice biaya
+    terbuka, pembatalan hanya jalan dengan `acknowledge_costs=true` + `cost_note` ≥ 10 huruf."""
+    acknowledge_costs: bool = False
+    cost_note: Optional[str] = None
 
 
 class RefundPayIn(BaseModel):

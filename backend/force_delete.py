@@ -61,6 +61,19 @@ def _journal_q(deal_id: str, source_ids: list) -> dict:
     return {"$or": ors}
 
 
+async def _sweep_wa_reminders(org: str, did: str, removed: dict) -> None:
+    """Log pengingat WhatsApp (`wa_reminders`) tidak berkunci `deal_id`: ia menunjuk dokumen turunan (tagihan AR, tagihan
+    booking fee, BAST) lewat `entity_type`+`entity_id`, dan `dedup_key` peringatan tunggakan memuat id deal. Dibersihkan
+    SEBELUM dokumen-dokumen itu dihapus (id-nya masih dibutuhkan)."""
+    ors = [{"dedup_key": {"$regex": "^arrears_warning:" + re.escape(did) + ":"}}]
+    for etype, coll in (("ar_invoice", "ar_invoices"), ("booking_fee_invoice", "booking_fee_invoices"),
+                        ("unit_handover", "unit_handovers")):
+        ids = await _ids(coll, {"org_id": org, "deal_id": did})
+        if ids:
+            ors.append({"entity_type": etype, "entity_id": {"$in": ids}})
+    await _del("wa_reminders", {"org_id": org, "$or": ors}, removed)
+
+
 async def footprint(org: str, deal_id: str) -> dict:
     """Berapa banyak data turunan yang akan ikut terhapus — ditampilkan sebelum konfirmasi."""
     out = {}
@@ -132,10 +145,23 @@ async def _cascade_locked(org: str, deal: dict, actor: str) -> dict:
     fee_ids = await _ids("marketing_fees", {"org_id": org, "deal_id": did})
     fee_pay_ids = await _ids("payments_out", {"org_id": org, "marketing_fee_id": {"$in": fee_ids}}) if fee_ids else []
     source_ids += fee_pay_ids
+    # Semua id dokumen turunan (deal, kontrak, anak kontrak, anak deal): notifikasi/aktivitas/tugas/peristiwa yang
+    # menunjuknya lewat `related_entity_id`/`entity_id` (mis. notifikasi "Pengajuan marketing fee") disapu di bawah —
+    # ditemukan tes pemindai SEMUA koleksi (sisa PK3-09): dulu hanya yang bertipe `deal` yang ikut terhapus.
+    child_ids = set(source_ids)
+    cids0 = await _ids("contracts", {"org_id": org, "deal_id": did})
+    child_ids.update(cids0)
+    for coll in DEAL_CHILD_COLLECTIONS:
+        child_ids.update(await _ids(coll, {"org_id": org, "deal_id": did}))
+    for coll in CONTRACT_CHILD_COLLECTIONS:
+        if cids0:
+            child_ids.update(await _ids(coll, {"org_id": org, "contract_id": {"$in": cids0}}))
+    child_ids = sorted(child_ids)
     # PK3-12: mutasi bank yang tercocokkan ke kuitansi deal ini dilepas (kembali "belum cocok"), bukan tertinggal.
     for rid in await _ids("receipts", {"org_id": org, "deal_id": did}):
         await bank_match.release_match_for_receipt(org, rid, actor, "deal dihapus-paksa")
     await _del("events", {"entity_id": {"$in": source_ids}}, removed)
+    await _sweep_wa_reminders(org, did, removed)
     await _sweep_journals(org, did, source_ids, removed)
     if ap_ids:
         await _del("ap_invoices", {"org_id": org, "id": {"$in": ap_ids}}, removed)
@@ -162,6 +188,7 @@ async def _cascade_locked(org: str, deal: dict, actor: str) -> dict:
     for coll, f1, f2 in (("activities", "entity_type", "entity_id"), ("tasks", "related_entity_type", "related_entity_id"),
                          ("notifications", "related_entity_type", "related_entity_id")):
         await _del(coll, {"org_id": org, f1: "deal", f2: did}, removed)
+        await _del(coll, {"org_id": org, f2: {"$in": child_ids}}, removed)
     # Unit kembali tersedia; ikatan ke deal/lead/pembeli/kontrak dilepas — HANYA bila unit itu memang dipegang
     # deal ini (PK3-04: dulu hapus-paksa deal lama melepas unit yang sudah direservasi deal BARU).
     await db.units.update_one({"id": deal.get("unit_id"), "org_id": org, "$or": [
@@ -173,14 +200,15 @@ async def _cascade_locked(org: str, deal: dict, actor: str) -> dict:
                                          {"$unset": {"deal_id": "", "lead_id": "", "customer_id": ""}})
     await db.leads.update_one({"id": deal.get("lead_id"), "org_id": org},
                               {"$unset": {"unit_id": "", "deal_id": ""}, "$set": {"updated_at": ts}})
-    # PK3-09: customers.deal_id tidak boleh menunjuk deal yang hilang.
-    await db.customers.update_many({"org_id": org, "deal_id": did}, {"$unset": {"deal_id": ""}})
+    # PK3-09: customers.deal_id (dan jejak asal `converted_from_deal`) tidak boleh menunjuk deal yang hilang.
+    await db.customers.update_many({"org_id": org, "$or": [{"deal_id": did}, {"converted_from_deal": did}]},
+                                   {"$unset": {"deal_id": "", "converted_from_deal": ""}})
     await db.deals.delete_one({"id": did, "org_id": org})
     removed["deals"] = 1
     # Penyapuan akhir: jurnal yang baru terbit dari event yang sedang diproses + uang yang masuk lewat penulis
     # yang tidak memegang mutex deal (titipan, booking fee) — keduanya tidak boleh tersisa sebagai yatim.
     await _settle_events(source_ids)
-    await _del("events", {"entity_id": {"$in": source_ids}}, removed)
+    await _del("events", {"entity_id": {"$in": child_ids}}, removed)
     await _sweep_journals(org, did, source_ids, removed)
     for coll in _SWEEP_AGAIN:
         await _del(coll, {"org_id": org, "deal_id": did}, removed)

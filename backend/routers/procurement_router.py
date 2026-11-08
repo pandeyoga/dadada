@@ -20,6 +20,7 @@ from db import db, ORG_ID
 from core_utils import new_id, now_iso, serialize_doc, parse_pagination
 from rbac import has_role, require_permission, assert_project_access, project_query, audit_log
 from engine import add_activity, auto_create_task, create_notification
+import finance_ap as fap
 import finance_engine as fe
 from models import POCreate, POAction, GRNCreate, ProcurementBillCreate
 from idempotency import Conflict, cas, expect_of, reserved
@@ -161,6 +162,7 @@ async def get_po(pid: str, user: dict = Depends(require_permission("procurement"
     org = doc["org_id"]
     grns = await db.grns.find({"org_id": org, "po_id": pid}, {"_id": 0}).sort("created_at", -1).to_list(200)
     bills = await db.ap_invoices.find({"org_id": org, "po_id": pid}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    await fap.annotate_po_cancelled(org, bills)   # PG-06: tagihan lama atas PO batal terlihat
     return {"data": serialize_doc(doc), "grns": serialize_doc(grns), "bills": serialize_doc(bills)}
 
 
@@ -376,6 +378,7 @@ async def threeway(status: str = None,
     if status:
         fq["match_status"] = status
     rows = await db.ap_invoices.find(fq, {"_id": 0}).sort("created_at", -1).to_list(500)
+    await fap.annotate_po_cancelled(org, rows)   # PG-06
     summary = {
         "total": len(rows),
         "matched": sum(1 for r in rows if r.get("match_status") == "matched"),
@@ -389,6 +392,9 @@ async def create_bill(payload: ProcurementBillCreate,
                       user: dict = Depends(require_permission("procurement", "create"))):
     org = user.get("org_id", ORG_ID)
     po = await _get_po(payload.po_id, user)
+    if po.get("status") == "cancelled":   # PG-06: tagihan baru atas PO batal tidak boleh lahir
+        raise HTTPException(status_code=400, detail=(
+            f"PO {po.get('po_number')} sudah DIBATALKAN — tagihan baru tidak boleh dibuat atas PO yang batal."))
     if po.get("status") not in ("approved", "partially_received", "received", "closed"):
         raise HTTPException(status_code=400, detail="PO harus disetujui sebelum dapat ditagih.")
     if payload.claimed <= 0:

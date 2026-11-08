@@ -7,6 +7,10 @@ di-void?) adalah KEPUTUSAN PEMILIK — modul ini TIDAK menjurnal apa pun dan TID
     supaya layar & berkas pengajuan MENAMPILKANNYA;
   * `assert_ack()` memblokir PERSETUJUAN pembatalan selama masih ada yang menggantung, kecuali penyetuju secara
     sadar menyatakan `acknowledge_costs=true` disertai catatan penanganan ≥ 10 huruf (dicatat di keputusan & audit).
+    Gerbang yang SAMA dipakai jalur formal (`cancellation_engine.decide`) dan jalur satu-klik (`deal_cancel.cancel`);
+  * `assert_movable()` menahan uang biaya BERGERAK sesudah deal batal (bayar invoice biaya / salurkan titipan) —
+    sisa FN-03: dulu masih 200 sesudah batal. Hanya pemegang `finance:approve` dengan alasan ≥ 10 huruf yang boleh
+    menerobos (`override_of()`); tidak ada jurnal baru di sini.
 """
 MIN_NOTE = 10
 
@@ -23,12 +27,20 @@ async def holds(org: str, contract: dict) -> dict:
             "has_holds": bool(titipan or open_inv)}
 
 
+async def holds_of_deal(org: str, deal: dict) -> dict:
+    """`holds()` untuk sebuah DEAL (jalur batal satu-klik): memakai "kontrak semu" dari deal, sehingga invoice/kuitansi
+    biaya yang lahir saat booking (belum punya kontrak) ikut terbaca — sama dengan `allin_engine._scope`."""
+    import allin_engine as allin
+    return await holds(org, await allin.deal_as_contract(org, deal))
+
+
 def _rp(v) -> str:
     return f"Rp {int(v):,}".replace(",", ".")
 
 
-def assert_ack(hold: dict, ack: dict, actor: str, ts: str) -> dict:
-    """Tolak persetujuan bila ada tanggungan biaya yang belum diakui. Kembalikan catatan pengakuan (atau None)."""
+def assert_ack(hold: dict, ack: dict, actor: str, ts: str, aksi: str = "disetujui") -> dict:
+    """Tolak persetujuan bila ada tanggungan biaya yang belum diakui. Kembalikan catatan pengakuan (atau None).
+    `aksi` hanya mengubah kata kerja pada pesan ("disetujui" untuk jalur formal, "dilakukan" untuk satu-klik)."""
     if not (hold or {}).get("has_holds"):
         return None
     ack = ack or {}
@@ -46,7 +58,58 @@ def assert_ack(hold: dict, ack: dict, actor: str, ts: str) -> dict:
     if ack.get("acknowledge"):
         raise ValueError(f"Catatan penanganan biaya wajib diisi (minimal {MIN_NOTE} huruf) bila "
                          "acknowledge_costs=true.")
-    raise ValueError("Pembatalan belum bisa disetujui: masih ada " + " dan ".join(parts) + ". Perlakuan uang biaya "
+    lanjut = "setujui" if aksi == "disetujui" else "lanjutkan"
+    raise ValueError(f"Pembatalan belum bisa {aksi}: masih ada " + " dan ".join(parts) + ". Perlakuan uang biaya "
                      "ini keputusan pemilik dan TIDAK dijurnal otomatis oleh pembatalan. Selesaikan dulu, atau "
-                     "setujui dengan acknowledge_costs=true + catatan penanganan (minimal "
+                     f"{lanjut} dengan acknowledge_costs=true + catatan penanganan (minimal "
                      f"{MIN_NOTE} huruf) — pengakuan ini dicatat pada keputusan dan audit log.")
+
+
+# ------------------------------------------------------------------ uang biaya SESUDAH batal (sisa FN-03)
+async def closed_reason(org: str, deal_id: str = None, contract_id: str = None) -> str:
+    """Alasan deal/kontrak ini sudah "tutup" (batal / kedaluwarsa) atau None. Predikat batal = `deal_state`."""
+    import deal_state as ds
+    from db import db
+    if deal_id:
+        deal = await ds.deal_of(org, deal_id)
+        if deal and ds.is_cancelled(deal):
+            return "DIBATALKAN"
+        if deal and deal.get("status") == "expired":
+            return "KEDALUWARSA (reservasi dilepas)"
+    if contract_id:
+        c = await db.contracts.find_one({"id": contract_id, "org_id": org}, {"_id": 0, "state": 1, "cancellation_id": 1})
+        if c and (c.get("state") == "cancelled" or c.get("cancellation_id")):
+            return "DIBATALKAN"
+    return None
+
+
+def override_of(user: dict, allowed: bool, requested: bool, reason: str) -> dict:
+    """Terobosan SADAR atas gerbang uang-biaya-setelah-batal. `allowed` = pemegang `finance:approve` (diperiksa
+    pemanggil/router). Mengembalikan catatan terobosan (atau None bila tidak diminta); galat 403/400 oleh router."""
+    if not requested:
+        return None
+    if not allowed:
+        raise PermissionError("Menerobos larangan uang biaya sesudah pembatalan hanya untuk pemegang izin "
+                              "Keuangan (finance:approve).")
+    note = str(reason or "").strip()
+    if len(note) < MIN_NOTE:
+        raise ValueError(f"Alasan terobosan wajib diisi (minimal {MIN_NOTE} huruf) — dicatat pada kuitansi/penyaluran "
+                         "dan audit log.")
+    from core_utils import now_iso
+    return {"by": (user or {}).get("email"), "reason": note, "at": now_iso()}
+
+
+async def assert_movable(org: str, *, deal_id: str = None, contract_id: str = None, what: str,
+                         override: dict = None) -> dict:
+    """Tolak menggerakkan uang biaya pada deal/kontrak yang sudah batal. Mengembalikan catatan terobosan bila
+    `override` sah dipakai (dicatat pemanggil pada dokumen yang lahir), selain itu None. TIDAK menjurnal apa pun."""
+    why = await closed_reason(org, deal_id, contract_id)
+    if not why:
+        return None
+    if override:
+        return override
+    raise ValueError(
+        f"Deal ini sudah {why} — {what} tidak boleh dilakukan: uang biaya (titipan 2-1470 / invoice biaya) pada "
+        "penjualan yang batal adalah keputusan pemilik dan tidak boleh bergerak diam-diam. Bila memang harus "
+        "(mis. menyalurkan ke notaris yang sudah bekerja atau mengembalikan ke pembeli), pemegang izin Keuangan "
+        f"mengulang dengan override_cancelled=true + override_reason (minimal {MIN_NOTE} huruf); dicatat di audit log.")
