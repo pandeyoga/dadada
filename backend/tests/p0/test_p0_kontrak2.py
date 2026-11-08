@@ -485,7 +485,17 @@ def test_kt23_pengajuan_kontrak_kpr_dilengkapi_bukan_digandakan_dan_plafon_tersi
 
 
 # ============================================================================ KT-22
-def test_kt22_komponen_biaya_tidak_wajar_ditolak_yang_wajar_diterima(cleanup):
+@pytest.fixture
+def biaya_langsung():
+    """W2-C #6: bawaan baru `contract.cost_free_input_needs_approval`=true MENAHAN isian bebas BPHTB/notaris/dst menunggu persetujuan
+    Keuangan (202). KT-22 menguji VALIDASI angka dan efek langsungnya, jadi tes menyetel false (org) dan mengembalikannya."""
+    ok(call("owner", "PUT", "/settings/contract.cost_free_input_needs_approval",
+            {"value": False, "reason": "uji KT-22: isian biaya langsung berlaku", "scope": "org"}))
+    yield
+    call("owner", "POST", "/settings/contract.cost_free_input_needs_approval/reset", params={"scope": "org"})
+
+
+def test_kt22_komponen_biaya_tidak_wajar_ditolak_yang_wajar_diterima(cleanup, biaya_langsung):
     _, deal, k = contract_of(cleanup, scheme="cash_keras", tag="K22", activate=False)
     harga = int(ok(call("manager", "GET", f"/contracts/{k['id']}"))["breakdown"]["gross_price"])
     for body in ({"promo_discount": harga + 50_000_000}, {"dp_percent": 150},

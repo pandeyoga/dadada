@@ -432,19 +432,20 @@ async def prepare_catalog_patch(org: str, cur: dict, patch: dict) -> dict:
 
 
 async def _write_through(org: str, k: dict) -> int:
-    """Salin definisi satu baris katalog ke dokumen master All-in-nya (membuat bila belum ada). 1 bila ada yang berubah."""
+    """Salin definisi satu baris katalog ke dokumen master All-in-nya (membuat bila belum ada). 1 bila ada yang berubah.
+    Tanpa baca-lalu-tulis: (1) upsert `$setOnInsert` membuat dokumen bila belum ada, (2) pembaruan bersyarat hanya mengenai dokumen
+    yang nilainya BERBEDA — keduanya atomik, jadi dua penulis serentak tidak bisa menggandakan atau saling menimpa setengah-setengah."""
     c = k.get("cost") or {}
     want = {"name": k.get("label") or k["code"], "is_active": bool(k.get("active", True)), "catalog_code": k["code"],
             **{f: c.get(f) for f in COST_FIELDS}, "kpr_only": bool(c.get("kpr_only"))}
-    cur = await db.cost_components.find_one({"org_id": org, "code": k["code"]}, {"_id": 0})
     ts = now_iso()
-    if not cur:
-        await db.cost_components.insert_one({"id": new_id(), "org_id": org, "code": k["code"], "created_at": ts, "updated_at": ts, **want})
+    flt = {"org_id": org, "code": k["code"]}
+    ins = await db.cost_components.update_one(flt, {"$setOnInsert": {"id": new_id(), "created_at": ts, "updated_at": ts, **want}}, upsert=True)
+    if ins.upserted_id is not None:
         return 1
-    if all(cur.get(f) == v for f, v in want.items()):
-        return 0
-    await db.cost_components.update_one({"id": cur["id"]}, {"$set": {**want, "updated_at": ts}})
-    return 1
+    upd = await db.cost_components.update_one({**flt, "$or": [{f: {"$ne": v}} for f, v in want.items()]},
+                                              {"$set": {**want, "updated_at": ts}})
+    return int(upd.modified_count)
 
 
 async def after_catalog_write(org: str, row: dict) -> bool:
@@ -465,12 +466,12 @@ async def guard_rule_edit(org: str, upd: dict, cur: dict = None) -> None:
 
 
 async def mirror_new_rule(org: str, doc: dict) -> None:
-    """Mode katalog_sumber: komponen All-in BARU langsung didaftarkan di katalog (tetap SATU master, selisih tetap 0)."""
+    """Mode katalog_sumber: komponen All-in BARU langsung didaftarkan di katalog (tetap SATU master, selisih tetap 0).
+    Upsert `$setOnInsert` (atomik; indeks unik org+kode): baris katalog yang sudah ada TIDAK ditimpa."""
     if (await mode_for(org)) != KATALOG:
-        return
-    if await db.price_components.find_one({"org_id": org, "code": doc["code"]}, {"_id": 1}):
         return
     cat = await db.price_components.find({"org_id": org}, {"_id": 0, "order": 1}).to_list(None)
     row = _catalog_row_from_rule({**doc, "org_id": org}, max([int(k.get("order") or 0) for k in cat] + [0]) + 10, now_iso())
-    await db.price_components.insert_one(row)
+    await db.price_components.update_one({"org_id": org, "code": doc["code"]},
+                                         {"$setOnInsert": {k: v for k, v in row.items() if k not in ("org_id", "code")}}, upsert=True)
     await db.cost_components.update_one({"org_id": org, "code": doc["code"]}, {"$set": {"catalog_code": doc["code"]}})

@@ -145,7 +145,7 @@ async def list_for_contract(org: str, contract_id: str) -> list:
 
 
 async def list_pending(org: str) -> list:
-    return await db.contract_cost_requests.find({"org_id": org, "status": "pending"}, {"_id": 0}).sort("created_at", 1).to_list(200)
+    return await db.contract_cost_requests.find({"org_id": org, "status": "pending"}, {"_id": 0}).sort("created_at", -1).to_list(200)
 
 
 async def decide(org: str, rid: str, approve: bool, note: str, user: dict) -> dict:

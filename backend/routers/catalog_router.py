@@ -125,5 +125,6 @@ async def update_component(comp_id: str, payload: PriceComponentUpdate,
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    await audit_log(user, "update", "catalog", comp_id, {})
+    await audit_log(user, "update", "catalog", comp_id, {"component": row.get("code"), "fields": sorted(payload.model_dump(exclude_none=True)),
+                                                         "cost": payload.cost})   # W2-C: blok biaya dapat dipakai tagihan (mode katalog_sumber)
     return {"data": serialize_doc(row)}
