@@ -15,7 +15,7 @@ echo "== menyemai data uji =="
 "$PY" "$HERE/seed_w1c.py" > /dev/null || { echo "GAGAL menyemai data W1-C"; exit 2; }
 
 fail=0
-for t in webhook_security ronde_a_pembatalan ronde_bc_banner ronde_d_void ronde_e_aksi_409 ronde_f_batal_reservasi w0_kebijakan w1a_kebijakan w1c_titipan; do
+for t in webhook_security ronde_a_pembatalan ronde_bc_banner ronde_d_void ronde_e_aksi_409 ronde_f_batal_reservasi w0_kebijakan w1a_kebijakan w1b_diskon_bertingkat w1b_alokasi_skema w1c_titipan; do
   echo; echo "================ $t ================"
   node "$HERE/$t.js" || fail=1
 done
