@@ -64,10 +64,10 @@ def _outcome(kind: str, mode: str) -> dict:
 
 # ------------------------------------------------------------------ komisi sales
 async def _commission_accrual(org: str, com: dict):
-    return await db.journal_entries.find_one(
-        {"org_id": org, "source_type": "commission", "source_id": com["id"],
-         "lines": {"$elemMatch": {"account_code": "2-1600", "credit": {"$gt": 0}}}},
-        {"_id": 0}, sort=[("created_at", 1)])
+    """Jurnal akrual komisi `approved`. Komisi yang BELUM dibayar hanya punya jurnal akrual (jurnal bayar baru lahir saat
+    approved → paid), jadi satu-satunya jurnal `commission` bersumber komisi ini adalah akrualnya."""
+    return await db.journal_entries.find_one({"org_id": org, "source_type": "commission", "source_id": com["id"]},
+                                             {"_id": 0}, sort=[("created_at", 1)])
 
 
 async def _reverse_commission(org: str, deal: dict, com: dict, mode: str, actor: str, why: str) -> dict:

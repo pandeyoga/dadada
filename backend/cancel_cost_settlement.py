@@ -32,6 +32,7 @@ from pymongo.errors import DuplicateKeyError
 
 import allin_engine as allin
 import cancellation_costs as cc
+import cancellation_engine as cx
 import gl_engine as gl
 import policy
 import reference as ref
@@ -46,9 +47,9 @@ logger = logging.getLogger("sipro.cancel_cost_settlement")
 
 KEY_POLICY, KEY_PCT, KEY_APPROVAL = cc.KEY_POLICY, "cancel.cost_deposit.forfeit_pct", "cancel.cost_deposit.requires_approval"
 FORFEIT_POLICY = "hangus_sebagian"
-AKUN_TITIPAN = allin.GL_TITIPAN_BIAYA          # 2-1470
-AKUN_UTANG_REFUND = "2-1460"                   # SSOT sama dengan cancellation_engine.AKUN_UTANG_REFUND
-AKUN_HANGUS = "4-1200"                         # Pendapatan Lain-lain (sama dengan booking fee hangus)
+AKUN_TITIPAN = allin.GL_TITIPAN_BIAYA          # 2-1470 Titipan Biaya Customer
+AKUN_UTANG_REFUND = cx.AKUN_UTANG_REFUND       # 2-1460 Utang Refund Pembatalan (SSOT pembatalan)
+AKUN_HANGUS = cx.AKUN_POTONGAN                 # 4-1200 Pendapatan Lain-lain (sama dengan potongan pembatalan & booking fee hangus)
 IN_FLIGHT = ("diajukan", "disetujui", "refund_sebagian")
 FOLLOWUP_PREFIX = "deal.cancel_followup:"      # tugas dengan awalan ini TIDAK ikut ditutup oleh penutup deal batal
 SYSTEM_APPROVER = "sistem:kebijakan"
@@ -114,7 +115,7 @@ async def apply_policy(org: str, deal: dict, *, actor: str, source: str, reason:
                if pol["requires_approval"] else f" — {doc['number']} dijalankan otomatis oleh kebijakan."))
     await add_activity(entity_type="lead", entity_id=deal.get("lead_id"), type="system", actor=actor, org_id=org, body=body)
     if pol["requires_approval"]:
-        await notify_finance(org, "Permohonan refund titipan biaya menunggu persetujuan", body, "approval", COLL, sid)
+        await notify_finance(org, "Permohonan refund titipan biaya menunggu persetujuan", body, "finance", COLL, sid)
         await auto_create_task(source_event=f"{FOLLOWUP_PREFIX}costsettle:{sid}",
                                title=f"Setujui refund titipan biaya {doc['number']} — unit {deal.get('unit_code') or '-'}",
                                type="todo", related_entity_type="deal", related_entity_id=deal["id"], assigned_to=None,
@@ -129,7 +130,7 @@ async def apply_policy(org: str, deal: dict, *, actor: str, source: str, reason:
             await db[COLL].update_one({"id": sid, "state": "diajukan"}, {"$set": {"auto_error": str(e)[:300]}})
             await notify_finance(org, "Refund titipan biaya gagal dijalankan otomatis",
                                  f"{doc['number']}: {str(e)[:200]}. Setujui manual dari daftar Pembatalan & Refund.",
-                                 "approval", COLL, sid)
+                                 "finance", COLL, sid)
     return out
 
 
@@ -291,7 +292,7 @@ async def pay_refund(org: str, sid: str, actor: str, *, method: str = "transfer"
     if amt > sisa:
         raise ValueError(f"Nominal melebihi sisa utang refund titipan biaya ({_rp(sisa)}). Refund tidak boleh dibayar dua kali.")
     import cash_bank as cb
-    akun_kas = await cb.resolve_code(org, cash_account_id, "1-1100" if method == "tunai" else "1-1200")
+    akun_kas = await cb.resolve_code(org, cash_account_id, cx.AKUN_KAS if method == "tunai" else cx.AKUN_BANK)
     async with money_op(org, op="costrefund.pay", key=(sid, amt, method, cash_account_id, actor), client_ref=client_ref,
                         amount=amt, cash_code=akun_kas, deal_id=s["deal_id"],
                         kind=f"refund titipan biaya {s['number']}", what="Pembayaran refund titipan biaya ini"):

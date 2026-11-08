@@ -16,7 +16,7 @@ import pytest
 import aio
 
 from test_p0_masuk import FINANCE, MANAGER, OWNER, SALES, World, ar, call, codes, ok, pay, race, upload_proof  # noqa: F401
-from test_p0_masuk_2 import allin_deal, approve, cancel_case, convert, cost_ledger
+from test_p0_masuk_2 import allin_deal, approve, cancel_case, convert, cost_ledger, manual_cost_gate
 
 FINLEAD = "finlead@sipro.co.id"
 MIN = "uji siklus deal"
@@ -192,6 +192,7 @@ def _cost_deal(world, pay_amount=20_000_000):
     return d
 
 
+@manual_cost_gate
 def test_fn03_persetujuan_diblokir_selama_ada_titipan_dan_invoice_biaya(world):
     d = _cost_deal(world)
     pv = ok(call(MANAGER, "GET", "/cancellations/preview", params={"contract_id": d["contract_id"]}))["data"]
@@ -208,6 +209,7 @@ def test_fn03_persetujuan_diblokir_selama_ada_titipan_dan_invoice_biaya(world):
     assert mdb().cancellations.find_one({"id": d["cancel_id"]})["state"] == "diajukan"
 
 
+@manual_cost_gate
 def test_fn03_pengakuan_sah_menyetujui_dan_tercatat_di_keputusan_dan_audit(world):
     d = _cost_deal(world)
     note = "titipan biaya Rp 20 jt dikembalikan lewat keputusan pemilik terpisah"

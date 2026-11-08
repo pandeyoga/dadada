@@ -330,6 +330,34 @@ def test_penutup_kedaluwarsa_mengambil_kunci_sendiri_tanpa_deadlock(world):
     _green()
 
 
+def test_kedaluwarsa_nyata_lewat_sweeper_melahirkan_permohonan_pada_kebijakan_bawaan(world):
+    """Sweeper sungguhan (proses terpisah): invoice biaya terbuka pada reservasi kedaluwarsa → permohonan refund (bukan lagi hanya tugas manual)."""
+    import uuid
+    from test_p0_sisa_siklus import jalankan_sweeper, kedaluwarsakan, reserved_deal
+    from test_p0_siklus_deal import now
+    d = reserved_deal(world)
+    org = mdb().deals.find_one({"id": d["deal_id"]})["org_id"]
+    inv_id = str(uuid.uuid4())
+    mdb().cost_invoices.insert_one({
+        "id": inv_id, "org_id": org, "deal_id": d["deal_id"], "contract_id": None, "number": f"INB-W1C-{inv_id[:6]}",
+        "items": [], "total": 9_000_000, "paid": 0, "outstanding": 9_000_000, "status": "unpaid",
+        "created_at": now(), "updated_at": now()})
+    try:
+        kedaluwarsakan(d["deal_id"])
+        jalankan_sweeper()
+        s = _sett(d["deal_id"])
+        assert s and s["source"] == "kedaluwarsa" and s["requested_by"] == "scheduler" and s["state"] == "diajukan", s
+        assert s["snapshot"]["open_invoice_total"] == 9_000_000
+        fu = mdb().tasks.find_one({"source_event": f"deal.cancel_followup:{d['deal_id']}"})
+        assert not fu or "invoice biaya terbuka" not in fu["description"], "uang biaya ditangani kebijakan, bukan tugas manual"
+        assert mdb().cost_invoices.find_one({"id": inv_id})["status"] == "unpaid", "belum disetujui → invoice belum dibatalkan"
+        doc = ok(_decide(s["id"], who=OWNER))["data"]       # pemohon = scheduler → siapa pun penyetuju berizin boleh
+        assert doc["state"] == "selesai" and mdb().cost_invoices.find_one({"id": inv_id})["status"] == "void"
+    finally:
+        mdb().cost_invoices.delete_one({"id": inv_id})
+    _green()
+
+
 # ================================================================== konkurensi
 def test_dua_penyetuju_serempak_satu_jurnal_dan_dua_pembayaran_serempak_tidak_melebihi_utang(world):
     d = _deal(world, bayar=20_000_000)
