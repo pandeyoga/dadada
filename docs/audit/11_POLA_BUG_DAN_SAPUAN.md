@@ -272,16 +272,21 @@ yang sama sempat menghasilkan 30–37 pelanggaran semu (unit/AR/BF) yang hilang 
   dan invoice biaya saat batal (gerbang pengakuan sudah ada, tanpa jurnal baru); FN-01/FN-11/FN-12 (satu master biaya, ganti skema ke KPR, NPOPTKP per proyek,
   tarif BPHTB, BANK_FEE); PG-01 (valuasi persediaan); 10 keputusan di `06_STATUS_PERBAIKAN.md` bagian 4.
 
-**Belum dikerjakan (teknis, tanpa keputusan):**
-- PG-06 sisa: tagihan lama atas PO yang sudah telanjur batal masih bisa disetujui/dibayar (jalur AP).
-- Kandidat pola yang sama: `deals/{id}/pricing-approval`, `petty_cash.approve/reject`, `subcon_claims.verify/reject`, `quotation_engine.decide_discount`,
-  `allin_amend.decide_amendment`, penomoran `to_po`; janji temu & dokumen draft kontrak saat pembatalan; sweeper kedaluwarsa (`deal_cancel.expire`) belum memakai
-  penutup turunan bersama; gerbang biaya FN-03 hanya di jalur formal; bayar invoice biaya setelah batal belum diblokir.
-- Layar frontend untuk `/webhooks/status` dan pengisian rahasia webhook; UI belum diuji di peramban (kotak pengakuan biaya pembatalan, banner komponen biaya,
-  penanganan `indicator` rekonsiliasi, toast 400/409 baru).
-- `money_op()` sebagai satu pintu uang keluar (G1): `funds_guard` + `deal_money` adalah langkah pertamanya; jalur titipan/booking fee baru diserialkan per-deal
-  lewat `booking_fee.pay`, `deal_cancel.cancel`, `cancellation_engine.decide`.
-- Balapan bayar-booking-fee ‖ batal: kini diserialkan per-deal; tes soak probabilistik **belum terbukti merah pada kode lama** (hanya terlihat 1 dari 5 putaran pada skrip manual).
+**Ronde "lanjutan semua" (H-A…H-D) — selesai dan terbukti** (suite penuh `tests/p0` ±690 tes lulus pada kode gabungan, bayangan posting hidup):
+sweeper kedaluwarsa + janji temu + dokumen draft memakai penutup turunan bersama; gerbang pengakuan biaya di semua jalur batal; uang biaya tak bergerak setelah batal;
+tagihan AP atas PO batal ditolak (PG-06 tuntas); transisi status dijaga pada pricing-approval, kas bon, klaim subkon, quotation, amandemen all-in, `to_po`;
+dedup manual (pembeli, lead, tugas, material, sub-akun GL, impor bank); `money_op` (satu pintu uang keluar) dipakai di 6 jalur; layar "Keamanan Webhook"; uji peramban
+atas 11 temuan UI (semua diperbaiki); **Posting Profile fase 1–2**: katalog 49 peristiwa (24 tercakup), profil v0 = perilaku hari ini, dry-run read-only, resolver bayangan
+(env `POSTING_SHADOW=1`) — 436 jurnal sungguhan dari 24 peristiwa dibandingkan, **0 selisih**.
+Fuzz akhir pada kode final: seed 12 × 250 operasi → 15 pelanggaran baru (O13 lubang nomor, O08 lead `won` tanpa deal/KT-13, O10, M07/IN-14), serentak → 1 (O08); 0 HTTP 500.
+
+**Masih terbuka — teknis, tanpa keputusan pemilik:**
+- `money_op` belum dipakai oleh `finance_commission`, `refund_deposit`, `loans`, `tax_router`, `subcon_finance` (sapuan `P3b_assert_funds_langsung` = 4 fungsi).
+- Posting Profile: 25 peristiwa `covered:false` (booking fee hangus, retensi subkon, pengajuan dana, kas kecil, upah, pinjaman, transfer/saldo awal bank, all-in, giro, tutup/buka tahun,
+  jurnal manual); Fase 4+ (UI, maker-checker, peralihan peristiwa ke profil, dimensi proyek/unit) belum dikerjakan.
+- `record_developer_expense` pada deal batal belum digerbang; pembayaran AP lewat rekonsiliasi bank atas PO batal sengaja tidak diblokir.
+- Uji peramban hanya Chromium desktop (tanpa ponsel); `TransfersPanel` masih memakai `window.prompt`; pilihan status izin di frontend mencerminkan tabel backend.
+- Indeks unik baru (`uq_task_open_source`, `uq_allin_amend_pending`, `uq_mfee_open_dedup`) hanya diuji pada DB baru; data kembar lama di produksi hanya dilaporkan `conflict`.
 
 **Catatan operasional:** begitu rahasia sebuah kanal webhook diisi, rahasia yang sama harus sudah dipasang di dashboard penyedia (kalau tidak lead asli ikut ditolak);
 skema TikTok adalah asumsi; format payload Meta leadgen asli dan Google `user_column_data` belum diurai; verify token Meta tetap di query string GET (spesifikasi Meta).
