@@ -333,6 +333,10 @@ async def ensure_contract(org: str, deal: dict, customer: dict, scheme: str,
         "quotation_id": deal.get("quotation_id"),
         "created_by": actor, "created_at": ts, "updated_at": ts,
     }
+    # W2-B: kebijakan tingkat kontrak yang berlaku SAAT kontrak lahir dibekukan di kontrak (penanggung BPHTB, dst.) — mengganti
+    # bawaan organisasi/proyek kemudian tidak mengubah kontrak ini diam-diam.
+    import contract_policy
+    doc["policy_snapshot"] = await contract_policy.snapshot_new(org, doc)
     # KLAIM dulu lewat index unik `uq_contract_deal`, nomor kemudian: permintaan yang kalah
     # balapan tidak menghanguskan nomor (dulu nomor diambil sebelum insert, lalu insert gagal
     # → lubang nomor kontrak), dan tidak mati dengan HTTP 500 — ia mengembalikan kontrak pemenang.

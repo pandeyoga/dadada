@@ -58,7 +58,8 @@ async def _request_locked(org: str, contract: dict, payload: dict, user: dict) -
         new_costs = await ae.resolve_scheme(org, payload["scheme_id"], price, deal.get("project_id"),
                                             payload.get("scheme_kind") or contract.get("scheme"),   # W1-B #14: hitung untuk jenis TUJUAN
                                             booking_fee=int(deal.get("booking_fee") or 0), land_area=land,
-                                            plafon=(contract.get("costs") or {}).get("plafon_kredit"))   # W2-A: BANK_FEE % plafon SP3K
+                                            plafon=(contract.get("costs") or {}).get("plafon_kredit"),   # W2-A: BANK_FEE % plafon SP3K
+                                            contract=contract)   # W2-B: pilihan penanggung BPHTB kontrak ini ikut terbawa
     elif payload.get("items") is not None:
         if not await ae.may_manual(user):
             raise PermissionError("Komponen manual hanya finance_manager/superadmin.")

@@ -223,3 +223,35 @@ DEFAULTS_W2A: dict = {d["key"]: d for d in [
        minimum=0, maximum=100, **_PAJAK),
 ]}
 DEFAULTS_POLICY.update(DEFAULTS_W2A)
+
+
+# ===== W2-B — BPHTB dipilih PER KONTRAK (keputusan #3) =====
+# Siapa menanggung BPHTB: pembeli (ditagih lewat invoice biaya → titipan 2-1470), developer (tidak ditagih; beban developer lewat
+# jalur `developer_borne` yang sudah ada: Dr 6-1700 / Cr 2-1100 saat dicatat), atau dibagi menurut persen. SATU fungsi pembagi
+# (`bphtb_policy.split_amount`) dibaca semua titik hitung. Tingkat penimpaan: organisasi, proyek, dan KONTRAK (disimpan di
+# dokumen kontrak, ditulis `routers/contract_policy_router.py`). Perubahan berlaku KE DEPAN: komponen biaya sebuah kontrak adalah
+# snapshot saat ia lahir; mengganti pengaturan organisasi/proyek tidak mengubah kontrak yang sudah ada.
+# Hanya pemegang `finance:manage` (Manajer Keuangan, owner, super admin) yang boleh mengubah — di semua tingkat.
+_BPHTB = dict(levels=("org", "project", "contract"), writer=("finance", "manage"))
+
+DEFAULTS_W2B: dict = {d["key"]: d for d in [
+    _d("bphtb.borne_by", "pembeli", "enum", "Penanggung BPHTB",
+       "Siapa yang menanggung BPHTB atas penjualan unit. PEMBELI (bawaan = jawaban pemilik): BPHTB ditagih ke pembeli lewat invoice "
+       "biaya dan ditampung sebagai titipan biaya 2-1470 (bukan pendapatan), lalu disalurkan ke notaris/BPN. DEVELOPER: BPHTB tidak "
+       "ditagihkan ke pembeli dan menjadi beban developer (komponen 'ditanggung developer': dicatat lewat 'Catat beban' — Dr Beban "
+       "Penjualan 6-1700 / Cr Utang Usaha 2-1100, akun mengikuti master komponen). DIBAGI: pembeli menanggung (100 − porsi developer)% "
+       "dan developer menanggung porsi developer% (kunci di bawah). Selama BELUM ada pilihan eksplisit di tingkat organisasi/proyek/"
+       "kontrak (nilai bawaan), perlakuan BPHTB mengikuti skema all-in yang dipilih sales saat reservasi (mis. 'Exclude' = pembeli, "
+       "'All-in Standar' = developer) — persis perilaku sebelum pengaturan ini ada; begitu dipilih eksplisit, pilihan itu menang atas skema. "
+       "Bisa ditimpa per proyek dan per KONTRAK (Kontrak › Kebijakan kontrak) selama uang BPHTB belum bergerak.",
+       impact="Berlaku untuk penawaran/reservasi BARU; kontrak yang sudah ada tidak berubah diam-diam. Mengubah penanggung pada kontrak "
+              "membatalkan invoice biaya yang belum dibayar dan menerbitkannya ulang; ditolak bila uang BPHTB sudah bergerak "
+              "(kuitansi biaya, penyaluran, beban developer, catatan pajak dilaporkan/disetor).",
+       ref_group="bphtb_borne_by", **_BPHTB),
+    _d("bphtb.developer_share_pct", 50, "pct", "Porsi BPHTB ditanggung developer (%) — untuk 'Dibagi'",
+       "Hanya dipakai bila penanggung BPHTB = Dibagi: developer menanggung persen ini dari BPHTB, pembeli sisanya (dibulatkan ke Rupiah; "
+       "sisa pembulatan masuk bagian pembeli). Usulan sistem 50% (bukan dokumen legal) — isi sesuai kesepakatan/SPR.",
+       impact="Mengubah pembagian BPHTB pada penawaran/reservasi BARU (atau pada kontrak yang ditimpa 'Dibagi').",
+       minimum=0, maximum=100, **_BPHTB),
+]}
+DEFAULTS_POLICY.update(DEFAULTS_W2B)

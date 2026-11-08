@@ -95,6 +95,7 @@ from routers.p62_router import router as p62_router
 from routers.doc_layout_router import router as doc_layout_router
 from routers.numbering_router import router as numbering_router
 from routers.allin_router import router as allin_router
+from routers.contract_policy_router import router as contract_policy_router   # W2-B
 from routers.site_plan_studio_router import router as site_plan_studio_router
 from routers.omnichannel_router import router as omnichannel_router
 from routers.wa_router import router as wa_router
@@ -599,6 +600,7 @@ api.include_router(doc_layout_router)
 # Fase 71 — aturan penomoran dokumen & kode master yang bisa dikonfigurasi.
 api.include_router(numbering_router)
 api.include_router(allin_router)
+api.include_router(contract_policy_router)   # W2-B: kebijakan tingkat kontrak
 # Fase 72 — Studio Site Plan (SVG kaya, latar gambar, tracing, unit dari peta).
 api.include_router(site_plan_studio_router)
 # Manajemen Data — migrasi master via Excel + backup/restore JSON (admin/owner).

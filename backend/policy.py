@@ -14,27 +14,31 @@ from db import ORG_ID
 
 
 def _contract_layer(spec: dict, key: str, contract: dict):
-    """Penimpaan tingkat kontrak bila diizinkan untuk kunci ini dan nilainya masih sah; selain itu None."""
+    """Lapisan tingkat kontrak bila diizinkan untuk kunci ini dan nilainya masih sah; selain itu None.
+    Urutan di dalam lapisan: penimpaan eksplisit (`policy_overrides`, asal "contract") → nilai yang DIBEKUKAN saat kontrak lahir
+    (`policy_snapshot`, asal "snapshot"; W2-B) — supaya mengganti bawaan organisasi/proyek tidak mengubah kontrak yang sudah ada diam-diam."""
     if not contract or "contract" not in (spec.get("levels") or ()):
         return None
-    ov = (contract.get("policy_overrides") or {}).get(key)
-    if not isinstance(ov, dict) or "value" not in ov:
-        return None
-    try:
-        return {"value": cfg.coerce(spec, ov["value"])}   # nilai usang (opsi dicabut/belum tersedia) → abaikan, jatuh ke atas
-    except ValueError:
-        return None
+    for field, origin in (("policy_overrides", "contract"), ("policy_snapshot", "snapshot")):
+        ov = (contract.get(field) or {}).get(key)
+        if not isinstance(ov, dict) or "value" not in ov:
+            continue
+        try:
+            return {"value": cfg.coerce(spec, ov["value"]), "origin": origin}   # nilai usang (opsi dicabut/belum tersedia) → abaikan, jatuh ke atas
+        except ValueError:
+            continue
+    return None
 
 
 async def resolve_with_origin(key: str, *, org_id: str = ORG_ID, project_id: str = None,
                               cluster_id: str = None, contract: dict = None):
-    """(nilai, asal) dengan asal ∈ contract|cluster|project|org|default."""
+    """(nilai, asal) dengan asal ∈ contract|snapshot|cluster|project|org|default."""
     spec = cfg.DEFAULTS.get(key)
     if not spec:
         raise KeyError(f"Kebijakan tidak dikenal: {key}")
     layer = _contract_layer(spec, key, contract)
     if layer is not None:
-        return layer["value"], "contract"
+        return layer["value"], layer["origin"]
     return await cfg.get_with_origin(key, org_id=org_id, project_id=project_id, cluster_id=cluster_id)
 
 

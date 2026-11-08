@@ -12,6 +12,7 @@ import logging
 
 import finance_engine as fe
 import gl_engine as gl
+import bphtb_policy   # W2-B: penanggung BPHTB (pembeli/developer/dibagi) — satu fungsi pembagi
 import sequences as seq
 import tax_master
 from core_utils import new_id, now_iso
@@ -142,7 +143,8 @@ def compute_amount(comp: dict, price: int, npoptkp: int, override: int = None,
 
 
 async def resolve_scheme(org: str, scheme_id: str, price: int, project_id: str = None,
-                         scheme: str = None, booking_fee: int = None, land_area=None, plafon: int = None) -> dict:
+                         scheme: str = None, booking_fee: int = None, land_area=None, plafon: int = None,
+                         contract: dict = None) -> dict:
     """Snapshot komponen dari skema all-in untuk harga ini → disimpan di `deal.costs`.
 
     FN-02: komponen NONAKTIF tidak ikut ditagihkan pada snapshot baru (dulu `include_inactive=True`
@@ -179,6 +181,9 @@ async def resolve_scheme(org: str, scheme_id: str, price: int, project_id: str =
             "gl_expense": comp.get("gl_expense") or GL_BEBAN_PENJUALAN,
             "gl_liability": comp.get("gl_liability") or GL_TITIPAN_BIAYA,
             "gl_ap": comp.get("gl_ap") or GL_AP, "source": "scheme"})
+    # W2-B: penanggung BPHTB (pembeli/developer/dibagi) — pilihan eksplisit organisasi/proyek/kontrak menang atas perlakuan skema;
+    # tanpa pilihan eksplisit komponen TIDAK berubah (perilaku lama: perlakuan mengikuti skema).
+    components = await bphtb_policy.apply_policy(org, components, project_id, contract)
     return {"scheme_id": sch["id"], "scheme_code": sch.get("code"), "scheme_name": sch["name"],
             "npoptkp": npoptkp, "components": components}
 
@@ -374,6 +379,7 @@ async def ledger(org: str, contract: dict) -> dict:
     dev_total = sum(int(c["amount"] or 0) for c in comps if c.get("treatment") == "developer_borne")
     return {"components": comps, "pass_through_total": sum(int(c["amount"]) for c in _pass_through(contract)),
             "developer_borne_total": dev_total,
+            "bphtb": bphtb_policy.derive((contract.get("costs") or {}).get("components"), contract.get("costs")),   # W2-B: total/pembeli/developer
             "developer_expensed": sum(int(e["amount"]) for e in exp),
             "invoices": invoices, "receipts": receipts, "disbursements": disb, "expenses": exp,
             "invoiced": invoiced, "received": received, "paid_out": paid_out,
