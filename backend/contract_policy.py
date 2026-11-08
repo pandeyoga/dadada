@@ -16,12 +16,14 @@ Izin dan audit di router (`routers/contract_policy_router.py`). Perubahan berlak
 """
 import importlib
 import logging
+from contextlib import asynccontextmanager
 
 import policy
 import reference as _ref
 import settings_store as cfg
 from core_utils import now_iso
 from db import db
+from deal_money import deal_money
 from idempotency import cas, expect_of, mutex
 
 logger = logging.getLogger("sipro.contract_policy")
@@ -185,6 +187,16 @@ async def _write(org: str, contract: dict, key: str, *, action: str, value, new_
     return out
 
 
+@asynccontextmanager
+async def _guarded(org: str, contract_id: str):
+    """Penjaga penulisan: kunci uang per-DEAL (`deal_money` — yang sama dipegang bayar-invoice-biaya & salurkan-titipan, jadi tak ada
+    kuitansi yang menyelip antara pemeriksaan 'uang belum bergerak' dan pembatalan invoice) + mutex per kontrak."""
+    c = await _fresh(org, contract_id)
+    async with deal_money(org, c.get("deal_id")):
+        async with mutex(f"contract.policy:{org}:{contract_id}", what="Kebijakan kontrak ini"):
+            yield
+
+
 def _check(key: str, reason: str):
     spec = _spec(key)
     reason = (reason or "").strip()
@@ -196,7 +208,7 @@ def _check(key: str, reason: str):
 async def set_override(org: str, contract_id: str, key: str, value, reason: str, actor: str) -> dict:
     spec, reason = _check(key, reason)
     value = cfg.coerce(spec, value)   # opsi 'belum tersedia' ditolak di sini
-    async with mutex(f"contract.policy:{org}:{contract_id}", what="Kebijakan kontrak ini"):
+    async with _guarded(org, contract_id):
         contract = await ensure_snapshot(org, await _fresh(org, contract_id))
         why = await lock_reason(org, contract, key)
         if why:
@@ -214,7 +226,7 @@ async def set_override(org: str, contract_id: str, key: str, value, reason: str,
 
 async def clear_override(org: str, contract_id: str, key: str, reason: str, actor: str) -> dict:
     spec, reason = _check(key, reason)
-    async with mutex(f"contract.policy:{org}:{contract_id}", what="Kebijakan kontrak ini"):
+    async with _guarded(org, contract_id):
         contract = await ensure_snapshot(org, await _fresh(org, contract_id))
         if key not in (contract.get("policy_overrides") or {}):
             raise ValueError(f"'{spec['label']}' tidak sedang ditimpa pada kontrak ini — sudah mengikuti proyek/organisasi.")
