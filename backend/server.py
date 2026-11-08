@@ -97,6 +97,7 @@ from routers.numbering_router import router as numbering_router
 from routers.allin_router import router as allin_router
 from routers.cost_master_router import router as cost_master_router   # W2-C: satu master komponen biaya (#16)
 from routers.contract_cost_router import router as contract_cost_router   # W2-C: permohonan isian biaya kontrak (#6)
+from routers.contract_policy_router import router as contract_policy_router   # W2-B
 from routers.site_plan_studio_router import router as site_plan_studio_router
 from routers.omnichannel_router import router as omnichannel_router
 from routers.wa_router import router as wa_router
@@ -603,6 +604,7 @@ api.include_router(numbering_router)
 api.include_router(allin_router)
 api.include_router(cost_master_router)
 api.include_router(contract_cost_router)
+api.include_router(contract_policy_router)   # W2-B: kebijakan tingkat kontrak
 # Fase 72 — Studio Site Plan (SVG kaya, latar gambar, tracing, unit dari peta).
 api.include_router(site_plan_studio_router)
 # Manajemen Data — migrasi master via Excel + backup/restore JSON (admin/owner).

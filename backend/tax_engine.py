@@ -14,6 +14,7 @@ Uang IDR integer; waktu UTC ISO-8601.
 import logging
 from datetime import datetime
 
+import bphtb_policy   # W2-B
 import sequences as seq
 import reference as ref
 from db import db, ORG_ID
@@ -106,11 +107,24 @@ async def enrich_records(org_id, records) -> list:
     deal_ids = list({r.get("deal_id") for r in records if r.get("deal_id")})
     ars = {a["deal_id"]: a for a in
            await db.ar_invoices.find({"org_id": org_id, "deal_id": {"$in": deal_ids}}, {"_id": 0}).to_list(5000)}
+    # W2-B: catatan pajak BPHTB menampilkan siapa yang menanggung (pembeli/developer/dibagi) — dari SATU fungsi pembagi
+    # (`bphtb_policy.bphtb_split`); jumlah catatan pajak tetap total BPHTB (kewajiban kepada negara tidak berubah oleh siapa penanggungnya).
+    docs = {}
+    bphtb_deals = list({r["deal_id"] for r in records if r.get("type") == "bphtb" and r.get("deal_id")})
+    if bphtb_deals:
+        for coll in ("deals", "contracts"):   # kontrak (bila ada) menimpa deal: keputusan per kontrak ada di sana
+            async for d in db[coll].find({"org_id": org_id, "deal_id" if coll == "contracts" else "id": {"$in": bphtb_deals}},
+                                         {"_id": 0, "id": 1, "deal_id": 1, "project_id": 1, "costs": 1, "policy_overrides": 1,
+                                          "policy_snapshot": 1}):
+                docs[d.get("deal_id") or d["id"]] = d
     out = []
     for r in records:
         ar = ars.get(r.get("deal_id")) or {}
-        out.append({**r, "unit_code": ar.get("unit_code"), "buyer_name": ar.get("lead_name"),
-                    "period": period_of(r.get("created_at"))})
+        row = {**r, "unit_code": ar.get("unit_code"), "buyer_name": ar.get("lead_name"), "period": period_of(r.get("created_at"))}
+        if r.get("type") == "bphtb" and r.get("deal_id") in docs:
+            sp = await bphtb_policy.bphtb_split(docs[r["deal_id"]], org_id=org_id, total=int(r.get("amount") or 0))
+            row["bphtb_split"] = {k: sp[k] for k in ("borne_by", "buyer", "developer", "share_pct", "origin")}
+        out.append(row)
     return out
 
 

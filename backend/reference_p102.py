@@ -119,3 +119,15 @@ GROUPS_P102.update({
         ],
     },
 })
+
+
+# ===== W2-B — kosakata BPHTB per kontrak (keputusan #3) =====
+GROUPS_P102["bphtb_borne_by"] = {
+    "label": "Penanggung BPHTB", "strict": True,
+    "help": "Setting `bphtb.borne_by` (bisa ditimpa per proyek dan per kontrak).",
+    "options": [
+        _o("pembeli", "Pembeli — BPHTB ditagih lewat invoice biaya (titipan 2-1470), bukan pendapatan developer"),
+        _o("developer", "Developer — BPHTB tidak ditagih ke pembeli, menjadi beban developer"),
+        _o("dibagi", "Dibagi — pembeli menanggung (100 − porsi developer)%, developer menanggung porsi developer%"),
+    ],
+}

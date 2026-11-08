@@ -12,6 +12,7 @@ import logging
 
 import finance_engine as fe
 import gl_engine as gl
+import bphtb_policy   # W2-B: penanggung BPHTB (pembeli/developer/dibagi) — satu fungsi pembagi
 import sequences as seq
 import tax_master
 from core_utils import new_id, now_iso
@@ -143,7 +144,7 @@ def compute_amount(comp: dict, price: int, npoptkp: int, override: int = None,
 
 async def resolve_scheme(org: str, scheme_id: str, price: int, project_id: str = None,
                          scheme: str = None, booking_fee: int = None, land_area=None, plafon: int = None,
-                         *, mode: str = None) -> dict:
+                         contract: dict = None, *, mode: str = None) -> dict:
     """Snapshot komponen dari skema all-in untuk harga ini → disimpan di `deal.costs`.
 
     FN-02: komponen NONAKTIF tidak ikut ditagihkan pada snapshot baru (dulu `include_inactive=True`
@@ -189,6 +190,9 @@ async def resolve_scheme(org: str, scheme_id: str, price: int, project_id: str =
             "gl_liability": comp.get("gl_liability") or GL_TITIPAN_BIAYA,
             "gl_ap": comp.get("gl_ap") or GL_AP, "source": "scheme",
             **({"catalog_code": comp.get("catalog_code")} if mode == cost_master.KATALOG else {})})
+    # W2-B: penanggung BPHTB (pembeli/developer/dibagi) — pilihan eksplisit organisasi/proyek/kontrak menang atas perlakuan skema;
+    # tanpa pilihan eksplisit komponen TIDAK berubah (perilaku lama: perlakuan mengikuti skema).
+    components = await bphtb_policy.apply_policy(org, components, project_id, contract)
     out = {"scheme_id": sch["id"], "scheme_code": sch.get("code"), "scheme_name": sch["name"],
            "npoptkp": npoptkp, "components": components}
     if mode == cost_master.KATALOG:   # jejak: snapshot ini dihitung dari katalog (bayangan = bentuk lama persis, tanpa kunci tambahan)
@@ -391,6 +395,7 @@ async def ledger(org: str, contract: dict) -> dict:
     dev_total = sum(int(c["amount"] or 0) for c in comps if c.get("treatment") == "developer_borne")
     return {"components": comps, "pass_through_total": sum(int(c["amount"]) for c in _pass_through(contract)),
             "developer_borne_total": dev_total,
+            "bphtb": bphtb_policy.derive((contract.get("costs") or {}).get("components"), contract.get("costs")),   # W2-B: total/pembeli/developer
             "developer_expensed": sum(int(e["amount"]) for e in exp),
             "invoices": invoices, "receipts": receipts, "disbursements": disb, "expenses": exp,
             "invoiced": invoiced, "received": received, "paid_out": paid_out,
@@ -401,9 +406,11 @@ async def ledger(org: str, contract: dict) -> dict:
 async def issue_cost_invoice(org: str, contract: dict, actor: str) -> dict:
     """Terbitkan INVOICE BIAYA (seri sendiri, bukan AR unit) untuk komponen pass-through.
 
-    Dikunci per kontrak: dua penerbitan bersamaan dulu sama-sama lolos cek "sudah terbit" dan
-    melahirkan dua invoice biaya untuk komponen yang sama (piutang biaya berlipat)."""
-    async with locked("allin.issue", contract.get("id") or contract.get("deal_id"),
+    Dikunci per DEAL: dua penerbitan bersamaan dulu sama-sama lolos cek "sudah terbit" dan
+    melahirkan dua invoice biaya untuk komponen yang sama (piutang biaya berlipat). Kunci memakai `deal_id` karena jalur
+    `deal.booked` (kontrak semu `deal_as_contract`, id kosong) dan `ensure_contract` (id kontrak) harus berebut kunci YANG SAMA —
+    sebelumnya kunci berbeda sehingga keduanya lolos (satu invoice 'system' + satu invoice 'sales' untuk satu deal)."""
+    async with locked("allin.issue", contract.get("deal_id") or contract.get("id"),
                       what="Penerbitan invoice biaya kontrak ini"):
         return await _issue_cost_invoice_locked(org, contract, actor)
 
