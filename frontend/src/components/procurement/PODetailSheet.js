@@ -59,14 +59,18 @@ export default function PODetailSheet({ poId, open, onOpenChange, onChanged }) {
   const doApprove = async () => {
     setBusy(true);
     try { await api.post(`/procurement/pos/${po.id}/approve`, {}); toast.success("PO disetujui."); await load(); onChanged && onChanged(); }
-    catch (e) { toast.error(e?.response?.data?.detail || "Gagal menyetujui PO."); }
-    finally { setBusy(false); }
+    catch (e) {
+      toast.error(e?.response?.data?.detail || "Gagal menyetujui PO.");
+      await load(); onChanged && onChanged();   // 400/409 = status PO sudah berubah: tampilkan keadaan terbaru
+    } finally { setBusy(false); }
   };
   const doCancel = async () => {
     setBusy(true);
     try { await api.post(`/procurement/pos/${po.id}/cancel`, {}); toast.success("PO dibatalkan."); await load(); onChanged && onChanged(); }
-    catch (e) { toast.error(e?.response?.data?.detail || "Gagal membatalkan PO."); }
-    finally { setBusy(false); }
+    catch (e) {
+      toast.error(e?.response?.data?.detail || "Gagal membatalkan PO.");
+      await load(); onChanged && onChanged();
+    } finally { setBusy(false); }
   };
   const submitGrn = async () => {
     const items = Object.entries(grnQty).map(([idx, q]) => ({ po_item_index: Number(idx), qty_received: Number(q) || 0 })).filter((x) => x.qty_received > 0);
@@ -96,7 +100,12 @@ export default function PODetailSheet({ poId, open, onOpenChange, onChanged }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent data-testid={PROCUREMENT.poDetail} className="w-full overflow-y-auto sm:max-w-lg">
-        {loading || !po ? <LoadingCards count={3} /> : (
+        {loading || !po ? (
+          <>
+            <SheetHeader><SheetTitle className="sr-only">Detail PO</SheetTitle></SheetHeader>
+            <LoadingCards count={3} />
+          </>
+        ) : (
           <>
             <SheetHeader>
               <SheetTitle className="flex items-center gap-2">{po.po_number}
@@ -132,10 +141,16 @@ export default function PODetailSheet({ poId, open, onOpenChange, onChanged }) {
                     <CheckCircle2 className="mr-1.5 h-4 w-4" /> Setujui
                   </Button>
                 ) : null}
-                {["draft", "approved", "partially_received"].includes(po.status) && CANCEL.includes(role) ? (
+                {/* PO yang sudah menerima barang (GRN) tidak bisa dibatalkan — server menolaknya (PG-06): retur dulu. */}
+                {["draft", "approved"].includes(po.status) && CANCEL.includes(role) ? (
                   <Button data-testid={PROCUREMENT.poCancel} variant="outline" disabled={busy} onClick={doCancel}>
                     <XCircle className="mr-1.5 h-4 w-4" /> Batalkan
                   </Button>
+                ) : null}
+                {po.status === "partially_received" ? (
+                  <p data-testid={PROCUREMENT.poCancelNote} className="w-full rounded-lg border bg-secondary p-2 text-xs text-muted-foreground">
+                    PO ini sudah menerima barang, jadi tidak bisa dibatalkan. Kembalikan barangnya ke vendor lewat Retur Barang lebih dulu.
+                  </p>
                 ) : null}
                 {["approved", "partially_received"].includes(po.status) && CREATE.includes(role) ? (
                   <Button data-testid={PROCUREMENT.grnBtn} variant="outline" onClick={() => setMode(mode === "grn" ? null : "grn")}>

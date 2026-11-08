@@ -38,6 +38,7 @@ export default function GlReconcileBanner() {
         <span className="font-medium">
           {ok ? "Subledger AR/AP sama dengan buku besar." : `${bad.length} akun kendali SELISIH dengan subledger — angka laporan tidak bisa dipercaya sebelum dibetulkan.`}
         </span>
+        {d.indicators_off ? <span data-testid="gl-reconcile-indicators" className="rounded bg-amber-100 px-1.5 text-xs text-amber-900">{d.indicators_off} indikator menyimpang (peringatan) — lihat Rincian</span> : null}
         {d.events_failed ? <span className="rounded bg-rose-200 px-1.5 text-xs">{d.events_failed} jurnal otomatis GAGAL diposting</span> : null}
         {d.events_failed && d.can_retry_events ? (
           <Button size="sm" variant="outline" data-testid="gl-reconcile-retry" onClick={retryFailed}>Proses ulang</Button>

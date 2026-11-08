@@ -22,6 +22,7 @@ import { formatDateTimeWIB } from "@/utils/formatters";
 import { P56 } from "@/constants/testIds";
 import CashAccountSelect from "@/components/cashBank/CashAccountSelect";
 import ReferenceItems from "@/components/patterns/ReferenceItems";
+import CancellationCostAck, { costAckOk } from "@/components/contracts/CancellationCostAck";
 
 /**
  * CancellationPanel — PEMBATALAN KONTRAK & REFUND (Fase 56C). Tiga tangan yang berbeda dengan sengaja:
@@ -55,9 +56,9 @@ export default function CancellationPanel({ contract, onChanged }) {
     override: false, override_reason: "" });
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (quiet = false) => {
     if (!contract?.id) return;
-    setState({ loading: true, error: "" });
+    if (!quiet) setState({ loading: true, error: "" });
     try {
       const res = await api.get("/cancellations/preview",
         { params: { contract_id: contract.id } });
@@ -107,7 +108,10 @@ export default function CancellationPanel({ contract, onChanged }) {
       setDecideFor(null); setNote("");
       refresh();
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Gagal menyimpan keputusan.");
+      const msg = String(e?.response?.data?.detail || "Gagal menyimpan keputusan.");
+      toast.error(msg.replace(/acknowledge_costs=true/g, "pengakuan biaya"));
+      // titipan/invoice biaya muncul sesudah pengajuan: muat ulang diam-diam supaya kotak pengakuan tampil.
+      if (/titipan biaya|acknowledge_costs/i.test(msg)) load(true);
     } finally { setBusy(false); }
   };
 
@@ -139,6 +143,10 @@ export default function CancellationPanel({ contract, onChanged }) {
   if (state.loading || !pre) return null;
 
   const rows = pre.history || [];
+  // Titipan/invoice biaya bisa muncul SESUDAH pengajuan: pakai yang menggantung dari dasar pengajuan ATAU keadaan terkini.
+  const holds = [(decideFor?.basis_at_request || {}).cost_holds, pre.cost_holds].find((h) => h?.has_holds)
+    || (decideFor?.basis_at_request || {}).cost_holds;
+  const approveBlocked = busy || note.trim().length < 10 || !costAckOk(holds, costAck);
   const berjalan = rows.find((r) => ["diajukan", "disetujui", "refund_sebagian"]
     .includes(r.state));
 
@@ -379,19 +387,7 @@ export default function CancellationPanel({ contract, onChanged }) {
               <p>Alasan pengaju: {decideFor?.reason}</p>
               <p className="mt-1">{(decideFor?.basis_at_request || {}).note}</p>
             </div>
-            {(decideFor?.basis_at_request || {}).cost_holds?.has_holds ? (
-              <div data-testid={P56.costHold} className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs">
-                <p>Masih ada titipan biaya <MoneyText value={decideFor.basis_at_request.cost_holds.titipan_balance} /> dan
-                  invoice biaya terbuka <MoneyText value={decideFor.basis_at_request.cost_holds.open_invoice_total} />.
-                  Perlakuannya keputusan pemilik dan TIDAK dijurnal otomatis oleh pembatalan.</p>
-                <label className="flex items-center gap-2">
-                  <Checkbox checked={costAck.on} onCheckedChange={(v) => setCostAck({ ...costAck, on: !!v })} />
-                  Saya mengakui dan akan menanganinya terpisah
-                </label>
-                {costAck.on ? <Input value={costAck.note} placeholder="Catatan penanganan biaya (min. 10 huruf)"
-                  onChange={(e) => setCostAck({ ...costAck, note: e.target.value })} /> : null}
-              </div>
-            ) : null}
+            <CancellationCostAck holds={holds} ack={costAck} onChange={setCostAck} />
             <div className="space-y-1.5">
               <Label htmlFor="cancel-note">Catatan keputusan (minimal 10 huruf)</Label>
               <Textarea id="cancel-note" data-testid={P56.decideNote} rows={3}
@@ -404,7 +400,7 @@ export default function CancellationPanel({ contract, onChanged }) {
               disabled={busy || note.trim().length < 10}
               onClick={() => submitDecision(false)}>Tolak</Button>
             <Button data-testid={P56.decideApprove}
-              disabled={busy || note.trim().length < 10}
+              disabled={approveBlocked}
               onClick={() => submitDecision(true)}>
               {busy ? "Menyimpan…" : "Setujui pembatalan"}
             </Button>

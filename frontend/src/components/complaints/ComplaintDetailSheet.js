@@ -58,8 +58,10 @@ export default function ComplaintDetailSheet({ complaintId, open, onOpenChange, 
     try {
       await api.put(`/complaints/${complaintId}/status`, { status });
       toast.success(`Status → ${labelOf("complaint_status", status)}.`); await refresh();
-    } catch (e) { toast.error(e?.response?.data?.detail || "Gagal mengubah status."); }
-    finally { setBusy(false); }
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Gagal mengubah status.");
+      await refresh();   // 400/409 = status sudah berubah di tempat lain: tampilkan keadaan terbaru
+    } finally { setBusy(false); }
   };
 
   const takeOwnership = async () => {
@@ -163,7 +165,9 @@ export default function ComplaintDetailSheet({ complaintId, open, onOpenChange, 
                 </div>
               </div>
             ) : (
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => setStatus("in_progress")}>Buka Kembali</Button>
+              <p data-testid={COMPLAINTS.resolvedNote} className="rounded-lg border bg-secondary p-3 text-xs text-muted-foreground">
+                Komplain yang sudah selesai bersifat final. Bila masalahnya muncul lagi, catat komplain baru.
+              </p>
             )}
           </div>
         )}

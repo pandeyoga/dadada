@@ -148,3 +148,5 @@ export * from './p97';
 export * from './p101';
 // Edit kontak — lead, pelanggan, kontak WA, inbox.
 export * from './contactEdit';
+// H-C — layar Keamanan Webhook (Pusat Konfigurasi).
+export * from './webhookSecurity';

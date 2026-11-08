@@ -197,3 +197,18 @@ Perubahan perilaku yang akan terlihat pemakai:
 - PO yang sudah menerima barang tidak bisa dibatalkan (lakukan retur dulu); retur tidak bisa melebihi stok yang ada.
 - Permintaan material memiliki status sementara `issuing` selama stok dikeluarkan (bisa tertinggal bila proses mati tepat di tengah; Conflict-nya jelas, admin dapat memulihkannya ke `approved`).
 - Janji temu dengan lead + waktu yang sama ditolak (409). Sesi impor yang sudah `committed` tidak bisa di-commit lagi.
+
+### 8.H-C — Layar Keamanan Webhook + uji peramban atas layar yang berubah di ronde perbaikan
+
+Frontend saja (plus 4 bidang tambahan read-only di `GET /api/webhooks/status`). Skrip uji peramban Playwright yang bisa diulang ada di `scripts/ui/` (lihat `scripts/ui/README.md`).
+
+| Butir | Status | Isi |
+|---|:-:|---|
+| Layar "Keamanan Webhook" (Pusat Konfigurasi, tab `?tab=webhooks`) | ✔ | Tabel kanal (Meta Lead, WhatsApp, Google, TikTok) dengan lencana Aman/Belum aman, sumber rahasia (sistem/ENV/belum), statistik penolakan, peringatan; isi/ganti rahasia (input password, kolom selalu kosong, nilai lama tak pernah tampil, nama ENV alternatif), cabut dengan konfirmasi (pilih rahasia/verify token), catatan operasional ("rahasia yang sama harus dipasang di dashboard penyedia"). Ubah hanya untuk `settings:manage`; WhatsApp diarahkan ke tab Integrasi WhatsApp. Komponen: `components/config/Webhook*.js`, testIds `WEBHOOK_SEC`. |
+| API status | ✔ | `GET /webhooks/status` kini juga memuat `env_secret`/`env_verify` (NAMA variabel, bukan nilai), `verify_token_source`, `managed_via`. Tes `test_p0_webhook_status_ui.py`. |
+| Perbaikan UI temuan uji peramban | ✔ | Lihat tabel temuan di laporan stream H-C: tombol yang pasti ditolak server tidak lagi ditawarkan (batalkan PO diterima sebagian, "Buka Kembali" komplain selesai, void kuitansi deal batal, blokir unit dalam transaksi aktif, status izin yang tak boleh dituju), pengakuan biaya pada pembatalan menahan tombol setujui, layar menyegarkan diri sesudah 400/409 (permintaan material, izin, komplain, PO, unit, transfer kas). |
+
+Perubahan perilaku yang akan terlihat pemakai:
+- Pusat Konfigurasi punya tab baru "Keamanan Webhook"; owner/super admin dapat mengisi, mengganti, dan mencabut rahasia webhook dari layar.
+- Dialog pembatalan (formal dan reservasi satu-klik) menahan tombol sampai titipan/invoice biaya yang menggantung diakui beserta catatan penanganan.
+- Sesudah galat 400/409 pada aksi status, daftar/lembar dimuat ulang sehingga tombol yang sudah basi hilang.
