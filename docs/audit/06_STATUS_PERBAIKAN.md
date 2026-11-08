@@ -290,3 +290,45 @@ Perubahan perilaku yang akan terlihat pemakai:
 Seluruh keputusan §4 telah dijawab pemilik; tiap jawaban menjadi **nilai bawaan pengaturan** (bukan perilaku kaku) di Pusat Konfigurasi, dengan opsi lain tetap
 dapat dipilih (override organisasi/proyek/kontrak). Rincian tabel keputusan→key→opsi, risiko, dan gelombang pengerjaan W0–W3 ada di
 `docs/audit/12_KEPUTUSAN_PEMILIK_DAN_RANCANGAN_KONFIGURASI.md`. **W0 selesai** (resolver kebijakan, level penimpaan, opsi "belum tersedia", UI tingkat proyek, kunci percontohan `deposit.on_cancelled_deal`) — lihat doc 12 §6. W1–W3 belum.
+
+### 8.W1-W1A — Pemicu lead→pembeli (#7) & reservasi kedaluwarsa dengan booking fee terbayar (#13)
+
+Kode agen **W1A** (basis W0 `4c940d9`). Tiga kunci baru + satu kunci lama yang diubah bawaannya; semua dibaca lewat `policy.resolve(..., project_id=)`.
+
+| Kunci | Tipe / bawaan | Opsi | Override | `unavailable` |
+|---|---|---|:-:|---|
+| `lead.won_trigger` (kunci LAMA; bawaan diubah dari `spr_signed`) | enum / **`booking_fee_verified`** | `booking_fee_verified` · `spr_signed` · `ppjb_signed` · `ajb_signed` | org + **proyek** (baru) | tidak ada — keempatnya berperilaku |
+| `reservation.expiry.paid_booking_fee` | enum / **`perpanjang`** | `perpanjang` · `antrean_refund` · `hangus` | org + proyek | tidak ada |
+| `reservation.expiry.extend_days` | int 1–90 / 7 | — | org + proyek | — |
+| `reservation.expiry.max_extensions` | int 0–12 / 2 | — | org + proyek | — |
+
+**#7 — apa yang berubah.** `customer_convert.py` (dua pembaca: `preview` dan `auto_convert_if_configured`) membaca pemicu untuk PROYEK deal; `engine._h_convert_customer` memetakan peristiwa →
+pemicu lewat `customer_convert.deal_and_trigger_of`: `deal.booked`→booking, `document.signed` SPR*/PPJB*/AJB* → `*_signed`, `deal.ppjb`/`deal.ajb` (tahap legal kontrak; konversinya idempoten).
+**Cacat lama yang ikut tertutup:** pemicu `spr_signed` TIDAK PERNAH jalan — penangan membaca `ev["payload"]` padahal `emit()` menyimpan muatan di `ev["data"]`; `ppjb_signed`/`ajb_signed` tak punya peristiwa pemicu sama sekali.
+Pratinjau konversi memuat `trigger` + `trigger_met` dan catatan umum bila peristiwa pemicu belum terjadi (konversi MANUAL tetap sah kapan pun — keputusan sadar petugas).
+Bila pemicu benar tetapi konversi tertahan (data diri kosong, NIK bentrok, dst.) sales kini diberi TUGAS (`convert.auto_blocked:<deal>`, sekali; ditutup saat konversi berhasil) — dulu hanya baris log.
+**Pengaman KT-21:** deal yang skemanya hanya BAWAAN sistem (`scheme_explicit` false) TIDAK dikonversi otomatis (jenis kontrak/varian SPR tidak ditebak); sales diberi tugas lalu memilih skema di 'Jadikan Pembeli'.
+`deal_cancel._close_tasks_and_rewind_lead`: lead `won` hasil konversi otomatis ikut mundur ke `nurturing` bila reservasi dibatalkan/kedaluwarsa tanpa deal hidup lain (batal satu klik hanya mungkin sebelum ada pembayaran termin).
+
+**Perubahan perilaku BAWAAN bagi org yang belum menimpa `lead.won_trigger`** (mereka ikut bawaan baru): (1) tiap booking yang dikonfirmasi (skema dipilih sales) langsung melahirkan pembeli + kontrak draft + jadwal AR + (KPR) pengajuan KPR +
+tugas KYC/biaya, dan lead langsung `won` — dulu menunggu klik 'Jadikan Pembeli'; (2) NIK/NPWP tidak lagi diketik saat konversi (tugas 'Lengkapi berkas & KYC' dari konversi mengisinya); (3) batal satu klik deal yang booking fee-nya sudah dialihkan ke piutang
+kini menunjuk Pembatalan Kontrak formal (kontrak sudah ada), bukan 'Jadikan Pembeli dulu'; (4) `spr_signed` yang dulu tak berfungsi kini berfungsi bila dipilih. Mengembalikan perilaku lama: setel `lead.won_trigger=spr_signed` (org atau per proyek).
+
+**#13 — apa yang berubah.** `engine_sweepers.reservation_expiry_sweeper` kini memanggil `reservation_expiry.handle` (di bawah mutex uang per-deal `deal_money`). "Booking fee terbayar" = Σ kuitansi `booking_fee` bukan-void − Σ (refund + hangus) — bukan penanda `booking_fee_status`.
+Tanpa booking fee terbayar: kedaluwarsa & dilepas persis seperti sebelumnya (`deal_cancel.expire`).
+`perpanjang`: `reserved_until` += `extend_days` (dihitung dari yang lebih akhir antara jatuh tempo lama dan sekarang → putaran berikutnya tak memperpanjang lagi); hitungan di `deals.reservation_extensions` + `reservation_extension_log` (dengan `policy_snapshot`);
+CAS (`idempotency.transition`) pada `reserved_until`+hitungan → dua putaran/dua worker tidak bisa memperpanjang dua kali; notifikasi + tugas ke sales (pemilik deal) dan Keuangan. Setelah `max_extensions` habis: unit TETAP ditahan, tugas tindak lanjut sales+Keuangan dibuat SEKALI
+(penanda `deals.expiry_hold`), berulang-ulang sapuan tak membuat apa pun lagi; manusia memutuskan lewat jalur batal yang ada.
+`antrean_refund`: unit dilepas lewat jalur yang sama (termasuk `deal_cancel_cleanup.close_deal_dependents`); uang TETAP titipan 2-1450 (tanpa jurnal baru); tugas + notifikasi refund untuk Keuangan (`deal.expiry_refund:<deal>`), yang mengeksekusi lewat `POST /booking-fee/deals/{id}/refund` yang sudah ada.
+`hangus`: unit dilepas lalu `booking_fee.refund(finalize=True)` (jalur hangus yang sudah ada: Dr 2-1450 / Cr 4-1200, idempoten lewat `source_event`); bila langkah itu gagal, uang tetap titipan dan Keuangan diberi tugas refund.
+Hasil tercatat di `deals.expiry_paid_fee` (mode, hasil, nilai, `policy_snapshot`).
+
+**Perubahan perilaku BAWAAN #13:** reservasi kedaluwarsa dengan booking fee terbayar tidak lagi dilepas diam-diam: diperpanjang 7 hari (maks. 2×), lalu unit tertahan + tugas. ⚖ `hangus` memindahkan uang pembeli menjadi pendapatan tanpa keputusan manusia saat itu
+(sistem tidak memeriksa klausul SPR) — hanya berlaku bila org/proyek memilihnya. ⚖ Pengaman KT-21 di atas dan mundurnya lead `won` pada batal satu klik adalah keputusan SAFE-DEFAULT agen, bukan jawaban pemilik.
+
+**Keterbatasan jujur:** kontrak/SPR/PPJB/AJB resmi lahir DARI kontrak, jadi pemicu `spr_signed`/`ppjb_signed`/`ajb_signed` hanya bisa menjalankan konversi otomatis untuk dokumen yang ditandatangani SEBELUM kontrak ada (jalur dokumen lama) — pada alur resmi
+kontrak sudah ada lebih dulu dan konversinya idempoten (tidak ada yang digandakan). Tampilan deal belum menampilkan hitungan perpanjangan (hanya notifikasi/tugas).
+
+Tes: `test_w1a_won_trigger.py` (15) dan `test_w1a_kedaluwarsa_bf.py` (13); tes lama yang berasumsi konversi MANUAL kini menyetel `lead.won_trigger=spr_signed` eksplisit (`pemicu_spr` di `test_p0_kontrak.py`: KT-01/02/12/17/21; PK3-19 pada proyek ujinya). Uji peramban `scripts/ui/w1a_kebijakan.js` (22 pemeriksaan) + `w0_kebijakan.js` disesuaikan (jumlah aturan ber-level proyek dibandingkan dengan API).
+Merah di kode lama `4c940d9`: 14 dari 15 (#7) dan 10 dari 13 (#13); yang hijau di kode lama adalah bukti "tidak berubah" (tanpa booking fee terbayar tetap kedaluwarsa), fungsi SSOT (in-process) dan rekonsiliasi.
+Verifikasi W1A (kode final, DB baru): suite penuh `tests/p0` **727 lulus, 2 dilewati**; `pattern_sweep --check` tidak naik (sama dengan baseline); gerbang kepatuhan hanya 3 pelanggaran lama (`AdminPermissions.js`, `finance_engine.py`, `models.py`).
