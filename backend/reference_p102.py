@@ -79,3 +79,15 @@ GROUPS_P102 = {
         ],
     },
 }
+
+
+# ===== W2-A — kosakata PPN terkonfigurasi (keputusan #1) =====
+GROUPS_P102["ppn_mode"] = {
+    "label": "Perlakuan Harga Jual terhadap PPN", "strict": True,
+    "help": "Setting `tax.ppn.mode`.",
+    "options": [
+        _o("eksklusif", "Eksklusif — harga belum termasuk PPN (DPP = harga; perilaku sebelum pengaturan ini ada)"),
+        _o("inklusif", "Inklusif — harga sudah termasuk PPN (DPP = harga × 100/(100+tarif))"),
+        _o("bebas_ppn", "Bebas PPN — tarif efektif 0 (mis. rumah subsidi), tanpa catatan PPN"),
+    ],
+}

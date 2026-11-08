@@ -18,7 +18,7 @@ import ReferenceSelect from "@/components/patterns/ReferenceSelect";
 import { formatIDR } from "@/utils/formatters";
 import { P75 } from "@/constants/testIds";
 
-const METHOD = { nominal_tetap: "Nominal tetap", persen_harga: "% × harga", rumus_bphtb: "Rumus BPHTB (5% × (harga − NPOPTKP))" };
+const METHOD = { nominal_tetap: "Nominal tetap", persen_harga: "% × harga", rumus_bphtb: "Rumus BPHTB (tarif Master Pajak × (harga − NPOPTKP))" };
 const TREAT = { developer_borne: "Ditanggung developer (beban)", customer_pass_through: "Ditagih pembeli (titipan)" };
 const KOSONG = { code: "", name: "", calc_method: "nominal_tetap", amount: 0, pct: 0, default_treatment: "customer_pass_through",
   gl_expense: "6-1700", gl_liability: "2-1470", gl_ap: "2-1100", kpr_only: false, is_active: true };
@@ -49,7 +49,7 @@ export default function CostComponentPanel() {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="section-title">Komponen biaya transaksi</h3>
-          <p className="text-xs text-muted-foreground">BPHTB memakai NPOPTKP per proyek (kolom <code>npoptkp</code> proyek; bawaan dari Konfigurasi Keuangan). Komponen nonaktif tidak mengubah kontrak yang sudah terbit (snapshot).</p>
+          <p data-testid="cost-component-tax-note" className="text-xs text-muted-foreground">Tarif &amp; NPOPTKP BPHTB, NJOP, dan % plafon biaya bank dibaca dari <b>Master Pajak</b> (Aturan Bisnis › Master Pajak &amp; PPN; bisa ditimpa per proyek). Komponen nonaktif tidak mengubah kontrak yang sudah terbit (snapshot).</p>
         </div>
         <Button data-testid={P75.componentAddBtn} size="sm" onClick={() => setForm({ ...KOSONG })}><Plus className="mr-1 h-4 w-4" /> Komponen</Button>
       </div>
@@ -64,7 +64,7 @@ export default function CostComponentPanel() {
                 <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
                 <td className="px-3 py-2">{r.name}{r.kpr_only ? <span className="ml-1 text-[10px] text-muted-foreground">(KPR)</span> : null}
                   {r.code === "BOOKING" ? <span data-testid="cost-component-booking-badge" className="ml-1.5 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-800">otomatis dari booking fee</span> : null}</td>
-                <td className="px-3 py-2 text-xs">{r.code === "BOOKING" ? "= booking fee deal" : `${METHOD[r.calc_method]} ${r.calc_method === "nominal_tetap" ? `· ${formatIDR(r.amount)}` : `· ${r.pct}%`}`}</td>
+                <td className="px-3 py-2 text-xs">{r.code === "BOOKING" ? "= booking fee deal" : `${METHOD[r.calc_method]} ${r.calc_method === "nominal_tetap" ? `· ${formatIDR(r.amount)}` : r.calc_method === "rumus_bphtb" ? "· tarif ikut Master Pajak" : `· ${r.pct}%`}`}</td>
                 <td className="px-3 py-2 text-xs">{TREAT[r.default_treatment]}</td>
                 <td className="px-3 py-2 font-mono text-[11px]">{r.gl_expense} / {r.gl_liability} / {r.gl_ap}</td>
                 <td className="px-3 py-2 text-center text-xs">{r.is_active ? "ya" : "tidak"}</td>
@@ -95,6 +95,8 @@ export default function CostComponentPanel() {
               <div className="space-y-1"><Label>{form.code === "BOOKING" ? "Nominal" : form.calc_method === "nominal_tetap" ? "Nominal (Rp)" : "Persen (%)"}</Label>
                 {form.code === "BOOKING"
                   ? <Input className="bg-background" data-testid="cost-component-amount-locked" value="= booking fee deal" disabled readOnly />
+                  : form.calc_method === "rumus_bphtb"
+                    ? <Input className="bg-background" data-testid="cost-component-bphtb-master" value="ikut Master Pajak (tarif BPHTB)" disabled readOnly />
                   : form.calc_method === "nominal_tetap"
                     ? <RupiahInput className="bg-background" value={form.amount} onChange={(e) => set("amount", e.target.value)} />
                     : <Input type="number" className="bg-background" value={form.pct} onChange={(e) => set("pct", e.target.value)} />}</div>

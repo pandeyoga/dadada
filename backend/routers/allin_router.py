@@ -197,13 +197,13 @@ async def list_schemes(project_id: str = None, unit_type: str = None, include_in
 
 @router.get("/allin-schemes/{sid}/preview")
 async def preview_scheme(sid: str, price: int, project_id: str = None, scheme: str = None,
-                         booking_fee: int = None,
+                         booking_fee: int = None, land_area: float = None, plafon: int = None,
                          user: dict = Depends(require_permission("deals", "view_own"))):
     if price < 0:
         raise HTTPException(status_code=400, detail="Harga pratinjau tidak boleh negatif.")
-    try:
+    try:   # land_area (NJOP) & plafon (BANK_FEE % plafon) opsional — pembacaan master pajak W2-A
         return {"data": await ae.resolve_scheme(_org(user), sid, price, project_id, scheme,
-                                                booking_fee=booking_fee)}
+                                                booking_fee=booking_fee, land_area=land_area, plafon=plafon)}
     except ValueError as e:
         raise _err(e)
 

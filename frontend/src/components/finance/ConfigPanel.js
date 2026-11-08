@@ -11,11 +11,15 @@ import { formatIDR } from "@/utils/formatters";
 import RenameSchemeDialog from "@/components/finance/RenameSchemeDialog";
 import ConfirmDialog from "@/components/patterns/ConfirmDialog";
 import { useReference } from "@/context/ReferenceContext";
+import { useAuth } from "@/context/AuthContext";
 import api from "@/services/apiClient";
 import { FINANCE } from "@/constants/testIds";
 
 export default function ConfigPanel() {
   const { labelOf } = useReference();
+  const { can } = useAuth();
+  const mayTax = can("finance", "manage");   // W2-A: pajak = Master Pajak; hanya Manajer Keuangan/owner (selaras server)
+  const [taxReason, setTaxReason] = useState("");
   const [tax, setTax] = useState(null);
   const [paySchemes, setPaySchemes] = useState([]);
   const [comSchemes, setComSchemes] = useState([]);
@@ -56,6 +60,7 @@ export default function ConfigPanel() {
         bphtb_rate: Number(tax.bphtb_rate) || 0,
         pph_rate: Number(tax.pph_rate) || 0,
         npoptkp: Number(tax.npoptkp) || 0,
+        reason: taxReason.trim() || undefined,
       });
       toast.success("Konfigurasi pajak disimpan.");
     } catch (e) { toast.error(e?.response?.data?.detail || "Gagal menyimpan pajak."); }
@@ -105,7 +110,10 @@ export default function ConfigPanel() {
       {/* Tax config */}
       <section className="rounded-xl border bg-card p-4 shadow-sm">
         <h3 className="font-heading text-sm font-semibold">Konfigurasi Pajak</h3>
-        <p className="text-[11px] text-muted-foreground">Nilai acuan — wajib dikonfirmasi penasihat pajak saat go-live.</p>
+        <p className="text-[11px] text-muted-foreground">Nilai acuan — wajib dikonfirmasi penasihat pajak saat go-live.
+          Ini adalah <b>Master Pajak</b> tingkat organisasi (satu sumber untuk penawaran, tagihan, komponen biaya, dan faktur);
+          mode PPN, NJOP, % plafon biaya bank, dan penimpaan per proyek ada di Pusat Konfigurasi › Aturan Bisnis › Master Pajak &amp; PPN.
+          {mayTax ? null : " Hanya Manajer Keuangan atau owner yang boleh mengubahnya."}</p>
         <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
           <div className="space-y-1.5">
             <Label htmlFor="ppn">PPN (%)</Label>
@@ -128,8 +136,10 @@ export default function ConfigPanel() {
               onChange={(e) => setT("npoptkp", e.target.value)} />
           </div>
         </div>
-        <div className="mt-3 flex justify-end">
-          <Button data-testid={FINANCE.taxSubmit} onClick={saveTax} disabled={busy}>
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+          <Input data-testid="tax-reason" className="max-w-xs" placeholder="Alasan perubahan (dicatat di riwayat)" aria-label="Alasan perubahan pajak"
+            value={taxReason} onChange={(e) => setTaxReason(e.target.value)} disabled={!mayTax} />
+          <Button data-testid={FINANCE.taxSubmit} onClick={saveTax} disabled={busy || !mayTax}>
             {busy ? "Menyimpan\u2026" : "Simpan Pajak"}
           </Button>
         </div>

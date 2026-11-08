@@ -11,9 +11,18 @@ import stage_clock as clock
 from core_utils import serialize_doc
 from db import ORG_ID
 from models_v2 import SettingBulk, SettingUpdate
-from rbac import audit_log, require_permission
+from rbac import audit_log, can, require_permission
+from security import get_current_user
 
 router = APIRouter(prefix="/settings", tags=["config"])
+
+
+async def _may_write(user: dict, key: str) -> None:
+    """Izin MENGUBAH satu kunci: `settings:manage` (owner/super admin), kecuali kunci yang menyatakan `writer` sendiri
+    (W2-A: kunci pajak = `finance:manage` → Manajer Keuangan + owner/super admin; staf Keuangan TIDAK)."""
+    res, act = (cfg.DEFAULTS.get(key) or {}).get("writer") or ("settings", "manage")
+    if not await can(user.get("role"), res, act):
+        raise HTTPException(status_code=403, detail=f"Akses ditolak: tidak memiliki izin '{act}' pada '{res}'")
 
 
 @router.get("")
@@ -53,8 +62,8 @@ async def setting_history(key: str,
 
 
 @router.put("/{key}")
-async def update_setting(key: str, payload: SettingUpdate,
-                         user: dict = Depends(require_permission("settings", "manage"))):
+async def update_setting(key: str, payload: SettingUpdate, user: dict = Depends(get_current_user)):
+    await _may_write(user, key)
     org = user.get("org_id", ORG_ID)
     try:
         res = await cfg.set_value(key, payload.value, actor=user.get("email"),
@@ -74,8 +83,9 @@ async def update_setting(key: str, payload: SettingUpdate,
 
 
 @router.post("/bulk")
-async def bulk_update(payload: SettingBulk,
-                      user: dict = Depends(require_permission("settings", "manage"))):
+async def bulk_update(payload: SettingBulk, user: dict = Depends(get_current_user)):
+    for item in payload.items:   # satu kunci tanpa izin → seluruh permintaan ditolak SEBELUM ada yang ditulis
+        await _may_write(user, item.key)
     org = user.get("org_id", ORG_ID)
     done, failed = [], []
     for item in payload.items:
@@ -95,8 +105,8 @@ async def bulk_update(payload: SettingBulk,
 
 
 @router.post("/{key}/reset")
-async def reset_setting(key: str, scope: str = "org", scope_id: str = None,
-                        user: dict = Depends(require_permission("settings", "manage"))):
+async def reset_setting(key: str, scope: str = "org", scope_id: str = None, user: dict = Depends(get_current_user)):
+    await _may_write(user, key)
     try:
         res = await cfg.reset(key, actor=user.get("email"), org_id=user.get("org_id", ORG_ID),
                               scope=scope, scope_id=scope_id)

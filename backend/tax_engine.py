@@ -19,6 +19,7 @@ import reference as ref
 from db import db, ORG_ID
 from core_utils import new_id, now_iso, period_of  # noqa: F401 — CFG-01
 import finance_engine as fe
+import tax_master as tm
 
 logger = logging.getLogger("sipro.tax")
 
@@ -31,7 +32,7 @@ RECORD_STATUSES = tuple(ref.values("tax_status"))
 # ----------------------------- PPN Masukan (input VAT) -----------------------------
 async def ppn_input(org_id=ORG_ID, period=None) -> dict:
     """Estimasi PPN Masukan dari tagihan AP (metode inklusif)."""
-    cfg = await fe.get_finance_config(org_id)
+    cfg = await fe.get_finance_config(org_id)   # W2-A: tarif PPN NOMINAL master (mode Bebas PPN hanya untuk PENJUALAN, bukan belanja)
     rate = float(cfg.get("ppn_rate") or 0)
     bills = await db.ap_invoices.find({"org_id": org_id}, {"_id": 0}).to_list(5000)
     dpp_total = ppn_total = 0
@@ -135,7 +136,8 @@ async def faktur_candidates(org_id=ORG_ID) -> list:
     ars = await db.ar_invoices.find({"org_id": org_id}, {"_id": 0}).to_list(2000)
     return [{"deal_id": a["deal_id"], "unit_code": a.get("unit_code"),
              "buyer_name": a.get("lead_name"), "price": int(a.get("price", 0) or 0)}
-            for a in ars if a.get("deal_id") not in issued]
+            for a in ars if a.get("deal_id") not in issued
+            and (a.get("taxes") or {}).get("ppn_mode") != "bebas_ppn"]   # W2-A: penjualan Bebas PPN tidak berfaktur
 
 
 async def issue_faktur(org_id, deal_id, actor, buyer_npwp=None, transaction_code="010") -> dict:
@@ -153,10 +155,12 @@ async def issue_faktur(org_id, deal_id, actor, buyer_npwp=None, transaction_code
     if not ar:
         raise ValueError("Jadwal AR belum dibuat untuk deal ini.")
     price = int(ar.get("price", 0) or 0)
-    cfg = await fe.get_finance_config(org_id)
-    ppn_rate = float(cfg.get("ppn_rate") or 0)
-    dpp = price
-    ppn = round(dpp * ppn_rate / 100)
+    # W2-A: mode+tarif PPN = yang DIBEKUKAN saat AR-nya lahir (bukan master hari ini); DPP/PPN dari SATU fungsi `tax_master.ppn_split`.
+    cfg = await fe.get_finance_config(org_id, ar=ar)
+    if cfg["ppn_mode"] == "bebas_ppn":
+        raise ValueError("Penjualan ini BEBAS PPN (mode PPN saat tagihannya terbit) — Faktur Pajak PPN tidak diterbitkan.")
+    sp = tm.ppn_split(price, cfg["ppn_mode"], float(cfg.get("ppn_rate") or 0))
+    ppn_rate, dpp, ppn = sp["rate"], sp["dpp"], sp["ppn"]
     buyer_name = ar.get("lead_name") or "-"
     npwp = buyer_npwp
     if not npwp and buyer_name and buyer_name != "-":
@@ -168,7 +172,7 @@ async def issue_faktur(org_id, deal_id, actor, buyer_npwp=None, transaction_code
         "number": await next_faktur_number(org_id, transaction_code),
         "transaction_code": transaction_code,
         "unit_code": ar.get("unit_code"), "buyer_name": buyer_name, "buyer_npwp": npwp,
-        "dpp": int(dpp), "ppn": int(ppn), "ppn_rate": ppn_rate,
+        "dpp": int(dpp), "ppn": int(ppn), "ppn_rate": ppn_rate, "ppn_mode": sp["mode"],
         "status": "issued", "issued_by": actor, "issued_at": ts, "period": period_of(ts),
         "created_at": ts, "updated_at": ts,
     }

@@ -4,6 +4,8 @@ Routes: /finance/summary, /finance/config/tax (GET/PUT),
 /finance/config/payment-schemes (GET/POST/DELETE),
 /finance/config/commission-schemes (GET/POST/DELETE).
 """
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from db import db, ORG_ID
@@ -35,22 +37,46 @@ async def drilldown(key: str, bucket: str = None,
         raise HTTPException(status_code=404, detail="Kunci KPI tidak dikenal.")
 
 
+class TaxConfigIn(TaxConfigUpdate):
+    """Bentuk lama + alasan (kunci pajak sensitif) dan proyek (penimpaan) — W2-A."""
+    reason: Optional[str] = None
+    project_id: Optional[str] = None
+
+
 @router.get("/config/tax")
-async def get_tax(user: dict = Depends(require_permission("finance", "view"))):
-    return {"data": serialize_doc(await fe.get_finance_config(user.get("org_id", ORG_ID)))}
+async def get_tax(project_id: str = None, user: dict = Depends(require_permission("finance", "view"))):
+    """LAPISAN KOMPATIBILITAS ke Master Pajak (`tax_master`): nilai efektif org (atau proyek bila `project_id`) + asal tiap nilai."""
+    org = user.get("org_id", ORG_ID)
+    if project_id and not await db.projects.find_one({"id": project_id, "org_id": org}, {"_id": 0, "id": 1}):
+        raise HTTPException(status_code=404, detail="Proyek tidak ditemukan")
+    return {"data": serialize_doc(await fe.get_finance_config(org, project_id))}
 
 
 @router.put("/config/tax")
-async def put_tax(payload: TaxConfigUpdate,
-                  user: dict = Depends(require_permission("finance", "update"))):
+async def put_tax(payload: TaxConfigIn, user: dict = Depends(require_permission("finance", "manage"))):
+    """Menulis MASTER PAJAK (bukan dokumen `finance_configs`). Izin = `finance:manage` (Manajer Keuangan/owner/super admin);
+    staf Keuangan TIDAK boleh. Penimpaan proyek (`project_id`) wajib beralasan (≥ 10 karakter)."""
     org = user.get("org_id", ORG_ID)
     import cost_master_rules as cmr
+    import tax_master
     try:   # FN-12c: tarif 0–100% & NPOPTKP ≥ 0 (dulu ppn −5, bphtb 500, npoptkp −1 tersimpan)
         rates = cmr.clean_tax_config(payload.ppn_rate, payload.bphtb_rate, payload.pph_rate, payload.npoptkp)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    doc = await fe.set_finance_config(org, *rates)
-    return {"data": serialize_doc(doc)}
+    reason = (payload.reason or "").strip()
+    if payload.project_id:
+        if not await db.projects.find_one({"id": payload.project_id, "org_id": org}, {"_id": 0, "id": 1}):
+            raise HTTPException(status_code=404, detail="Proyek tidak ditemukan")
+        if len(reason) < 10:
+            raise HTTPException(status_code=400, detail="Menimpa pajak di tingkat proyek wajib beralasan (minimal 10 karakter).")
+    try:
+        changed = await tax_master.write_legacy(
+            org, ppn_rate=rates[0], bphtb_rate=rates[1], pph_rate=rates[2], npoptkp=rates[3], actor=user.get("email"),
+            reason=reason or "Diubah lewat Keuangan › Konfigurasi › Pajak", project_id=payload.project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await audit_log(user, "update", "tax_master", payload.project_id or org, {"keys": changed, "reason": reason or None})
+    return {"data": serialize_doc(await fe.get_finance_config(org, payload.project_id)), "changed": changed}
 
 
 @router.get("/config/payment-schemes")

@@ -16,6 +16,7 @@ import re
 from datetime import datetime, timedelta
 
 import sequences as seq
+import tax_master
 from db import db, ORG_ID
 from core_utils import new_id, now_iso, now, parse_iso_or
 from engine import emit, create_notification, add_activity
@@ -48,21 +49,9 @@ async def notify_finance(org_id, title, body=None, ntype="finance",
 
 
 # ----------------------------- Config + schemes -----------------------------
-async def get_finance_config(org_id=ORG_ID) -> dict:
-    doc = await db.finance_configs.find_one({"org_id": org_id, "key": "finance_config"}, {"_id": 0})
-    if not doc:
-        doc = {"key": "finance_config", "org_id": org_id, **DEFAULT_TAX}
-    return doc
-
-
-async def set_finance_config(org_id, ppn_rate, bphtb_rate, pph_rate, npoptkp) -> dict:
-    ts = now_iso()
-    await db.finance_configs.update_one(
-        {"org_id": org_id, "key": "finance_config"},
-        {"$set": {"key": "finance_config", "org_id": org_id, "ppn_rate": float(ppn_rate),
-                  "bphtb_rate": float(bphtb_rate), "pph_rate": float(pph_rate),
-                  "npoptkp": int(npoptkp), "updated_at": ts}}, upsert=True)
-    return await get_finance_config(org_id)
+async def get_finance_config(org_id=ORG_ID, project_id=None, deal=None, ar=None) -> dict:
+    """W2-A: BUKAN lagi dokumen `finance_configs` — nilai efektif MASTER PAJAK (org + proyek); dengan `deal`/`ar`: PPN dibekukan saat lahir."""
+    return await (tax_master.config_for_deal(org_id, deal, ar) if (deal or ar) else tax_master.config_for(org_id, project_id))
 
 
 async def get_default_payment_scheme(org_id=ORG_ID) -> dict:
@@ -76,18 +65,9 @@ async def get_default_commission_scheme(org_id=ORG_ID) -> dict:
 
 
 # ----------------------------- Tax compute -----------------------------
-def compute_taxes(price: int, config: dict) -> dict:
-    price = int(price or 0)
-    ppn_rate = config.get("ppn_rate", DEFAULT_TAX["ppn_rate"])
-    bphtb_rate = config.get("bphtb_rate", DEFAULT_TAX["bphtb_rate"])
-    pph_rate = config.get("pph_rate", DEFAULT_TAX["pph_rate"])
-    npoptkp = int(config.get("npoptkp", DEFAULT_TAX["npoptkp"]))
-    bphtb_base = max(0, price - npoptkp)
-    return {
-        "ppn": round(price * ppn_rate / 100), "ppn_rate": ppn_rate,
-        "bphtb": round(bphtb_base * bphtb_rate / 100), "bphtb_rate": bphtb_rate, "bphtb_base": bphtb_base,
-        "pph": round(price * pph_rate / 100), "pph_rate": pph_rate,
-    }
+def compute_taxes(price: int, config: dict, land_area=None) -> dict:
+    """W2-A: rumus PPN (mode eksklusif/inklusif/bebas), BPHTB (+NJOP), PPh ada di SATU tempat — `tax_master.compute`."""
+    return tax_master.compute(price, config, land_area)
 
 
 # ----------------------------- AR schedule -----------------------------
@@ -356,10 +336,10 @@ async def create_ar_for_deal(deal: dict, scheme_id=None, org_id=ORG_ID, replace=
         if int((existing or {}).get("paid") or 0) > 0 else {}
     paid_now = sum(i.get("paid_amount", 0) for i in items)
     ts = now_iso()
-    unit = await db.units.find_one({"id": deal.get("unit_id")}, {"_id": 0, "code": 1}) or {}
+    unit = await db.units.find_one({"id": deal.get("unit_id")}, {"_id": 0, "code": 1, "land_area": 1, "luas_tanah": 1}) or {}
     lead = await db.leads.find_one({"id": deal.get("lead_id")}, {"_id": 0, "name": 1}) or {}
-    config = await get_finance_config(org_id)
-    taxes = compute_taxes(price, config)
+    config = await get_finance_config(org_id, deal=deal, ar=existing)   # W2-A: mode+tarif PPN dibekukan saat dokumen lahir
+    taxes = compute_taxes(price, config, tax_master.land_area_of(unit))
     inv = {
         "id": existing["id"] if existing else new_id(), "org_id": org_id, "deal_id": deal_id,
         "unit_id": deal.get("unit_id"), "lead_id": deal.get("lead_id"),
@@ -369,7 +349,7 @@ async def create_ar_for_deal(deal: dict, scheme_id=None, org_id=ORG_ID, replace=
         "price": price, "items": items, "total": total, "paid": paid_now, "outstanding": total - paid_now,
         "unit_total": unit_total, "addon_total": addon_total,
         "status": "paid" if total - paid_now <= 0 else ("partial" if paid_now > 0 else "unpaid"), "taxes": taxes,
-        "breakdown": ar_breakdown(deal),
+        "breakdown": ar_breakdown(deal), "policy_snapshot": config["policy_snapshot"],
         "created_at": existing["created_at"] if existing else ts, "updated_at": ts,
     }
     if existing:
@@ -384,9 +364,7 @@ async def create_ar_for_deal(deal: dict, scheme_id=None, org_id=ORG_ID, replace=
          "$set": {"updated_at": ts}}, upsert=True)
     # Tax records (refresh).
     await db.tax_records.delete_many({"org_id": org_id, "deal_id": deal_id})
-    for tkey, base, rate, amount in (("ppn", price, taxes["ppn_rate"], taxes["ppn"]),
-                                     ("bphtb", taxes["bphtb_base"], taxes["bphtb_rate"], taxes["bphtb"]),
-                                     ("pph", price, taxes["pph_rate"], taxes["pph"])):
+    for tkey, base, rate, amount in tax_master.record_rows(taxes, price):   # mode Bebas PPN → tanpa catatan PPN
         await db.tax_records.insert_one({
             "id": new_id(), "org_id": org_id, "deal_id": deal_id, "type": tkey, "base": int(base),
             "rate": rate, "amount": int(amount), "status": "pending", "created_at": ts})
@@ -885,7 +863,7 @@ async def create_commission_for_deal(deal: dict, scheme_id=None, org_id=ORG_ID, 
     price = int(deal.get("price", 0))
     basis = scheme.get("basis", "price")
     if basis == "net":
-        config = await get_finance_config(org_id)
+        config = await get_finance_config(org_id, deal=deal)   # mode+tarif PPN saat deal lahir (bukan master hari ini)
         base = price - compute_taxes(price, config)["ppn"]
     elif basis == "dp":
         liab = await db.contract_liabilities.find_one({"org_id": org_id, "deal_id": deal["id"]}, {"_id": 0})

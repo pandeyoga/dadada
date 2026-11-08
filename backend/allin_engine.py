@@ -13,6 +13,7 @@ import logging
 import finance_engine as fe
 import gl_engine as gl
 import sequences as seq
+import tax_master
 from core_utils import new_id, now_iso
 from db import db
 from engine import add_activity
@@ -111,33 +112,37 @@ async def list_schemes(org: str, project_id: str = None, unit_type: str = None,
 
 # ============================================================ perhitungan
 async def npoptkp_for(org: str, project_id: str) -> int:
-    proj = await db.projects.find_one({"id": project_id}, {"_id": 0, "npoptkp": 1}) if project_id else None
-    if proj and proj.get("npoptkp") is not None:
-        return int(proj["npoptkp"])
-    cfgd = await fe.get_finance_config(org)
-    return int(cfgd.get("npoptkp") or 0)
+    """NPOPTKP efektif dari MASTER PAJAK (org + penimpaan proyek). Kolom `npoptkp` proyek yang dulu dijanjikan layar tak pernah
+    tersimpan (FN-12a) — tidak dibaca lagi supaya master tetap SATU sumber."""
+    return int((await tax_master.resolve(project_id, org_id=org))["npoptkp"])
 
 
 def compute_amount(comp: dict, price: int, npoptkp: int, override: int = None,
-                   booking_fee: int = None) -> tuple:
-    """(nominal, rumus-teks). Override nominal terkunci dari skema menang atas rumus."""
+                   booking_fee: int = None, bphtb_rate: float = None, njop_total: int = 0,
+                   bank_fee_pct: float = 0, plafon: int = None) -> tuple:
+    """(nominal, rumus-teks). Override nominal terkunci dari skema menang atas rumus.
+    W2-A: tarif BPHTB/NJOP dan % plafon BANK_FEE datang dari master pajak (None/0 = rumus lama persis)."""
     if comp.get("code") == BOOKING_CODE:
         return int(booking_fee or 0), "= booking fee deal"
     if override is not None:
         return int(override), "nominal terkunci skema"
     m = comp.get("calc_method")
+    if comp.get("code") == "BANK_FEE" and m == "persen_harga" and bank_fee_pct and plafon:
+        return int(round(int(plafon) * float(bank_fee_pct) / 100)), f"{float(bank_fee_pct):g}% × plafon KPR Rp {int(plafon):,}".replace(",", ".")
     if m == "persen_harga":
         pct = float(comp.get("pct") or 0)
         return int(round(price * pct / 100)), f"{pct:g}% × harga"
     if m == "rumus_bphtb":
-        pct = float(comp.get("pct") or 5)
-        base = max(0, int(price) - int(npoptkp))
-        return int(round(base * pct / 100)), f"{pct:g}% × (harga − NPOPTKP Rp {npoptkp:,})".replace(",", ".")
+        pct = float(bphtb_rate if bphtb_rate is not None else (comp.get("pct") or 5))   # tarif = master pajak, bukan persen komponen
+        npop = max(int(price), int(njop_total or 0))
+        base = max(0, npop - int(npoptkp))
+        dasar = "harga" if npop == int(price) else f"NJOP Rp {npop:,}".replace(",", ".")
+        return int(round(base * pct / 100)), f"{pct:g}% × ({dasar} − NPOPTKP Rp {npoptkp:,})".replace(",", ".")
     return int(comp.get("amount") or 0), "nominal tetap"
 
 
 async def resolve_scheme(org: str, scheme_id: str, price: int, project_id: str = None,
-                         scheme: str = None, booking_fee: int = None) -> dict:
+                         scheme: str = None, booking_fee: int = None, land_area=None, plafon: int = None) -> dict:
     """Snapshot komponen dari skema all-in untuk harga ini → disimpan di `deal.costs`.
 
     FN-02: komponen NONAKTIF tidak ikut ditagihkan pada snapshot baru (dulu `include_inactive=True`
@@ -150,7 +155,9 @@ async def resolve_scheme(org: str, scheme_id: str, price: int, project_id: str =
     if not sch.get("is_active", True):
         raise ValueError("Skema all-in ini sudah nonaktif — pilih skema lain.")
     comps = {c["code"]: c for c in await list_components(org, include_inactive=False)}
-    npoptkp = await npoptkp_for(org, project_id)
+    tm = await tax_master.resolve(project_id, org_id=org)   # W2-A: NPOPTKP, tarif BPHTB, NJOP, % plafon BANK_FEE — satu master
+    npoptkp = int(tm["npoptkp"])
+    njop_total = tax_master.bphtb_npop(0, tm["njop_per_m2"], land_area)
     components = []
     for it in sch.get("items") or []:
         comp = comps.get(it.get("component_code"))
@@ -159,7 +166,8 @@ async def resolve_scheme(org: str, scheme_id: str, price: int, project_id: str =
         if comp.get("kpr_only") and scheme and scheme != "kpr":
             continue
         amount, formula = compute_amount(comp, int(price), npoptkp, it.get("override_amount"),
-                                         booking_fee=booking_fee)
+                                         booking_fee=booking_fee, bphtb_rate=tm["bphtb_rate"], njop_total=njop_total,
+                                         bank_fee_pct=tm["bank_fee_pct_of_plafon"], plafon=plafon)
         if amount < 0:   # master lama yang rusak (sebelum validasi API) tidak boleh melahirkan tagihan negatif
             raise ValueError(f"Komponen {comp['code']} bernilai negatif (Rp {amount:,}) — perbaiki master "
                              "komponen/skema di Pusat Konfigurasi dulu.".replace(",", "."))
