@@ -384,6 +384,10 @@ async def issue_cost_invoice(org: str, contract: dict, actor: str) -> dict:
 
 
 async def _issue_cost_invoice_locked(org: str, contract: dict, actor: str) -> dict:
+    import cancellation_costs as cc
+    closed = await cc.closed_reason(org, contract.get("deal_id"), contract.get("id"))
+    if closed:   # W1-C #12: deal batal/kedaluwarsa tidak menagih biaya baru (invoice lama sudah ditangani kebijakan pembatalan)
+        raise ValueError(f"Deal ini sudah {closed} — invoice biaya baru tidak bisa diterbitkan untuk penjualan yang batal.")
     comps = _pass_through(contract)
     if not comps:
         raise ValueError("Tidak ada komponen biaya yang ditagih ke pembeli (semua ditanggung developer "

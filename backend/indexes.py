@@ -184,6 +184,8 @@ UNIQUE_INDEXES = [
     ("tasks", [("org_id", 1), ("source_event", 1)], "uq_task_open_source"),
     # H-B (P12): satu amandemen skema all-in `pending` per kontrak (pengajuan ganda → dua amandemen yang bisa sama-sama disetujui).
     ("allin_amendments", [("org_id", 1), ("contract_id", 1)], "uq_allin_amend_pending"),
+    # W1-C (#12): satu permohonan refund titipan biaya YANG MASIH BERJALAN per deal (dua penutup deal batal bersamaan → satu pemenang).
+    ("cost_deposit_settlements", [("org_id", 1), ("deal_id", 1)], "uq_costsettle_inflight"),
 ]
 
 # Natural key yang boleh kosong (partial index: hanya baris yang punya nilai dijaga).
@@ -224,6 +226,7 @@ PARTIAL_EXPR = {
     "uq_task_open_source": {"source_event": {"$type": "string"},
                             "status": {"$in": ["open", "in_progress", "snoozed", "submitted"]}},
     "uq_allin_amend_pending": {"status": "pending"},
+    "uq_costsettle_inflight": {"state": {"$in": ["diajukan", "disetujui", "refund_sebagian"]}},
 }
 
 

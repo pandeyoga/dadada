@@ -32,6 +32,7 @@ DEAL_CHILD_COLLECTIONS = (
     "kpr_disbursements", "cancellations", "late_fees", "warning_letters", "coupon_redemptions",
     "unit_handovers", "refund_debts", "pdc_instruments",
     "complaints", "warranty_claims", "marketing_fees", "faktur_pajak", "conversion_events", "documents",
+    "cost_deposit_settlements",
 )
 CONTRACT_CHILD_COLLECTIONS = ("doc_submissions", "doc_shares", "wa_doc_shares", "kpr_stages", "contract_documents")
 # Koleksi uang yang disapu ULANG di akhir (penulis yang tak lewat `deal_money`, mis. titipan/booking fee).
@@ -136,7 +137,8 @@ async def _cascade_locked(org: str, deal: dict, actor: str) -> dict:
     source_ids = [did]
     for coll in ("receipts", "cost_receipts", "cost_disbursements", "cost_expenses", "commissions",
                  "booking_fee_invoices", "customer_deposits", "ar_invoices", "cost_invoices", "kpr_disbursements",
-                 "revenue_recognitions", "late_fees", "cancellations", "marketing_fees", "pdc_instruments"):
+                 "revenue_recognitions", "late_fees", "cancellations", "marketing_fees", "pdc_instruments",
+                 "cost_deposit_settlements"):
         source_ids += await _ids(coll, {"org_id": org, "deal_id": did})
     exp = await db.cost_expenses.find({"org_id": org, "deal_id": did}, {"_id": 0, "ap_bill_id": 1}).to_list(100)
     ap_ids = [e["ap_bill_id"] for e in exp if e.get("ap_bill_id")]

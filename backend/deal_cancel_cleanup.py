@@ -8,9 +8,11 @@ KPR `draft`, kuota kupon terpakai, dan catatan pajak `pending` yang masih bisa d
 Aturan (idempoten — aman dipanggil dua kali):
   * tugas aktif milik deal/kontrak (dan tugas KYC pembeli / tugas lead bila tidak ada deal hidup lain) → `cancelled`;
   * komisi & fee marketing yang BELUM disetujui → `cancelled`;
-  * yang sudah DISETUJUI-belum-dibayar atau sudah DIBAYAR TIDAK disentuh dan TIDAK dijurnal balik (belum ada
-    helper pembalikan akrual yang aman, dan perlakuannya keputusan Keuangan/pemilik) → hanya diberi tanda
-    `cancel_followup` + notifikasi + satu tugas ke Keuangan  [⚖ butuh keputusan];
+  * komisi/fee yang sudah DISETUJUI-belum-dibayar atau sudah DIBAYAR: bawaan (`cancel.accrual_reversal.*` = `manual_keuangan`)
+    TIDAK disentuh dan TIDAK dijurnal balik → hanya diberi tanda `cancel_followup` + notifikasi + satu tugas ke Keuangan.
+    Bila kebijakan memilih `balik_otomatis_yang_belum_dibayar`, yang disetujui-belum-dibayar dibalik dengan jurnal koreksi
+    (`cancel_accrual_reversal`, W1-C #11); yang sudah dibayar dan pajak yang sudah dilaporkan/disetor tetap manual;
+  * titipan biaya 2-1470 & invoice biaya terbuka: mengikuti `cancel.cost_deposit.*` (`cancel_cost_settlement`, W1-C #12);
   * pengajuan KPR yang masih berjalan → `status=cancelled`, tahap `batal`;
   * kupon dilepas, kuota dikembalikan;
   * catatan pajak `pending` → `cancelled` (laporan pajak mengecualikannya); yang sudah dilaporkan/disetor
@@ -137,10 +139,13 @@ async def _flag(coll: str, q: dict, ts: str, reason: str) -> list:
 
 
 async def close_deal_dependents(org: str, deal: dict, *, actor: str, reason: str, source: str,
-                                lead_closing: bool = False, cost_holds: dict = None) -> dict:
+                                lead_closing: bool = False, cost_holds: dict = None,
+                                money_locked: bool = True) -> dict:
     """Tutup turunan `deal` yang batal. `lead_closing=True` bila lead ikut ditandai `lost` (jalur formal).
     `cost_holds` (opsional, dari `cancellation_costs.holds*`) dimasukkan ke tindak lanjut Keuangan — dipakai jalur
-    kedaluwarsa, tempat tak ada orang yang bisa mengakui titipan/invoice biaya yang menggantung."""
+    kedaluwarsa, tempat tak ada orang yang bisa mengakui titipan/invoice biaya yang menggantung.
+    `money_locked=True` = pemanggil SUDAH memegang `deal_money(org, deal)` (batal satu-klik & formal); jalur kedaluwarsa
+    memanggil dengan False supaya penutup sendiri yang mengambil kunci itu saat menjalankan kebijakan titipan biaya."""
     did = deal["id"]
     ts = now_iso()
     why = f"Penjualan dibatalkan ({source}): {reason}"[:300]
@@ -151,6 +156,13 @@ async def close_deal_dependents(org: str, deal: dict, *, actor: str, reason: str
     out["documents_cancelled"] = await _cancel_draft_documents(org, deal, contract_ids, ts, actor, why)
     cancel_set = {"status": "cancelled", "cancelled_at": ts, "cancelled_by": actor, "cancel_reason": why,
                   "updated_at": ts}
+
+    # --- W1-C #11: kebijakan pembalikan akrual dibaca SAAT pembatalan (snapshot disimpan); yang diizinkan dibalik dulu,
+    # sisanya (kebijakan manual / sudah dibayar / gagal dibalik) jatuh ke tanda tindak lanjut di bawah.
+    import cancel_accrual_reversal as car
+    rev = await car.apply(org, deal, actor=actor, why=why)
+    out["accrual_reversal"] = rev
+    out["policy_snapshot"] = dict(rev["policy_snapshot"])
 
     # --- komisi sales: belum disetujui → batal; disetujui/dibayar → tanda tindak lanjut (tanpa jurnal balik).
     out["commissions_cancelled"] = (await db.commissions.update_many(
@@ -193,6 +205,18 @@ async def close_deal_dependents(org: str, deal: dict, *, actor: str, reason: str
     tax_fu = await _flag("tax_records", {"org_id": org, "deal_id": did, "status": {"$in": ["reported", "paid"]}}, ts, why)
     out["tax_followup"] = len(tax_fu)
 
+    # --- W1-C #12: titipan biaya 2-1470 & invoice biaya terbuka mengikuti kebijakan (permohonan refund / hangus sebagian);
+    # kegagalan di sini TIDAK boleh menggagalkan pembatalan → jatuh ke tindak lanjut manual di bawah.
+    try:
+        import cancel_cost_settlement as ccs
+        cost = await ccs.apply_policy(org, deal, actor=actor, source=source, reason=reason, deal_lock_held=money_locked)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Kebijakan titipan biaya deal %s gagal", did)
+        cost = {"mode": None, "handled": False, "error": str(e)[:200]}
+    out["cost_deposit"] = cost
+    out["policy_snapshot"].update(cost.get("policy_snapshot") or {})
+    await db.deals.update_one({"id": did, "org_id": org}, {"$set": {"cancel_policy_snapshot": out["policy_snapshot"]}})
+
     # --- tindak lanjut Keuangan (⚖): hanya untuk hal yang TIDAK diubah otomatis.
     items = []
     if com_fu:
@@ -201,19 +225,34 @@ async def close_deal_dependents(org: str, deal: dict, *, actor: str, reason: str
         items.append(f"fee marketing disetujui/dibayar {len(fee_fu)} ({_rp(sum(int(r.get('amount_net') or 0) for r in fee_fu))})")
     if tax_fu:
         items.append(f"catatan pajak sudah dilapor/disetor {len(tax_fu)} ({_rp(sum(int(r.get('amount') or 0) for r in tax_fu))})")
-    if (cost_holds or {}).get("has_holds"):
+    if (cost_holds or {}).get("has_holds") and not cost.get("handled"):
         items.append(f"uang biaya menggantung: saldo titipan biaya {_rp(cost_holds['titipan_balance'])} (2-1470) dan invoice "
                      f"biaya terbuka {_rp(cost_holds['open_invoice_total'])}")
-    if items:
+    auto_done = [f"{lbl} {len(rev[k]['reversed'])} ({_rp(rev[k]['amount_reversed'])})"
+                 for k, lbl in (("commission", "komisi"), ("marketing_fee", "fee marketing")) if rev[k]["reversed"]]
+    why_skip = [f"{r['reason']}" for k in ("commission", "marketing_fee") for r in rev[k]["skipped"]]
+    if items or auto_done:
         from engine import auto_create_task
         from finance_engine import notify_finance
-        body = ("Penjualan unit " + str(deal.get("unit_code") or "-") + " dibatalkan; perlu keputusan Keuangan "
-                "(pembalikan akrual / pemulihan dana) atas: " + "; ".join(items) + ". Sistem TIDAK menjurnal balik otomatis.")
-        await notify_finance(org, "Pembatalan: ada akrual/pembayaran yang perlu ditindaklanjuti", body,
-                             "finance", "deal", did)
-        await auto_create_task(source_event=f"{FOLLOWUP_SRC}{did}",
-                               title=f"Tindak lanjut pembatalan unit {deal.get('unit_code') or '-'}: komisi/fee/pajak",
-                               type="todo", related_entity_type="deal", related_entity_id=did, assigned_to=None,
-                               description=body, priority="high", org_id=org)
-        out["finance_followup"] = items
+        unit = str(deal.get("unit_code") or "-")
+        if not auto_done:
+            tail = "Sistem TIDAK menjurnal balik otomatis."   # kebijakan manual: kalimat lama dipertahankan persis
+        else:
+            tail = ("Dibalik otomatis oleh kebijakan pembatalan: " + "; ".join(auto_done) + ". "
+                    + ("Yang lain TIDAK dijurnal balik otomatis." if items else "Tidak ada yang tersisa."))
+        if why_skip:   # kebijakan otomatis, tetapi sebagian tidak bisa dibalik — sebutkan sebabnya
+            tail += " Tidak bisa dibalik otomatis: " + "; ".join(why_skip) + "."
+        if items:
+            body = ("Penjualan unit " + unit + " dibatalkan; perlu keputusan Keuangan "
+                    "(pembalikan akrual / pemulihan dana) atas: " + "; ".join(items) + ". " + tail)
+            await notify_finance(org, "Pembatalan: ada akrual/pembayaran yang perlu ditindaklanjuti", body,
+                                 "finance", "deal", did)
+            await auto_create_task(source_event=f"{FOLLOWUP_SRC}{did}",
+                                   title=f"Tindak lanjut pembatalan unit {deal.get('unit_code') or '-'}: komisi/fee/pajak",
+                                   type="todo", related_entity_type="deal", related_entity_id=did, assigned_to=None,
+                                   description=body, priority="high", org_id=org)
+            out["finance_followup"] = items
+        else:
+            await notify_finance(org, "Pembatalan: akrual dibalik otomatis",
+                                 f"Penjualan unit {unit} dibatalkan. {tail}", "finance", "deal", did)
     return out
