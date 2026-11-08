@@ -16,7 +16,9 @@ const check = (code, ok, extra = {}) => ({ code, label: `Pemeriksaan ${code}`, g
     await page.goto(`${BASE}/config?tab=price`);
     await page.waitForSelector(T("config-price-panel"));
     const banner = await page.locator(T("config-price-panel")).innerText();
-    R.check("banner: katalog referensi, tidak mengubah tagihan/jurnal", /Katalog referensi/.test(banner) && /belum mengubah tagihan maupun jurnal/.test(banner));
+    // W2-C #16: banner diperbarui jujur (penyatuan master): pada mode bayangan (bawaan) tagihan MASIH dari Biaya All-in; pada mode
+    // katalog_sumber katalog menjadi sumber. Dua keadaan itu diuji rinci di w2c_master_biaya.js.
+    R.check("banner jujur: mode bayangan, belum mengubah tagihan/jurnal", /Mode bayangan/.test(banner) && /belum mengubah tagihan maupun jurnal/.test(banner));
     R.check("banner mengarahkan ke tab Biaya All-in", /Biaya All-in/.test(banner));
     R.check("tabel komponen biaya terisi", await page.locator(T("config-price-row")).count() > 0);
     await page.locator(T("config-price-edit")).first().click();

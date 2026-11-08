@@ -73,7 +73,9 @@ export default function CostMasterDiffPanel({ onChanged }) {
   if (error) return <p className="text-sm text-destructive">{error}</p>;
   if (!data) return <p className="text-sm text-muted-foreground">Memuat laporan selisih…</p>;
   const s = data.summary;
-  const rows = data.rows.filter((r) => showAll || r.status !== "hanya_katalog");
+  const quiet = (r) => r.status === "sama" || r.status === "hanya_katalog";   // tidak bermasalah / bukan komponen biaya
+  const rows = data.rows.filter((r) => showAll || !quiet(r));
+  const nQuiet = data.rows.filter(quiet).length;
   const mode = data.mode.value;
 
   return (
@@ -116,6 +118,7 @@ export default function CostMasterDiffPanel({ onChanged }) {
             <tr><th className="px-3 py-2 text-left">Kode</th><th className="px-3 py-2 text-left">Status</th><th className="px-3 py-2 text-left">Selisih (katalog → aturan)</th></tr>
           </thead>
           <tbody className="divide-y">
+            {rows.length === 0 ? <tr><td colSpan={3} className="px-3 py-3 text-xs text-muted-foreground">Semua komponen biaya sama antara katalog dan aturan All-in.</td></tr> : null}
             {rows.map((r) => {
               const [label, cls] = STATUS[r.status] || [r.status, ""];
               return (
@@ -141,7 +144,7 @@ export default function CostMasterDiffPanel({ onChanged }) {
         </table>
       </div>
       <label className="flex items-center gap-2 text-xs text-muted-foreground">
-        <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Tampilkan juga baris katalog yang bukan komponen biaya ({s.informasi} baris informasi)
+        <input type="checkbox" data-testid="w2c-diff-show-all" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Tampilkan juga {nQuiet} baris yang sudah sama atau bukan komponen biaya
       </label>
 
       <details className="text-xs">

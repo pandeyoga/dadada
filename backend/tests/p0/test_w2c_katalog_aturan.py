@@ -252,6 +252,41 @@ def test_katalog_sumber_ekuivalen_tulis_tembus_dan_allin_ditolak_mengubah():
         reset_mode()
 
 
+def test_arah_penyelarasan_dijaga_menurut_mode():
+    c = buat_aturan(7_500_000)
+    buat_skema([c["code"]])
+    rapikan()
+    # bayangan: All-in = sumber → arah sebaliknya ditolak
+    r = call(NUSA, "POST", "/cost-master/sync", json={"reason": "salin katalog ke aturan", "direction": "aturan_ikut_katalog"})
+    assert r.status_code == 400 and "bayangan" in sebab(r), (r.status_code, sebab(r))
+    assert call(NUSA, "POST", "/cost-master/sync", json={"reason": "arah tidak dikenal", "direction": "ngawur"}).status_code == 400
+    try:
+        assert set_mode("katalog_sumber").status_code == 200
+        # katalog = sumber: menimpa katalog dengan aturan (bukan sumber) ditolak; arah katalog → aturan boleh dan beralasan
+        r = call(NUSA, "POST", "/cost-master/sync", json={"reason": "samakan katalog dengan aturan lagi"})
+        assert r.status_code == 400 and "sumber" in sebab(r), (r.status_code, sebab(r))
+        r = call(NUSA, "POST", "/cost-master/sync", json={"reason": "pendek", "direction": "aturan_ikut_katalog"})
+        assert r.status_code == 400 and "alasan" in sebab(r).lower()
+        r = ok(call(NUSA, "POST", "/cost-master/sync", json={"reason": "perbaiki simpangan aturan dari katalog", "direction": "aturan_ikut_katalog"}))
+        assert r["data"]["diselaraskan"] == 0, r
+    finally:
+        reset_mode()
+
+
+def test_edit_nama_atau_aktif_baris_biaya_tidak_memvalidasi_ulang_blok_biaya():
+    c = buat_aturan(1_000_000)
+    rapikan()
+    k = next(x for x in katalog() if x["code"] == c["code"])
+    r = call(NUSA, "PUT", f"/catalog/price-components/{k['id']}", json={"label": "Nama katalog baru", "note": "catatan"})
+    assert r.status_code == 200, (r.status_code, sebab(r))
+    k2 = next(x for x in katalog() if x["code"] == c["code"])
+    assert k2["cost"] == k["cost"] and k2["label"] == "Nama katalog baru" and k2["gl_account"] == k["gl_account"]
+    f = {x["field"] for x in baris(diff(), c["code"])["diffs"]}
+    assert f == {"name"}, f      # hanya nama yang berbeda → dilaporkan sebagai selisih (bayangan)
+    r = call(NUSA, "PUT", f"/catalog/price-components/{k['id']}", json={"finance_treatment": "revenue"})
+    assert r.status_code == 400 and "pass_through" in sebab(r), (r.status_code, sebab(r))
+
+
 def test_katalog_sumber_per_proyek_tidak_menyentuh_proyek_lain():
     c = buat_aturan(7_500_000)
     sk = buat_skema([c["code"]])

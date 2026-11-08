@@ -71,7 +71,9 @@ export default function CostComponentPanel() {
           <tbody className="divide-y">
             {rows.map((r) => (
               <tr key={r.id} data-testid={P75.componentRow} data-code={r.code} className={r.is_active ? "" : "opacity-50"}>
-                <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
+                <td className="px-3 py-2 font-mono text-xs">{r.code}
+                  <div data-testid="w2c-catalog-ref" data-linked={r.catalog_code ? "1" : "0"} className="font-sans text-[10px] text-muted-foreground"
+                    title="Rujukan ke kode katalog (Komponen Biaya) — diisi migrasi">{r.catalog_code ? `↔ katalog ${r.catalog_code}` : "belum dirujuk ke katalog"}</div></td>
                 <td className="px-3 py-2">{r.name}{r.kpr_only ? <span className="ml-1 text-[10px] text-muted-foreground">(KPR)</span> : null}
                   {r.code === "BOOKING" ? <span data-testid="cost-component-booking-badge" className="ml-1.5 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-800">otomatis dari booking fee</span> : null}</td>
                 <td className="px-3 py-2 text-xs">{r.code === "BOOKING" ? "= booking fee deal" : `${METHOD[r.calc_method]} ${r.calc_method === "nominal_tetap" ? `· ${formatIDR(r.amount)}` : `· ${r.pct}%`}`}</td>

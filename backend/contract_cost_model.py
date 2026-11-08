@@ -136,7 +136,7 @@ async def _hold(org: str, contract: dict, payload: dict, user: dict, project_id:
 
 def hold_message(doc: dict) -> str:
     return ("Isian biaya kontrak DITAHAN: belum berlaku sampai disetujui pemegang izin persetujuan Keuangan (orang lain dari "
-            f"pemohon) — permohonan {doc['id']}. Angka lama tetap berlaku sementara ini.")
+            "pemohon). Angka lama tetap berlaku sementara ini.")
 
 
 # ------------------------------------------------------------------ keputusan

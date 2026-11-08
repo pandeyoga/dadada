@@ -178,7 +178,9 @@ async def _guard_cost_master_mode(value, *, org_id, scope, scope_id):
     """Opsi `katalog_sumber` hanya sah bila selisih katalog↔aturan All-in = 0 PADA SAAT dipilih (bukti data)."""
     if value != "katalog_sumber":
         return
+    import allin_engine
     import cost_master
+    await allin_engine.ensure_defaults(org_id)   # master All-in org ini sudah disemai (org yang belum pernah membukanya tak boleh lolos karena "kosong")
     sebab = await cost_master.unavailable_reason(org_id, probe=True)   # selisih = 0 DAN hitung ulang skema aktif identik di kedua sumber
     if sebab:
         raise ValueError(f"Sumber master komponen biaya: opsi 'katalog_sumber' belum tersedia — {sebab}")
@@ -206,7 +208,7 @@ DEFAULTS_POLICY.update({d["key"]: d for d in [
               "pada deal/kontrak yang sudah terbit TIDAK berubah. Pada 'katalog sumber' mengubah komponen di tab Biaya All-in ditolak "
               "(ubah di katalog).",
        ref_group="cost_master_mode", guard="cost_master_mode"),
-    _d("cost.component_max_amount", 10_000_000_000, "money", "Batas nominal per komponen biaya",
+    _d("cost.component_max_amount", 10_000_000_000, "money", "Batas nominal per komponen biaya (Rp)",
        "Batas wajar nominal SATU komponen biaya (BPHTB, notaris, bank, asuransi, komponen manual, nominal terkunci skema, beban "
        "developer). Nominal di atas batas ditolak di semua jalur input. Nilai yang sudah tersimpan di atas batas tidak diubah, "
        "tetapi tidak bisa dinaikkan lagi. Bawaan Rp 10.000.000.000.",

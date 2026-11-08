@@ -341,6 +341,10 @@ async def sync_to_catalog(org: str, actor: str, reason: str) -> dict:
     tidak berubah (All-in tetap sumber pada bayangan). Nilai katalog lama dicatat di `cost_master_log` (dapat ditinjau)."""
     if len((reason or "").strip()) < 10:
         raise ValueError("Alasan menyelaraskan katalog wajib (minimal 10 huruf).")
+    if await db.settings.find_one({"org_id": org, "key": KEY_MODE, "value": KATALOG}, {"_id": 1}):
+        # katalog = SUMBER di org/proyek ini: menimpa katalog dengan aturan All-in (yang bukan sumber) akan membatalkan perubahan katalog
+        raise ValueError("Katalog sedang menjadi sumber (cost.master_mode = katalog_sumber di organisasi/proyek) — menimpa katalog dengan "
+                         "aturan All-in ditolak. Gunakan 'aturan_ikut_katalog' atau kembalikan mode ke bayangan dulu.")
     mig = await migrate(org, actor)
     async with mutex(f"costmaster.sync:{org}", what="Penyelarasan katalog komponen biaya"):
         ts = now_iso()
@@ -398,6 +402,20 @@ async def prepare_catalog_patch(org: str, cur: dict, patch: dict) -> dict:
     if not has_cost:
         return patch
     merged = {**((cur or {}).get("cost") or {}), **(new_cost or {})}
+    if new_cost is None:   # blok biaya tidak diubah (mis. hanya nama/aktif): tidak divalidasi ulang — akun yang kemudian dinonaktifkan tak boleh menghalangi
+        cost = {f: merged.get(f) for f in COST_FIELDS}
+        der = derive_legacy(cost)
+        for f in ("gl_account", "value"):
+            if f in patch and patch[f] != der[f]:
+                raise ValueError(f"{'Akun GL' if f == 'gl_account' else 'Nilai bawaan'} komponen biaya diturunkan dari blok biaya "
+                                 "(GL titipan/beban, cara hitung, nominal) — ubah lewat blok biaya, bukan langsung.")
+        if "applies_schemes" in patch and kpr_only_of(patch["applies_schemes"]) != bool(cost["kpr_only"]):
+            raise ValueError("'Berlaku pada skema' diturunkan dari blok biaya (hanya-KPR) — ubah lewat blok biaya, bukan langsung.")
+        if cost["default_treatment"] == "customer_pass_through" and patch.get("finance_treatment", "pass_through") != "pass_through":
+            raise ValueError("Komponen yang ditagih ke pembeli harus berperlakuan keuangan 'Titipan pelanggan (pass_through)'.")
+        for f in ("gl_account", "value", "applies_schemes"):
+            patch.pop(f, None)   # sama dengan turunan (atau setara): tidak perlu ditulis ulang
+        return patch
     code = (cur or {}).get("code") or patch.get("code")
     label = patch.get("label") or (cur or {}).get("label") or code
     if code == "BOOKING" and (cur or {}).get("cost"):   # komponen khusus: cara hitung & nominal terkunci (= booking fee deal)
@@ -443,7 +461,13 @@ async def _write_through(org: str, k: dict) -> int:
     ins = await db.cost_components.update_one(flt, {"$setOnInsert": {"id": new_id(), "created_at": ts, "updated_at": ts, **want}}, upsert=True)
     if ins.upserted_id is not None:
         return 1
-    upd = await db.cost_components.update_one({**flt, "$or": [{f: {"$ne": v}} for f, v in want.items()]},
+    bool_default = {"kpr_only": False, "is_active": True}   # kolom boolean yang belum ada di dokumen lama = nilai bawaannya (bukan selisih)
+
+    def differs(f, v):
+        if f in bool_default:
+            return {f: (not v)} if v == bool_default[f] else {f: {"$ne": v}}
+        return {f: {"$ne": v}}
+    upd = await db.cost_components.update_one({**flt, "$or": [differs(f, v) for f, v in want.items()]},
                                               {"$set": {**want, "updated_at": ts}})
     return int(upd.modified_count)
 
