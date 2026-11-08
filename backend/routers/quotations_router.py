@@ -176,9 +176,11 @@ async def decision(quotation_id: str, payload: QuotationDecisionIn,
     """Manajer menyetujui/menolak diskon (wajib beralasan)."""
     try:
         out = await qe.decide_discount(_org(user), quotation_id, user.get("email"),
-                                       payload.approve, payload.reason)
+                                       payload.approve, payload.reason, actor_role=user.get("role"))
     except Conflict:
         raise
+    except PermissionError as e:   # W1-B (#8): peran di bawah tingkat / pemohon memutuskan sendiri
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "decide_discount", "quotations", quotation_id,

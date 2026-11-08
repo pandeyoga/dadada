@@ -18,6 +18,7 @@ import ReceiptDialog from "@/components/finance/ReceiptDialog";
 import ReceiptProofLinks from "@/components/finance/ReceiptProofLinks";
 import PaymentBreakdown from "@/components/quotations/PaymentBreakdown";
 import SprComparePanel from "@/components/finance/SprComparePanel";
+import SchemeChangePanel from "@/components/finance/SchemeChangePanel";
 import { useReference } from "@/context/ReferenceContext";
 import { useAuth } from "@/context/AuthContext";
 import { formatIDR, formatDateWIB } from "@/utils/formatters";
@@ -40,6 +41,7 @@ export default function ArDetailSheet({ dealId, open, onOpenChange, onChanged })
   const [error, setError] = useState("");
   const [schemes, setSchemes] = useState([]);
   const [schemeId, setSchemeId] = useState("");
+  const [panelKey, setPanelKey] = useState(0);   // memuat ulang panel pemetaan alokasi (W1-B) sesudah penggantian ditahan
   const [busy, setBusy] = useState(false);
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [deleteReceipt, setDeleteReceipt] = useState(null);
@@ -102,7 +104,11 @@ export default function ArDetailSheet({ dealId, open, onOpenChange, onChanged })
     if (!schemeId) { toast.error("Pilih skema pembayaran terlebih dahulu."); return; }
     setBusy(true);
     try {
-      await api.post(`/finance/ar/${dealId}/schedule`, { scheme_id: schemeId });
+      const res = await api.post(`/finance/ar/${dealId}/schedule`, { scheme_id: schemeId });
+      if (res.data?.held) {   // W1-B: sudah ada pembayaran → ditahan sampai Keuangan memetakan alokasi kuitansi
+        toast.warning(res.data.message, { duration: 12000 });
+        setSchemeId(""); load(); setPanelKey((k) => k + 1); return;
+      }
       toast.success("Skema pembayaran diperbarui & jadwal termin dibuat ulang.");
       setSchemeId(""); load(); onChanged && onChanged();
     } catch (e) {
@@ -303,6 +309,8 @@ export default function ArDetailSheet({ dealId, open, onOpenChange, onChanged })
                 ))}
               </div>
             </div>
+
+            <SchemeChangePanel key={`${dealId}-${inv?.updated_at || ""}-${panelKey}`} dealId={dealId} onChanged={() => { load(); onChanged && onChanged(); }} />
 
             <div className="rounded-lg border bg-card p-3 shadow-[var(--shadow-card)]">
               <h4 className="font-heading text-sm font-semibold">Ganti Skema Pembayaran</h4>

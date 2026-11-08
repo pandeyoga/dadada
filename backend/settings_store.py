@@ -616,6 +616,9 @@ def coerce(spec: dict, value):
             raise ValueError(f"{spec['label']}: harus berupa objek.")
     else:
         value = str(value)
+    if spec.get("validator"):   # validator khusus kunci (mis. tabel tingkat persetujuan) — tambahan, bukan pengganti
+        import settings_policy
+        value = settings_policy.VALIDATORS[spec["validator"]](value)
     if spec.get("min") is not None and isinstance(value, (int, float)) and value < spec["min"]:
         raise ValueError(f"{spec['label']}: minimum {spec['min']}.")
     if spec.get("max") is not None and isinstance(value, (int, float)) and value > spec["max"]:

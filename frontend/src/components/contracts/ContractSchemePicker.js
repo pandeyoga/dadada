@@ -47,8 +47,12 @@ export const ContractSchemePicker = ({ contract, onChanged }) => {
 
   const submit = async () => {
     try {
-      await api.post(`/payment-schemes/contracts/${contract.id}`, {
+      const res = await api.post(`/payment-schemes/contracts/${contract.id}`, {
         scheme_id: pilih, reason });
+      if (res.data?.held) {   // W1-B: sudah ada pembayaran → ditahan sampai Keuangan memetakan alokasi kuitansi
+        toast.warning(res.data.message, { duration: 12000 });
+        setOpen(false); setReason(""); onChanged?.(); return;
+      }
       toast.success("Skema kontrak diperbarui. Aktifkan kontrak untuk menyusun termin.");
       setOpen(false); setReason(""); onChanged?.();
     } catch (e) {

@@ -199,8 +199,13 @@ async def ar_detail(deal_id: str, user: dict = Depends(require_permission("finan
             "deposit": serialize_doc(dep), "cost_invoices": serialize_doc(cost_invoices)}
 
 
+class ArScheduleChange(ArScheduleCreate):
+    """`ArScheduleCreate` + alasan (dicatat pada permintaan pemetaan alokasi bila ada uang nyata — W1-B #9)."""
+    reason: Optional[str] = None
+
+
 @router.post("/{deal_id}/schedule")
-async def create_schedule(deal_id: str, payload: ArScheduleCreate,
+async def create_schedule(deal_id: str, payload: ArScheduleChange,
                           user: dict = Depends(require_permission("finance", "create"))):
     org = user.get("org_id", ORG_ID)
     deal = await db.deals.find_one({"id": deal_id, "org_id": org}, {"_id": 0})
@@ -213,9 +218,16 @@ async def create_schedule(deal_id: str, payload: ArScheduleCreate,
             f"Deal ini sudah {'dibatalkan' if deal.get('status') == 'cancelled' else 'kedaluwarsa'} "
             "— jadwal tagihan tidak bisa dibuat atau diganti. Buat reservasi baru bila pembeli "
             "memesan unit lagi."))
+    import scheme_change as sc
     try:
+        # W1-B: gerbang bersama — ganti ke KPR sesudah kontrak (#14) dan ganti skema sesudah ada pembayaran nyata (#9).
+        await sc.gate_schedule(org, deal, payload.scheme_id, user.get("email"), payload.reason)
         inv = await fe.create_ar_for_deal(deal, scheme_id=payload.scheme_id, org_id=org,
                                           replace=True, actor=user.get("email"))
+    except sc.Held as h:
+        await audit_log(user, "request_approval", "deal", deal_id,
+                        {"scheme_id": payload.scheme_id, "held": h.request.get("id"), "reason": payload.reason})
+        return sc.held_response(h)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     # Skema/angka berubah setelah SPR ditandatangani → adendum otomatis (tidak menimpa SPR).

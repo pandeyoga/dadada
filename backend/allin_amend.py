@@ -54,7 +54,7 @@ async def _request_locked(org: str, contract: dict, payload: dict, user: dict) -
     price = int(contract.get("price") or deal.get("price") or 0)
     if payload.get("scheme_id"):
         new_costs = await ae.resolve_scheme(org, payload["scheme_id"], price, deal.get("project_id"),
-                                            contract.get("scheme"),
+                                            payload.get("scheme_kind") or contract.get("scheme"),   # W1-B #14: hitung untuk jenis TUJUAN
                                             booking_fee=int(deal.get("booking_fee") or 0))
     elif payload.get("items") is not None:
         if not await ae.may_manual(user):
@@ -67,6 +67,7 @@ async def _request_locked(org: str, contract: dict, payload: dict, user: dict) -
     doc = {"id": new_id(), "org_id": org, "contract_id": contract["id"], "contract_no": contract.get("number"),
            "deal_id": contract.get("deal_id"), "customer_id": contract.get("customer_id"),
            "status": "pending", "reason": reason,
+           "then_scheme": payload.get("then_scheme"),   # W1-B #14: bila disetujui, jenis skema kontrak ikut diganti ke sini
            "from": {"scheme_code": old.get("scheme_code"), "scheme_name": old.get("scheme_name"),
                     "components": old.get("components") or []},
            "to": {"scheme_code": new_costs.get("scheme_code"), "scheme_name": new_costs.get("scheme_name"),
@@ -108,6 +109,13 @@ async def decide_amendment(org: str, amendment_id: str, approve: bool, note: str
                         undo={"$set": {"status": "pending", "decided_by": None, "decided_at": None,
                                        "decision_note": None}}, what="Amandemen ini"):
         contract = await db.contracts.find_one({"id": am["contract_id"]}, {"_id": 0})
+        if approve and contract and am.get("then_scheme"):
+            # W1-B (#14): amandemen KPR disetujui → jenis skema kontrak diganti DULU (gagal = tak ada yang berubah,
+            # status amandemen dikembalikan ke pending oleh `reserved`); baru komponen biaya KPR dipasang di bawah.
+            import contract_ops
+            await contract_ops.set_scheme(org, contract["id"], am["then_scheme"], user.get("email"),
+                                          f"amandemen skema biaya {amendment_id}: {am['reason']}", to_kpr_ok=True)
+            contract = await db.contracts.find_one({"id": am["contract_id"]}, {"_id": 0})
         if approve and contract:
             old = contract.get("costs") or {}
             keep = {k: old[k] for k in ("pph_seller", "promo_discount", "plafon_kredit", "dp_percent") if k in old}

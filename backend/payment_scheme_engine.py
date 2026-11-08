@@ -316,8 +316,9 @@ async def resolve_for_contract(org: str, contract: dict) -> dict:
 
 
 async def set_for_contract(org: str, contract: dict, scheme_id: str, actor: str,
-                           reason: str) -> dict:
-    """Tetapkan skema pada satu kontrak. Ditolak bila uang sudah masuk (bukan diam-diam)."""
+                           reason: str, *, approved: dict = None) -> dict:
+    """Tetapkan skema pada satu kontrak. Bila uang nyata sudah masuk, penerapan DITAHAN sampai Keuangan memetakan alokasi
+    kuitansi ke termin baru (W1-B #9 — `scheme_change`); `approved` = pemetaan yang sudah dikonfirmasi."""
     doc = await db.payment_schemes.find_one({"id": scheme_id, "org_id": org}, {"_id": 0})
     if not doc:
         raise LookupError("Skema pembayaran tidak ditemukan.")
@@ -335,18 +336,15 @@ async def set_for_contract(org: str, contract: dict, scheme_id: str, actor: str,
     inv = await db.ar_invoices.find_one({"org_id": org, "deal_id": deal_id},
                                        {"_id": 0, "paid": 1})
     paid = int((inv or {}).get("paid") or 0)
-    if paid > 0:
+    if paid > 0 and approved is None:
         # Booking fee/titipan dialihkan OTOMATIS ke termin saat jadwal lahir — itu bukan
         # cicilan pembeli atas jadwal ini, jadi skema masih boleh diganti: titipan dialokasikan
-        # ulang ke termin baru. Penerimaan kas nyata (funding=cash/KPR) tetap menolak.
-        real = await db.receipts.find_one(
-            {"org_id": org, "deal_id": deal_id, "funding": {"$ne": "deposit"},
-             "applied": {"$gt": 0}}, {"_id": 0, "id": 1})
-        if real:
-            raise ValueError(
-                f"Sudah ada penerimaan {_rp(paid)} pada kontrak ini. "
-                "Mengganti skema akan menyusun ulang jadwal yang sebagian sudah dibayar — "
-                "terbitkan adendum, jangan menimpa jadwal berjalan.")
+        # ulang ke termin baru. Penerimaan kas nyata (funding=cash/KPR): penerapan ditahan (Held)
+        # sampai Keuangan memetakan alokasinya — tidak ada lagi penimpaan diam-diam.
+        import scheme_change as sc
+        deal0 = await db.deals.find_one({"id": deal_id, "org_id": org}, {"_id": 0}) or {}
+        await sc.gate_money(org, deal0, contract=contract, op="contract_scheme_id", params={"scheme_id": scheme_id},
+                            target_scheme=doc, actor=actor, reason=reason)
     ts = now_iso()
     await db.contracts.update_one({"id": contract["id"]}, {
         "$set": {"payment_scheme_id": scheme_id, "payment_scheme_name": doc.get("name"),
@@ -365,7 +363,7 @@ async def set_for_contract(org: str, contract: dict, scheme_id: str, actor: str,
                                          "reason": f"skema kontrak ditetapkan: {reason}"}}})
         if inv:
             await fin.create_ar_for_deal({**deal, "scheme_id": scheme_id}, scheme_id=scheme_id,
-                                         org_id=org, replace=True, actor=actor)
+                                         org_id=org, replace=True, actor=actor, mapping=approved)
             # SPR yang sudah ditandatangani tidak ditimpa → adendum otomatis (tabel lama → baru).
             import spr_compare
             await spr_compare.ensure_addendum(org, deal_id, actor, reason)

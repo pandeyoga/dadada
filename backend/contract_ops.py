@@ -45,8 +45,11 @@ async def _real_money(org: str, deal_id: str) -> int:
     return n
 
 
-async def _guard_kind_change(org: str, c: dict, scheme: str) -> None:
-    """Tolak ganti jenis skema bila perubahannya tidak aman — pesan menyebut jalan keluarnya."""
+async def guard_kind_change(org: str, c: dict, scheme: str, money_ok: bool = False) -> None:
+    """Tolak ganti jenis skema bila perubahannya tidak aman — pesan menyebut jalan keluarnya.
+
+    `money_ok` (W1-B #9): uang nyata TIDAK lagi menolak — pemetaan alokasinya sudah dikonfirmasi Keuangan
+    (`scheme_change`); pemeriksaan tahap legal / SPR bertanda tangan / KPR berjalan tetap berlaku."""
     ce = _ce()
     if c.get("state") in ("cancelled", "completed"):
         raise ValueError(f"Kontrak berstatus {c.get('state')} — jenis skema tidak bisa diubah.")
@@ -54,7 +57,7 @@ async def _guard_kind_change(org: str, c: dict, scheme: str) -> None:
         raise ValueError("Skema tidak bisa diubah setelah ada tahap legal — terbitkan "
                          "adendum/kontrak baru.")
     money = await _real_money(org, c["deal_id"])
-    if money > 0:
+    if money > 0 and not money_ok:
         raise ValueError(
             f"Sudah ada penerimaan {_rp(money)} pada kontrak ini. Mengganti jenis skema akan "
             "menyusun ulang jadwal yang sebagian sudah dibayar — terbitkan adendum, jangan "
@@ -79,16 +82,25 @@ async def _guard_kind_change(org: str, c: dict, scheme: str) -> None:
 
 
 async def set_scheme(org: str, contract_id: str, scheme: str, actor: str,
-                     reason: str = None) -> dict:
-    """Ganti JENIS skema kontrak dan selaraskan deal + AR + pengajuan KPR (KT-05)."""
+                     reason: str = None, *, approved: dict = None, to_kpr_ok: bool = False) -> dict:
+    """Ganti JENIS skema kontrak dan selaraskan deal + AR + pengajuan KPR (KT-05).
+
+    W1-B: `scheme_change.gate_kind_change` memutuskan lebih dulu (#14 ganti ke KPR → tolak/amandemen/izinkan; #9 uang nyata →
+    permintaan pemetaan, `Held`). `approved` = pemetaan alokasi yang sudah dikonfirmasi Keuangan (jalur penerapan);
+    `to_kpr_ok` = amandemen KPR sudah disetujui (kebijakan #14 sudah dipenuhi, uang nyata tetap menolak)."""
     ce = _ce()
     if scheme not in ce.SCHEMES:
         raise ValueError(f"Skema '{scheme}' tidak dikenal.")
+    if approved is None:
+        awal = await ce.get_raw(org, contract_id)
+        if awal.get("scheme") != scheme:
+            import scheme_change as sc
+            await sc.gate_kind_change(org, awal, scheme, actor, reason, to_kpr_ok=to_kpr_ok)
     async with mutex(f"contract:{contract_id}", wait=15, ttl=60, what="Kontrak ini"):
         c = await ce.get_raw(org, contract_id)
         if c.get("scheme") == scheme:
             return c
-        await _guard_kind_change(org, c, scheme)
+        await guard_kind_change(org, c, scheme, money_ok=approved is not None)
         deal = await db.deals.find_one({"id": c["deal_id"]}, {"_id": 0}) or {}
         hasil = await psx.resolve_for_contract(
             org, {"scheme": scheme, "project_id": c.get("project_id")})
@@ -108,7 +120,7 @@ async def set_scheme(org: str, contract_id: str, scheme: str, actor: str,
             if deal and await db.ar_invoices.find_one({"org_id": org, "deal_id": deal["id"]},
                                                       {"_id": 0, "id": 1}):
                 await fin.create_ar_for_deal({**deal, "scheme_id": sch["id"]}, scheme_id=sch["id"],
-                                             org_id=org, replace=True, actor=actor)
+                                             org_id=org, replace=True, actor=actor, mapping=approved)
             if deal:
                 await db.deals.update_one({"id": deal["id"]}, {
                     "$set": {"scheme_id": sch["id"], "scheme_explicit": True, "updated_at": ts},

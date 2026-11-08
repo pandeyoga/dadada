@@ -85,6 +85,7 @@ from routers.contracts_router import router as contracts_router
 from routers.cancellation_router import router as cancellation_router
 from routers.cost_settlement_router import router as cost_settlement_router
 from routers.payment_scheme_router import router as payment_scheme_router
+from routers.scheme_change_router import router as scheme_change_router   # W1-B (#9)
 from routers.late_fee_router import router as late_fee_router
 # Fase 59 — laporan keringanan denda, kandidat tunggakan, laporan utang refund
 from routers.p59_router import router as p59_router
@@ -588,6 +589,7 @@ api.include_router(contracts_router)
 api.include_router(cancellation_router)
 api.include_router(cost_settlement_router)
 api.include_router(payment_scheme_router)
+api.include_router(scheme_change_router)
 api.include_router(late_fee_router)
 api.include_router(p59_router)
 api.include_router(p68_router)

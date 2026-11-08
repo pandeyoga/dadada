@@ -316,8 +316,8 @@ def addon_items(deal: dict, base_date_iso: str, due_days: int) -> list:
     return out
 
 
-async def create_ar_for_deal(deal: dict, scheme_id=None, org_id=ORG_ID, replace=False, actor="system", base_date=None) -> dict:
-    """Buat/replace jadwal AR deal dari skema pembayaran (idempotent kecuali replace); `base_date`: lihat KT-11."""
+async def create_ar_for_deal(deal: dict, scheme_id=None, org_id=ORG_ID, replace=False, actor="system", base_date=None, mapping=None) -> dict:
+    """Buat/replace jadwal AR deal dari skema pembayaran (idempotent kecuali replace); `base_date`: lihat KT-11; `mapping`: pemetaan alokasi Keuangan (W1-B)."""
     deal_id = deal["id"]
     existing = await db.ar_invoices.find_one({"org_id": org_id, "deal_id": deal_id}, {"_id": 0})
     if existing and not replace:
@@ -352,7 +352,7 @@ async def create_ar_for_deal(deal: dict, scheme_id=None, org_id=ORG_ID, replace=
     # ulang dengan paid=0 sementara kuitansi & jurnal kasnya tetap ada — piutang membengkak
     # semu dan layar pelanggan berkata "belum bayar" pada uang yang sudah masuk.
     # KT-06: alokasi per kuitansi DIPERTAHANKAN (bukan diacak FIFO) — lihat ar_carry.
-    carried = await ar_carry.carry(org_id, deal_id, existing, items, _allocate) \
+    carried = await ar_carry.carry(org_id, deal_id, existing, items, _allocate, mapping) \
         if int((existing or {}).get("paid") or 0) > 0 else {}
     paid_now = sum(i.get("paid_amount", 0) for i in items)
     ts = now_iso()
