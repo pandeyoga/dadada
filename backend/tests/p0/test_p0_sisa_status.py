@@ -21,7 +21,8 @@ from datetime import date, timedelta
 
 import pytest
 
-from test_p0_masuk import FINANCE, MANAGER, OWNER, SALES, World, call, codes, convert, ok, race
+import aio
+from test_p0_masuk import FINANCE, MANAGER, OWNER, SALES, World, ar, call, codes, convert, ok, pay, race
 
 FINLEAD = "finlead@sipro.co.id"
 PM = "pm@sipro.co.id"
@@ -357,3 +358,62 @@ def test_lepas_aset_serentak_satu_efek(mdb):
     assert codes(rs).count(200) == 1 and set(codes(rs)) <= {200, 400, 409}, _shown(rs)
     got = mdb.fixed_assets.find_one({"id": a["id"]})
     assert got["status"] == "disposed" and len(got["journal_ids"]) == 2, got["journal_ids"]
+
+
+# ================================================================== LF — denda keterlambatan
+def _late_deal(world):
+    sname = f"HB Terlambat {_uid()}"
+    r = call(OWNER, "POST", "/payment-schemes", json={
+        "name": sname, "kind": "cash_bertahap", "code": f"hb-late-{_uid().lower()}", "active": True,
+        "terms": [{"label": "Termin lampau", "basis": "percent", "value": 100, "due_offset_days": -90}]})
+    world.scheme[sname] = ok(r)["data"]["id"]
+    return world.new_deal(scheme=sname)["deal_id"]
+
+
+def test_denda_tagih_serentak_satu_item_dan_satu_respons_membuat(world):
+    d = _late_deal(world)
+    rs = race([lambda: call(OWNER, "POST", f"/finance/late-fees/{d}/apply", json={}) for _ in range(4)])
+    assert set(codes(rs)) <= {200, 400, 409}, _shown(rs)
+    made = [r for r in rs if r.status_code == 200 and r.json().get("created")]
+    assert len(made) == 1, f"hanya satu permintaan yang boleh menagihkan denda, ada {len(made)}: {_shown(rs)}"
+    inv = ar(d)["data"]
+    assert len([i for i in inv["items"] if i.get("is_penalty")]) == 1
+
+
+def test_denda_tagih_vs_bayar_tidak_menghilangkan_pembayaran(world):
+    """Dulu `_recalc` menulis ulang `items` dari salinan basi: pembayaran yang masuk di sela-sela hilang dari tagihan."""
+    for _ in range(ROUNDS * 2):
+        d = _late_deal(world)
+        base = int(ar(d)["data"]["outstanding"])
+        rs = race([lambda: call(OWNER, "POST", f"/finance/late-fees/{d}/apply", json={}),
+                   lambda: pay(d, 10_000_000)])
+        assert rs[1].status_code == 200, _shown(rs)
+        data = ar(d)
+        paid_items = sum(int(i.get("paid_amount") or 0) for i in data["data"]["items"])
+        receipts = sum(int(r["amount"]) for r in data["receipts"] if r.get("status") != "void")
+        assert paid_items == receipts == 10_000_000, (paid_items, receipts, base)
+
+
+# ================================================================== BF — batal tagihan booking fee
+def test_booking_fee_batal_tidak_menimpa_tagihan_yang_baru_dibayar(world, mdb):
+    """Pembayaran masuk di sela-sela baca-tagihan dan tulis-batal (disimulasikan) tidak boleh ditimpa `cancelled`."""
+    import booking_fee as bf
+    d = world.new_deal(book=False, booking_fee=5_000_000)
+    org = "org-sipro"
+    orig = bf.get_invoice
+    calls = {"n": 0}
+
+    async def stale_after_payment(o, deal_id):
+        inv = await orig(o, deal_id)
+        calls["n"] += 1
+        if calls["n"] == 1:
+            await bf._pay_unlocked(o, deal_id, amount=5_000_000, method="transfer", note="uji HB", actor=FINANCE)
+        return inv       # salinan BASI: masih "unpaid"
+
+    bf.get_invoice = stale_after_payment
+    try:
+        aio.run(bf.cancel(org, d["deal_id"], "uji@x"))
+    finally:
+        bf.get_invoice = orig
+    inv = mdb.booking_fee_invoices.find_one({"deal_id": d["deal_id"]})
+    assert inv["status"] == "paid" and int(inv["paid"]) == 5_000_000, (inv["status"], inv["paid"])
