@@ -54,6 +54,12 @@ export default function PermitDetailDialog({ permit, open, onOpenChange, canUpda
       onChanged?.();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Gagal mengubah status izin.");
+      // 400/409 = status izin sudah berubah di tempat lain: tampilkan keadaan terbaru.
+      try {
+        const r = await api.get(`/permits/${p.id}`);
+        setDoc(r.data.data); setStatus(r.data.data?.status || "");
+      } catch { /* biarkan data lama */ }
+      onChanged?.();
     } finally { setBusy(false); }
   };
 

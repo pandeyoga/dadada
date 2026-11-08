@@ -91,7 +91,10 @@ export default function UnitDetailPage() {
       });
       toast.success(blockForm.blocked ? "Unit diblokir." : "Blokir unit dibuka.");
       setBlockForm(null); load();
-    } catch (e) { toast.error(e?.response?.data?.detail || "Gagal mengubah blokir unit."); }
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Gagal mengubah blokir unit.");
+      setBlockForm(null); load();   // 400/409 = status unit sudah berubah: tampilkan keadaan terbaru, bukan dialog basi
+    }
   };
 
   if (loading) return <LoadingCards count={3} />;
@@ -99,6 +102,8 @@ export default function UnitDetailPage() {
 
   const u = data?.unit || {};
   const blocked = u.status === "blocked";
+  // Unit dalam transaksi aktif tidak bisa diblokir (server menolak) — lepas/batalkan transaksinya dulu.
+  const saleActive = ["reserved", "booked", "sold", "handed_over"].includes(u.status);
 
   return (
     <div data-testid={MASTERPLAN.unitPage} className="space-y-5">
@@ -131,6 +136,8 @@ export default function UnitDetailPage() {
                   <Pencil className="mr-1.5 h-4 w-4" /> Ubah unit
                 </Button>
                 <Button data-testid={MASTERPLAN.unitBlockOpen} size="sm" variant="outline"
+                  disabled={!blocked && saleActive}
+                  title={!blocked && saleActive ? "Unit sedang dalam transaksi — lepas/batalkan transaksinya dulu sebelum memblokir." : undefined}
                   onClick={() => setBlockForm({ blocked: !blocked, reason: "" })}>
                   <Ban className="mr-1.5 h-4 w-4" /> {blocked ? "Buka blokir" : "Blokir unit"}
                 </Button>

@@ -18,10 +18,11 @@ import AllinSchemePanel from "@/components/config/AllinSchemePanel";
 import KprDisbursementSchemePanel from "@/components/config/KprDisbursementSchemePanel";
 import LeadScorePanel from "@/components/config/LeadScorePanel";
 import WaIntegrationTabs from "@/components/config/WaIntegrationTabs";
+import WebhookSecurityPanel from "@/components/config/WebhookSecurityPanel";
 import PhaseTemplatePanel from "@/components/config/PhaseTemplatePanel";
 import SurveyStagePanel from "@/components/config/SurveyStagePanel";
 import EditGate from "@/components/patterns/EditGate";
-import { CONFIG, LEADSCORE, NUMBERING, P57, P75, PRICING, P94, PHASE_TPL, SURVEY_STAGES } from "@/constants/testIds";
+import { CONFIG, LEADSCORE, NUMBERING, P57, P75, PRICING, P94, PHASE_TPL, SURVEY_STAGES, WEBHOOK_SEC } from "@/constants/testIds";
 
 /**
  * PUSAT KONFIGURASI (Fase 39) — satu menu untuk semua kendali bisnis, sesuai permintaan
@@ -42,8 +43,8 @@ export default function ConfigCenterPage() {
         <div>
           <h1 className="page-title">Pusat Konfigurasi</h1>
           <p className="page-desc">
-            Aturan bisnis, dokumen syarat, komponen biaya, skema pembayaran, spek tambahan, tipe unit, penomoran, dan
-            kesiapan integrasi pihak ketiga — semuanya bisa diubah tanpa mengubah kode.
+            Aturan bisnis, dokumen syarat, komponen biaya, skema pembayaran, spek tambahan, tipe unit, penomoran,
+            kesiapan integrasi pihak ketiga, dan keamanan webhook — semuanya bisa diubah tanpa mengubah kode.
           </p>
         </div>
       </div>
@@ -69,6 +70,7 @@ export default function ConfigCenterPage() {
             Integrasi
           </TabsTrigger>
           <TabsTrigger data-testid={P94.configTab} value="whatsapp">Integrasi WhatsApp</TabsTrigger>
+          <TabsTrigger data-testid={WEBHOOK_SEC.tab} value="webhooks">Keamanan Webhook</TabsTrigger>
         </TabsList>
         <TabsContent value="rules"><EditGate resource="settings"><SettingsPanel /></EditGate></TabsContent>
         <TabsContent value="docs"><EditGate resource="doc_requirements"><DocRequirementsPanel /></EditGate></TabsContent>
@@ -88,6 +90,7 @@ export default function ConfigCenterPage() {
             supaya admin dan tim marketing tidak pernah melihat status yang berbeda. */}
         <TabsContent value="integration"><IntegrationHealthTab /></TabsContent>
         <TabsContent value="whatsapp"><WaIntegrationTabs /></TabsContent>
+        <TabsContent value="webhooks"><WebhookSecurityPanel /></TabsContent>
       </Tabs>
     </div>
   );

@@ -383,6 +383,11 @@ async def status(org_id: str = ORG_ID) -> dict:
             "channel": ch, "label": spec["label"], "path": spec["path"], "method": spec["method_label"],
             "secret_configured": configured, "secret_source": sec["secret_source"],
             "verify_token_configured": bool(sec["verify_token"]) if spec["env_verify"] else None,
+            # Untuk layar Keamanan Webhook: NAMA variabel lingkungan alternatif (bukan nilainya), sumber verify
+            # token, dan di mana rahasia diatur (WhatsApp tetap lewat konfigurasi WA).
+            "verify_token_source": sec["verify_source"] if spec["env_verify"] else None,
+            "env_secret": list(spec["env_secret"]), "env_verify": list(spec["env_verify"]),
+            "managed_via": "wa_config" if ch == "whatsapp" else "webhook_secrets",
             "enforced": configured, "secure": configured, "warning": warn,
             "last_ok_at": stats.get("last_ok_at"), "last_rejected_at": stats.get("last_rejected_at"),
             "rejected_total": stats.get("rejected_total", 0)})

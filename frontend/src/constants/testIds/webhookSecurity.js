@@ -1,0 +1,32 @@
+// H-C — layar "Keamanan Webhook" di Pusat Konfigurasi (tanda tangan wajib per kanal lead/WhatsApp).
+export const WEBHOOK_SEC = {
+  tab: "config-tab-webhooks",
+  panel: "webhook-security-panel",
+  summary: "webhook-security-summary",
+  readonly: "webhook-security-readonly",
+  refresh: "webhook-security-refresh",
+  opsNote: "webhook-security-ops-note",
+  table: "webhook-channel-table",
+  row: "webhook-channel-row",
+  badge: "webhook-channel-badge",
+  source: "webhook-channel-source",
+  warning: "webhook-channel-warning",
+  rejected: "webhook-channel-rejected",
+  setBtn: "webhook-secret-set",
+  clearBtn: "webhook-secret-clear",
+  waLink: "webhook-wa-link",
+  others: "webhook-others-table",
+  // dialog isi/ganti rahasia
+  dialog: "webhook-secret-dialog",
+  inputSecret: "webhook-secret-input",
+  inputVerify: "webhook-verify-input",
+  envHint: "webhook-env-hint",
+  submit: "webhook-secret-submit",
+  cancel: "webhook-secret-cancel",
+  // dialog cabut rahasia
+  clearDialog: "webhook-clear-dialog",
+  clearPickSecret: "webhook-clear-pick-secret",
+  clearPickVerify: "webhook-clear-pick-verify",
+  clearConfirm: "webhook-clear-confirm",
+  clearCancel: "webhook-clear-cancel",
+};

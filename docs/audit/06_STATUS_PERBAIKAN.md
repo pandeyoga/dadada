@@ -271,3 +271,17 @@ Rancangan: `03_AKUNTANSI_5_KEBUTUHAN_KONFIGURASI.md` (§2.8 urutan 1–2). **Tid
 Temuan ekuivalensi: **tidak ada selisih** antara profil v0 dan kode lama pada seluruh skenario di atas (24 peristiwa). Bonus: suite penuh `tests/p0` (620 lulus) dijalankan dengan `POSTING_SHADOW=1` pada DB baru — 24 peristiwa dicek (408 jurnal), `posting_shadow_diffs` = 0. Satu keterbatasan metodologi: untuk modul di luar `gl_engine` (kas bon, fee, aset, pembatalan, void, denda) resolver memakai masukan yang DITURUNKAN dari baris jurnal itu sendiri (mode `derived`): ia memeriksa akun/sisi/rumus, tetapi tidak bisa menguji kondisi yang hanya ada di dokumen sumber (mis. kategori kas bon, tipe PO). Untuk itu skenario API menyuplai masukan dari dokumen sumber lewat dry-run; handler `gl_engine` mengirim petunjuk eksplisit dari dokumennya (mode `hint`).
 
 Langkah berikut (belum dikerjakan): ubah satu aliran per rilis memakai profil dengan feature-flag (Fase 4), maker-checker + UI editor/uji coba (Fase 5), profil koreksi (PPN, pasca-BAST, denda) berlaku ke depan (Fase 6). ⚖ Keputusan pemilik yang tetap terbuka: PPN keluaran, kapitalisasi komisi, perlakuan titipan/akrual pada deal batal, WIP per proyek — v0 sengaja tidak menyentuhnya.
+### 8.H-C — Layar Keamanan Webhook + uji peramban atas layar yang berubah di ronde perbaikan
+
+Frontend saja (plus 4 bidang tambahan read-only di `GET /api/webhooks/status`). Skrip uji peramban Playwright yang bisa diulang ada di `scripts/ui/` (lihat `scripts/ui/README.md`).
+
+| Butir | Status | Isi |
+|---|:-:|---|
+| Layar "Keamanan Webhook" (Pusat Konfigurasi, tab `?tab=webhooks`) | ✔ | Tabel kanal (Meta Lead, WhatsApp, Google, TikTok) dengan lencana Aman/Belum aman, sumber rahasia (sistem/ENV/belum), statistik penolakan, peringatan; isi/ganti rahasia (input password, kolom selalu kosong, nilai lama tak pernah tampil, nama ENV alternatif), cabut dengan konfirmasi (pilih rahasia/verify token), catatan operasional ("rahasia yang sama harus dipasang di dashboard penyedia"). Ubah hanya untuk `settings:manage`; WhatsApp diarahkan ke tab Integrasi WhatsApp. Komponen: `components/config/Webhook*.js`, testIds `WEBHOOK_SEC`. |
+| API status | ✔ | `GET /webhooks/status` kini juga memuat `env_secret`/`env_verify` (NAMA variabel, bukan nilai), `verify_token_source`, `managed_via`. Tes `test_p0_webhook_status_ui.py`. |
+| Perbaikan UI temuan uji peramban | ✔ | Lihat tabel temuan di laporan stream H-C: tombol yang pasti ditolak server tidak lagi ditawarkan (batalkan PO diterima sebagian, "Buka Kembali" komplain selesai, void kuitansi deal batal, blokir unit dalam transaksi aktif, status izin yang tak boleh dituju), pengakuan biaya pada pembatalan menahan tombol setujui, layar menyegarkan diri sesudah 400/409 (permintaan material, izin, komplain, PO, unit, transfer kas). |
+
+Perubahan perilaku yang akan terlihat pemakai:
+- Pusat Konfigurasi punya tab baru "Keamanan Webhook"; owner/super admin dapat mengisi, mengganti, dan mencabut rahasia webhook dari layar.
+- Dialog pembatalan (formal dan reservasi satu-klik) menahan tombol sampai titipan/invoice biaya yang menggantung diakui beserta catatan penanganan.
+- Sesudah galat 400/409 pada aksi status, daftar/lembar dimuat ulang sehingga tombol yang sudah basi hilang.

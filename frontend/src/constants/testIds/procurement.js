@@ -32,6 +32,7 @@ export const PROCUREMENT = {
   poDetail: "po-detail",
   poApprove: "po-approve-button",
   poCancel: "po-cancel-button",
+  poCancelNote: "po-cancel-note",
   grnBtn: "grn-receive-button",
   grnSubmit: "grn-submit",
   billBtn: "bill-create-button",

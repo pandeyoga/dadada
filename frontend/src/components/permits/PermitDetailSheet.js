@@ -27,6 +27,15 @@ function Row({ label, value }) {
   );
 }
 
+// Cermin tabel transisi server (`permits_router.PERMIT_TRANSITIONS`): hanya status yang boleh dituju yang ditawarkan.
+// Server tetap penentu — bila tabelnya berubah/basi, ia menjawab 400 dengan alasannya (ditampilkan sebagai toast).
+const NEXT_STATUS = {
+  not_started: ["in_progress", "submitted"], in_progress: ["not_started", "submitted"],
+  submitted: ["in_progress", "approved", "rejected"], approved: ["expired"],
+  rejected: ["in_progress", "submitted"], expired: ["in_progress", "submitted"],
+};
+const statusAllowed = (current, target) => target === current || !NEXT_STATUS[current] || NEXT_STATUS[current].includes(target);
+
 /**
  * Detail izin. Fase 46 menambahkan tiga hal yang dulu tidak terlihat sama sekali:
  * objek yang dilekati izin (proyek/cluster/blok/unit), KESEHATAN masa berlaku, dan
@@ -46,8 +55,11 @@ export default function PermitDetailSheet({ permit, open, canManage, onOpenChang
       await api.post(`/permits/${permit.id}/status`, { status });
       toast.success(`Status → ${labelOf("permit_status", status)}.`);
       onOpenChange(false); onChanged && onChanged();
-    } catch (e) { toast.error(e?.response?.data?.detail || "Gagal mengubah status."); }
-    finally { setBusy(false); }
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Gagal mengubah status.");
+      // 400/409 = status izin sudah berubah di tempat lain: muat ulang daftar; buka lagi untuk melihat keadaan terbaru.
+      onOpenChange(false); onChanged && onChanged();
+    } finally { setBusy(false); }
   };
 
   const renew = async () => {
@@ -118,7 +130,7 @@ export default function PermitDetailSheet({ permit, open, canManage, onOpenChang
               <Select value={status} onValueChange={setStatus}>
                 <SelectTrigger data-testid={PERMITS.statusSelect}><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {options("permit_status").map((o) => (
+                  {options("permit_status").filter((o) => statusAllowed(permit.status, o.value)).map((o) => (
                     <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                   ))}
                 </SelectContent>

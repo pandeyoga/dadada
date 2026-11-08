@@ -51,6 +51,7 @@ export default function TransfersPanel({ onChanged }) {
       await load(); onChanged?.();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Aksi gagal.");
+      await load();   // 400/409 = transaksi sudah diputus pihak lain: segarkan supaya tombol basi hilang
     } finally { setBusy(""); }
   };
 

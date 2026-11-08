@@ -11,6 +11,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import ReferenceSelect from "@/components/patterns/ReferenceSelect";
+import CancellationCostAck, { costAckOk } from "@/components/contracts/CancellationCostAck";
 import api from "@/services/apiClient";
 import { formatIDR } from "@/utils/formatters";
 import { DEAL_CANCEL } from "@/constants/testIds";
@@ -33,18 +34,21 @@ export default function CancelDealDialog({ deal, open, onOpenChange, onDone }) {
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState("bank");
   const [busy, setBusy] = useState(false);
+  const [ack, setAck] = useState({ on: false, note: "" });   // FN-03: pengakuan titipan/invoice biaya yang menggantung
+
+  const loadPreview = (id) => api.get(`/deals/${id}/cancel-preview`).then((r) => setPv(r.data.data))
+    .catch((e) => setPv({ can_cancel: false, blocked_reason: e?.response?.data?.detail || "Gagal memuat pratinjau." }));
 
   useEffect(() => {
     if (!open || !deal?.id) return;
-    setPv(null); setReason(""); setMode("full"); setAmount("");
-    api.get(`/deals/${deal.id}/cancel-preview`).then((r) => setPv(r.data.data))
-      .catch((e) => setPv({ can_cancel: false, blocked_reason: e?.response?.data?.detail || "Gagal memuat pratinjau." }));
+    setPv(null); setReason(""); setMode("full"); setAmount(""); setAck({ on: false, note: "" });
+    loadPreview(deal.id);
   }, [open, deal?.id]);
 
   const refundable = pv?.booking_fee?.refundable || 0;
   const needMode = refundable > 0;
   const partialBad = mode === "partial" && (Number(amount) <= 0 || Number(amount) >= refundable);
-  const valid = pv?.can_cancel && reason.trim().length >= 5 && (!needMode || !partialBad);
+  const valid = pv?.can_cancel && reason.trim().length >= 5 && (!needMode || !partialBad) && costAckOk(pv?.cost_holds, ack);
 
   const submit = async () => {
     setBusy(true);
@@ -54,11 +58,16 @@ export default function CancelDealDialog({ deal, open, onOpenChange, onDone }) {
         refund_mode: needMode ? mode : null,
         refund_amount: mode === "partial" ? Number(amount) : null,
         method: method === "kas" ? "cash" : "transfer",
+        acknowledge_costs: pv?.cost_holds?.has_holds && ack.on ? true : undefined,
+        cost_note: pv?.cost_holds?.has_holds && ack.on ? ack.note.trim() : undefined,
       });
       toast.success(res.data.message || "Reservasi dibatalkan.");
       onOpenChange(false); onDone?.();
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Gagal membatalkan reservasi.");
+      const msg = String(e?.response?.data?.detail || "Gagal membatalkan reservasi.");
+      toast.error(msg.replace(/acknowledge_costs=true/g, "pengakuan biaya"));
+      // titipan/invoice biaya muncul sesudah pratinjau dimuat: muat ulang supaya kotak pengakuan tampil.
+      if (/titipan biaya|acknowledge_costs/i.test(msg)) loadPreview(deal.id);
     } finally { setBusy(false); }
   };
 
@@ -102,6 +111,8 @@ export default function CancelDealDialog({ deal, open, onOpenChange, onDone }) {
                     placeholder="Mis. pembeli mundur, ganti unit, KPR ditolak…"
                     onChange={(e) => setReason(e.target.value)} />
                 </div>
+                <CancellationCostAck holds={pv.cost_holds} ack={ack} onChange={setAck}
+                  verb="melanjutkan pembatalan" rejectNote={false} />
                 {needMode ? (
                   <div className="space-y-2 rounded-lg border p-3">
                     <p className="text-sm font-medium">Perlakuan booking fee yang sudah dibayar ({formatIDR(refundable)})</p>

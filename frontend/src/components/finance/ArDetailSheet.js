@@ -69,6 +69,8 @@ export default function ArDetailSheet({ dealId, open, onOpenChange, onChanged })
       setVoidTarget(null); setVoidReason(""); load(); onChanged && onChanged();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Gagal membatalkan pembayaran.");
+      // 400/409 = deal/kuitansi sudah berubah (mis. deal baru dibatalkan): tutup dialog, tampilkan keadaan terbaru.
+      setVoidTarget(null); setVoidReason(""); load(); onChanged && onChanged();
     } finally { setBusy(false); }
   };
 
@@ -120,6 +122,8 @@ export default function ArDetailSheet({ dealId, open, onOpenChange, onChanged })
   };
 
   const inv = data?.invoice;
+  // Deal yang sudah batal: kuitansi tidak bisa dibatalkan satu per satu (server menolak, FZ-01).
+  const dealCancelled = inv?.status === "cancelled";
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent data-testid={FINANCE.arDetail} className="w-full overflow-y-auto sm:max-w-xl">
@@ -324,6 +328,12 @@ export default function ArDetailSheet({ dealId, open, onOpenChange, onChanged })
 
             <div>
               <h4 className="font-heading text-sm font-semibold">Riwayat Pembayaran</h4>
+              {dealCancelled ? (
+                <p data-testid="ar-void-blocked-note" className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
+                  Deal ini sudah DIBATALKAN. Kuitansi tidak bisa dibatalkan satu per satu; pengembalian dana diurus lewat
+                  Keuangan › Pembatalan &amp; Refund.
+                </p>
+              ) : null}
               {!data.receipts.length ? (
                 <p className="mt-2 text-sm text-muted-foreground">Belum ada pembayaran.</p>
               ) : (
@@ -351,7 +361,8 @@ export default function ArDetailSheet({ dealId, open, onOpenChange, onChanged })
                       ) : can("finance", "approve") && rc.kind !== "booking_fee" && rc.funding !== "deposit"
                         && !(Number(rc.deposit_amount || 0) > 0) ? (
                         <Button data-testid="ar-receipt-void-btn" size="sm" variant="ghost" className="h-7 px-2 text-amber-700"
-                          onClick={() => setVoidTarget(rc)} aria-label="Batalkan pembayaran" title="Batalkan (jurnal pembalik, jejak tetap)">
+                          disabled={dealCancelled} onClick={() => setVoidTarget(rc)} aria-label="Batalkan pembayaran"
+                          title={dealCancelled ? "Deal sudah dibatalkan — tidak bisa membatalkan kuitansi" : "Batalkan (jurnal pembalik, jejak tetap)"}>
                           <Undo2 className="h-3.5 w-3.5" />
                         </Button>
                       ) : null}

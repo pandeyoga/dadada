@@ -67,8 +67,11 @@ export default function RequisitionsPanel({ projectId, materials, phases, canCre
       else toast.success("Permintaan ditolak.");
       setDetail(null);
       refresh();
-    } catch (e) { toast.error(e?.response?.data?.detail || "Gagal."); }
-    finally { setBusy(null); }
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Gagal.");
+      setDetail(null);
+      load();   // 400/409 = permintaan sudah diubah pihak lain: tampilkan keadaan terbarunya, bukan tombol basi
+    } finally { setBusy(null); }
   };
 
   const chips = [
