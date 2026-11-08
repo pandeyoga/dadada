@@ -20,6 +20,9 @@ async function openDecide(page, s) {
 
 (async () => {
   const R = reporter("(a) Pembatalan — pengakuan biaya");
+  // W1-C: bawaan baru `refund_dan_batalkan_invoice` menangani titipan/invoice biaya; skrip ini menguji gerbang pengakuan LAMA,
+  // jadi kebijakan org dipasang `manual_dengan_pengakuan` dan DIKEMBALIKAN di akhir.
+  await api(OWNER, "PUT", "/settings/cancel.cost_deposit.policy", { value: "manual_dengan_pengakuan", reason: "uji peramban gerbang pengakuan lama", scope: "org" });
   const { browser, page, log } = await openAs(OWNER);
   try {
     // ---- (1) setujui: tombol menunggu pengakuan lengkap
@@ -78,6 +81,9 @@ async function openDecide(page, s) {
     R.check("sesudah galat, kotak pengakuan muncul supaya bisa diisi", await page.locator(T("cancellation-cost-hold")).count() === 1);
     await shot(page, "hc-a-3-keadaan-basi");
     R.check("tanpa respons 5xx", !log.http.some((h) => /^5/.test(h)), JSON.stringify(log.http));
-  } finally { await browser.close(); }
+  } finally {
+    await api(OWNER, "POST", "/settings/cancel.cost_deposit.policy/reset?scope=org");
+    await browser.close();
+  }
   R.finish(log);
 })().catch((e) => { console.error(e); process.exit(2); });

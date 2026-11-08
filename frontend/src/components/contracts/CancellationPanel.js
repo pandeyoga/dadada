@@ -144,7 +144,8 @@ export default function CancellationPanel({ contract, onChanged }) {
 
   const rows = pre.history || [];
   // Titipan/invoice biaya bisa muncul SESUDAH pengajuan: pakai yang menggantung dari dasar pengajuan ATAU keadaan terkini.
-  const holds = [(decideFor?.basis_at_request || {}).cost_holds, pre.cost_holds].find((h) => h?.has_holds)
+  // W1-C: keadaan TERKINI dulu — kebijakan (`handled_by_policy`) dinilai server saat memutus, bukan dari dasar pengajuan yang lama.
+  const holds = [pre.cost_holds, (decideFor?.basis_at_request || {}).cost_holds].find((h) => h?.has_holds)
     || (decideFor?.basis_at_request || {}).cost_holds;
   const approveBlocked = busy || note.trim().length < 10 || !costAckOk(holds, costAck);
   const berjalan = rows.find((r) => ["diajukan", "disetujui", "refund_sebagian"]
