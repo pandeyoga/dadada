@@ -333,5 +333,6 @@ Perubahan perilaku BAWAAN yang akan terlihat pemakai:
 ⚖ Butuh keputusan pemilik: (1) akun piutang ke penerima komisi/fee bila `balik_otomatis_semua` ingin dibuka; (2) `hangus_sebagian` memposting ke 4-1200 Pendapatan Lain-lain (sama dengan potongan pembatalan & booking fee hangus) — titipan biaya
 adalah uang pihak ketiga (BPHTB/notaris); klausul SPR dan perlakuan pajaknya perlu konfirmasi; (3) pembalikan akrual pajak yang sudah dilaporkan (pembetulan SPT) tetap manual.
 
-Tes: `test_w1c_akrual.py` (15), `test_w1c_titipan.py` (15), UI `scripts/ui/w1c_titipan.js` (35 pemeriksaan) + `seed_w1c.py`. Tes lama gerbang pengakuan (FN-03) kini memakai dekorator `manual_cost_gate` (`test_p0_masuk_2.py`);
+Verifikasi (kode final, DB baru): suite penuh `tests/p0` **730 lulus, 2 dilewati**; pattern_sweep tidak naik; gerbang kepatuhan hanya 3 pelanggaran lama. Merah di kode lama `4c940d9` (server+DB terpisah): 29 dari 31 tes baru (2 kontrol hijau: fee bawaan manual, validasi persen).
+Tes: `test_w1c_akrual.py` (15), `test_w1c_titipan.py` (16), UI `scripts/ui/w1c_titipan.js` (35 pemeriksaan) + `seed_w1c.py`. Tes lama gerbang pengakuan (FN-03) kini memakai dekorator `manual_cost_gate` (`test_p0_masuk_2.py`);
 `ronde_a_pembatalan.js` / `ronde_f_batal_reservasi.js` memasang `manual_dengan_pengakuan` di level org dan mengembalikannya; `w0_kebijakan.js` tak lagi membatasi jumlah aturan tampilan proyek ≤ 3.
