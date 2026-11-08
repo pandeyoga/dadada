@@ -21,6 +21,7 @@ from pymongo.errors import DuplicateKeyError
 
 import sequences as seq
 import gl_periods
+import posting_shadow as _shadow
 import reference as ref
 from db import db, ORG_ID
 from core_utils import new_id, now_iso, period_of, to_wib_iso
@@ -114,8 +115,11 @@ async def ensure_coa(org_id=ORG_ID):
 
 async def post_journal(org_id, memo, lines, *, date=None, source_type=None, source_id=None,
                        source_event=None, posted_by="system", auto=True,
-                       source_deal_id=None, allow_closed=False) -> dict:
+                       source_deal_id=None, allow_closed=False, profile=None) -> dict:
     """Insert one balanced journal entry. Idempotent when source_event is provided.
+
+    `profile` opsional = (kunci_peristiwa, masukan_profil) — petunjuk untuk resolver BAYANGAN posting profile
+    (`posting_shadow`). Hanya MEMBANDINGKAN dengan profil v0; tidak pernah mengubah jurnal yang diposting.
 
     `source_deal_id` opsional: dipakai bila `source_id` menunjuk dokumen turunan (mis.
     kuitansi) tetapi jurnalnya masih perlu bisa ditelusuri per transaksi penjualan.
@@ -188,6 +192,7 @@ async def post_journal(org_id, memo, lines, *, date=None, source_type=None, sour
     }
     if source_deal_id:
         doc["source_deal_id"] = source_deal_id
+    _shadow.stamp(doc, profile, acct_map)   # jejak profile_event/profile_version/dimensions (metadata saja, tak melempar)
     try:
         await db.journal_entries.insert_one(dict(doc))
     except DuplicateKeyError:
@@ -203,6 +208,7 @@ async def post_journal(org_id, memo, lines, *, date=None, source_type=None, sour
     # Fase 87: setiap baris ke sub-akun kas/bank menerbitkan bukti kas BKM/BKK bernomor.
     import cash_voucher as _cv
     await _cv.issue_for_journal(org_id, doc)
+    await _shadow.observe(org_id, doc, acct_map, profile)   # bayangan: mati bila POSTING_SHADOW!=1; tak pernah melempar
     return doc
 
 
@@ -279,6 +285,12 @@ async def ledger(org_id, account_code) -> dict:
 
 
 # ----------------------------- Event handlers (subledger -> GL) -----------------------------
+def _split_hint(split) -> dict:
+    """Masukan profil dari `gl_split` event (bagian piutang & denda) — untuk resolver bayangan."""
+    sp = split or {}
+    return {"split_ar": int(sp.get("ar") or 0), "split_penalty": int(sp.get("penalty") or 0)}
+
+
 def credit_lines_for_collection(amount: int, split: dict = None, *, debit: bool = False) -> list:
     """Baris lawan penerimaan pembeli menurut `finance_engine.gl_split` (audit GL-01/GL-02).
 
@@ -330,7 +342,8 @@ async def _gl_payment_received(ev):
         *credit_lines_for_collection(amt, data.get("split")),
     ], source_type="receipt", source_id=data.get("receipt_id") or ev["entity_id"],
         source_event=f"ev:{ev['id']}", source_deal_id=ev.get("entity_id"),
-        date=data.get("value_date"))  # GL-15: tanggal bayar nyata (kosong = sekarang)
+        date=data.get("value_date"),  # GL-15: tanggal bayar nyata (kosong = sekarang)
+        profile=("sales.receipt", {"amount": amt, **_split_hint(data.get("split"))}))
 
 
 # --- Fase 26: titipan pelanggan (kelebihan bayar) tidak boleh hilang dari pembukuan ---
@@ -346,7 +359,8 @@ async def _gl_deposit_received(ev):
         {"account_code": "1-1200", "debit": amt, "credit": 0,
          "cash_account_id": (ev.get("data") or {}).get("cash_account_id")},
         {"account_code": "2-1450", "debit": 0, "credit": amt},
-    ], source_type="deposit", source_id=ev["entity_id"], source_event=f"ev:{ev['id']}")
+    ], source_type="deposit", source_id=ev["entity_id"], source_event=f"ev:{ev['id']}",
+        profile=("sales.deposit_in", {"amount": amt}))
 
 
 async def _gl_deposit_applied(ev):
@@ -363,7 +377,8 @@ async def _gl_deposit_applied(ev):
     await post_journal(org, "Titipan pelanggan dipakai untuk termin", [
         {"account_code": "2-1450", "debit": amt, "credit": 0},
         *credit_lines_for_collection(amt, (ev.get("data") or {}).get("split")),
-    ], source_type="deposit", source_id=ev["entity_id"], source_event=f"ev:{ev['id']}")
+    ], source_type="deposit", source_id=ev["entity_id"], source_event=f"ev:{ev['id']}",
+        profile=("sales.deposit_apply", {"amount": amt, **_split_hint((ev.get("data") or {}).get("split"))}))
 
 
 async def _gl_deposit_refunded(ev):
@@ -378,7 +393,21 @@ async def _gl_deposit_refunded(ev):
         {"account_code": "2-1450", "debit": amt, "credit": 0},
         {"account_code": "1-1200", "debit": 0, "credit": amt,
          "cash_account_id": (ev.get("data") or {}).get("cash_account_id")},
-    ], source_type="deposit", source_id=ev["entity_id"], source_event=f"ev:{ev['id']}")
+    ], source_type="deposit", source_id=ev["entity_id"], source_event=f"ev:{ev['id']}",
+        profile=("sales.deposit_refund", {"amount": amt}))
+
+
+def _ap_approve_hint(bill, po_type, claimed, net, ret, lines) -> dict:
+    """Masukan profil `ap.approve` dari dokumen tagihan (bukan dari jurnal) — untuk resolver bayangan."""
+    ded = {"advance": 0, "material": 0, "penalty": 0, "other": 0}
+    for d in (bill.get("deductions") or []):
+        a = int(d.get("amount", 0) or 0)
+        if a > 0:
+            ded[d.get("kind") if d.get("kind") in ded else "other"] += a
+    import revrec_cogs as rc
+    accrual = sum(int(ln.get("debit", 0)) for ln in lines if ln["account_code"] == rc.ACCRUAL_ACCOUNT)
+    return {"claimed": claimed, "net": net, "retention": ret, "po_type": po_type, "accrual_balance": accrual,
+            **{f"ded_{k}": v for k, v in ded.items()}}
 
 
 async def _gl_ap_approved(ev):
@@ -390,9 +419,11 @@ async def _gl_ap_approved(ev):
     net = int(bill.get("net", 0))
     ret = int(bill.get("retention_held", 0))
     dr_code = "1-1600"  # default: capitalize construction cost to WIP
+    po_type = None
     if bill.get("po_id"):
         po = await db.purchase_orders.find_one({"id": bill["po_id"], "org_id": org}, {"_id": 0, "po_type": 1})
         if po:
+            po_type = po.get("po_type")
             dr_code = {"material": "1-1400", "subcon": "1-1600", "general": "6-1300"}.get(po.get("po_type"), "1-1600")
     if dr_code == "1-1600":
         # Biaya konstruksi yang HPP-nya sudah diakui saat BAST (akrual 2-1700) dilunasi dulu.
@@ -412,7 +443,8 @@ async def _gl_ap_approved(ev):
             lines.append({"account_code": DEDUCTION_GL.get(ded.get("kind"), "4-1200"),
                           "debit": 0, "credit": amt, "memo": ded.get("reason")})
     await post_journal(org, f"Tagihan AP disetujui — {bill.get('vendor')}", lines,
-                       source_type="ap_bill", source_id=bill["id"], source_event=f"ev:{ev['id']}")
+                       source_type="ap_bill", source_id=bill["id"], source_event=f"ev:{ev['id']}",
+                       profile=("ap.approve", _ap_approve_hint(bill, po_type, claimed, net, ret, lines)))
 
 
 async def _gl_ap_paid(ev):
@@ -434,7 +466,8 @@ async def _gl_ap_paid(ev):
                       "memo": data.get("withheld_memo") or "Potongan PPh atas pembayaran"})
     await post_journal(org, "Pembayaran tagihan AP", lines,
                        source_type="ap_bill", source_id=ev["entity_id"], source_event=f"ev:{ev['id']}",
-                       date=data.get("value_date"))  # GL-15: tanggal bayar nyata (kosong = sekarang)
+                       date=data.get("value_date"),  # GL-15: tanggal bayar nyata (kosong = sekarang)
+                       profile=("ap.pay", {"amount": amt, "withheld": withheld}))
 
 
 async def _gl_commission_approved(ev):
@@ -452,7 +485,8 @@ async def _gl_commission_approved(ev):
     await post_journal(org, f"Akrual komisi — {com.get('assigned_to') or ''}", [
         {"account_code": "6-1100", "debit": amt, "credit": 0},
         {"account_code": "2-1600", "debit": 0, "credit": amt},
-    ], source_type="commission", source_id=com["id"], source_event=f"ev:{ev['id']}")
+    ], source_type="commission", source_id=com["id"], source_event=f"ev:{ev['id']}",
+        profile=("commission.approve", {"amount": amt}))
 
 
 async def _gl_commission_paid(ev):
@@ -464,7 +498,8 @@ async def _gl_commission_paid(ev):
         {"account_code": "2-1600", "debit": amt, "credit": 0},
         {"account_code": "1-1200", "debit": 0, "credit": amt,
          "cash_account_id": (ev.get("data") or {}).get("cash_account_id")},
-    ], source_type="commission", source_id=ev["entity_id"], source_event=f"ev:{ev['id']}")
+    ], source_type="commission", source_id=ev["entity_id"], source_event=f"ev:{ev['id']}",
+        profile=("commission.pay", {"amount": amt}))
 
 
 async def _gl_revenue_recognized(ev):
@@ -492,7 +527,8 @@ async def _gl_revenue_recognized(ev):
         lines.append({"account_code": "5-1100", "debit": cogs, "credit": 0})
         lines.extend(await rc.cogs_credit_lines(org, cogs))
     await post_journal(org, "Pengakuan pendapatan (BAST) + HPP", lines,
-                       source_type="revrec", source_id=rr["id"], source_event=f"ev:{ev['id']}")
+                       source_type="revrec", source_id=rr["id"], source_event=f"ev:{ev['id']}",
+                       profile=("sales.revrec", {"revenue": rev, "cogs": cogs, "cleared": cleared}))
 
 
 # ----------------------------- Tax -> GL (Phase 19 — EPIC 3.3 setoran) -----------------------------
@@ -520,7 +556,7 @@ async def post_tax_accrual(org_id, record) -> dict:
         [{"account_code": "6-1400", "debit": amt, "credit": 0},
          {"account_code": "2-1300", "debit": 0, "credit": amt}],
         source_type="tax_accrual", source_id=record["id"],
-        source_event=f"tax.accrue:{record['id']}")
+        source_event=f"tax.accrue:{record['id']}", profile=("tax.accrue", {"amount": amt}))
 
 
 async def post_tax_payment(org_id, record) -> dict:
@@ -540,7 +576,7 @@ async def post_tax_payment(org_id, record) -> dict:
           "cash_account_id": record.get("cash_account_id")}],
         date=(record.get("paid_date") or None),
         source_type="tax_setor", source_id=record["id"],
-        source_event=f"tax.setor:{record['id']}")
+        source_event=f"tax.setor:{record['id']}", profile=("tax.deposit", {"amount": amt}))
 
 
 def register_gl_handlers():

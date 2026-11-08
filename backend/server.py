@@ -69,6 +69,7 @@ from routers.rab_router import router as rab_router
 from routers.procurement_router import router as procurement_router
 from routers.gl_router import router as gl_router
 from routers.gl_reports_router import router as gl_reports_router
+from routers.posting_profile_router import router as posting_profile_router
 from routers.finance_audit_router import router as finance_audit_router
 from routers.survey_router import router as survey_router
 from routers.survey_stage_router import router as survey_stage_router
@@ -510,6 +511,7 @@ api.include_router(rab_router)
 api.include_router(procurement_router)
 api.include_router(gl_router)
 api.include_router(gl_reports_router)
+api.include_router(posting_profile_router)
 api.include_router(finance_audit_router)
 api.include_router(survey_router)
 api.include_router(survey_stage_router)
