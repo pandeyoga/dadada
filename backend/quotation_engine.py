@@ -32,6 +32,7 @@ import settings_store as cfg
 from core_utils import new_id, now_iso, today_iso_date
 from db import ORG_ID, db
 from engine import add_activity, create_notification, emit
+from tax_master import land_area_of
 from idempotency import Conflict, cas, once, reserved, transition
 from reference_p47 import QUOTATION_LABEL
 
@@ -130,6 +131,15 @@ async def _scheme(org: str, scheme_id: str = None) -> dict:
     return await fin.get_default_payment_scheme(org)
 
 
+def _plafon_estimate(terms: list, scheme_kind, net: int, gross: int) -> int:
+    """Perkiraan PLAFON KPR dari porsi bank pada skema pembayaran terpilih (termin bank dari harga kotor, diskalakan ke harga bersih).
+    0 bila bukan skema KPR / tak ada termin bank — pemanggil lalu memakai simulasi KPR (bila lengkap) atau rumus lama."""
+    if scheme_kind != "kpr" or not gross:
+        return 0
+    bank = sum(int(i["amount"]) for i in fin.infer_bank_items([dict(t) for t in terms], True) if fin.is_bank_item(i))
+    return round(bank * int(net) / int(gross))
+
+
 def kpr_estimate(price_after_discount: int, kpr: dict) -> dict:
     """Angsuran KPR anuitas — atau pengakuan jujur bahwa datanya belum ada.
 
@@ -218,13 +228,16 @@ async def simulate(org: str = ORG_ID, *, unit_id: str, addons: list = None,
         import allin_engine as ae
         costs = await ae.resolve_scheme(org, allin_scheme_id, int(net), unit.get("project_id"),
                                         scheme=scheme.get("kind") or scheme.get("type"),
-                                        booking_fee=max(0, bases["booking_fee"] - by_target["booking_fee"]))
+                                        booking_fee=max(0, bases["booking_fee"] - by_target["booking_fee"]),
+                                        land_area=land_area_of(unit),   # W2-A: NJOP master (dasar BPHTB)
+                                        plafon=_plafon_estimate(pre_terms, scheme_kind, net, gross)   # W2-A: BANK_FEE % plafon
+                                        or kpr_estimate(net, kpr).get("loan_amount"))
     # SATU KEBENARAN: termin dihitung oleh fungsi yang sama dengan pembuat AR.
     terms = pe.apply_component_discounts(
         fin.compute_scheme_items(scheme, gross - by_target["price"], today_iso_date()), by_target)
     booking_fee_net = max(0, bases["booking_fee"] - by_target["booking_fee"])
-    config = await fin.get_finance_config(org)
-    taxes = fin.compute_taxes(net, config)
+    config = await fin.get_finance_config(org, unit.get("project_id"))   # W2-A: master pajak + penimpaan proyek unit
+    taxes = fin.compute_taxes(net, config, land_area_of(unit))
     max_pct = float(disc["approval_thresholds"]["max_pct"])
     discount_pct = round(discount / gross * 100, 2) if gross else 0
 
@@ -244,7 +257,7 @@ async def simulate(org: str = ORG_ID, *, unit_id: str, addons: list = None,
         "by_target": by_target, "bases": bases,
         "booking_fee_gross": bases["booking_fee"], "booking_fee_net": booking_fee_net,
         "booking_fee": booking_fee_net,
-        "net_price": net, "taxes": taxes,
+        "net_price": net, "taxes": taxes, "policy_snapshot": config["policy_snapshot"],
         "scheme": {"id": scheme.get("id"), "name": scheme.get("name"),
                    "type": scheme.get("kind") or scheme.get("type")},
         "terms": terms, "terms_total": sum(t["amount"] for t in terms),
@@ -439,7 +452,7 @@ async def create(org: str = ORG_ID, *, lead_id: str, unit_id: str, addons: list 
         "discount_reason": (discount_reason or "").strip() or None,
         "net_price": calc["net_price"], "scheme": calc["scheme"], "terms": calc["terms"],
         "scheme_explicit": bool(calc.get("scheme_explicit")),
-        "taxes": calc["taxes"], "kpr": calc["kpr"],
+        "taxes": calc["taxes"], "policy_snapshot": calc.get("policy_snapshot"), "kpr": calc["kpr"],
         # Komponen pembayaran lengkap (identik dengan reservasi): biaya all-in, booking fee, total.
         "allin_scheme_id": allin_scheme_id or None, "costs": calc.get("costs"),
         **{k: calc.get(k) for k in ("by_target", "bases", "booking_fee_gross", "booking_fee_net",
@@ -507,7 +520,7 @@ def pricing_snapshot(calc: dict) -> dict:
     keys = ("base_price", "addon_total", "addon_net_total", "addon_discount_amount",
             "gross_price", "discount_amount", "discount_pct",
             "discount_lines", "discount_scheme", "promo", "coupon", "coupon_code", "net_price",
-            "scheme", "terms", "terms_total", "taxes", "kpr", "as_of", "discount_limit_pct",
+            "scheme", "terms", "terms_total", "taxes", "policy_snapshot", "kpr", "as_of", "discount_limit_pct",
             "needs_discount_approval", "approval_reasons",
             "by_target", "bases", "booking_fee_gross", "booking_fee_net", "booking_fee",
             "cost_discount_amount", "total_discount_amount", "buyer_total", "payment_breakdown")

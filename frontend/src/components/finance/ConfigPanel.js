@@ -3,12 +3,12 @@ import { toast } from "sonner";
 import { Trash2, Plus, Star , Pencil} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { RupiahInput } from "@/components/ui/rupiah-input";
 import { Label } from "@/components/ui/label";
 import { LoadingCards, ErrorState } from "@/components/patterns/StateViews";
 import { PaymentSchemeDialog, CommissionSchemeDialog } from "@/components/finance/SchemeDialogs";
 import { formatIDR } from "@/utils/formatters";
 import RenameSchemeDialog from "@/components/finance/RenameSchemeDialog";
+import TaxMasterSection from "@/components/finance/TaxMasterSection";
 import ConfirmDialog from "@/components/patterns/ConfirmDialog";
 import { useReference } from "@/context/ReferenceContext";
 import api from "@/services/apiClient";
@@ -16,7 +16,6 @@ import { FINANCE } from "@/constants/testIds";
 
 export default function ConfigPanel() {
   const { labelOf } = useReference();
-  const [tax, setTax] = useState(null);
   const [paySchemes, setPaySchemes] = useState([]);
   const [comSchemes, setComSchemes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,13 +30,11 @@ export default function ConfigPanel() {
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
-      const [t, ps, cs, col] = await Promise.all([
-        api.get("/finance/config/tax"),
+      const [ps, cs, col] = await Promise.all([
         api.get("/finance/config/payment-schemes"),
         api.get("/finance/config/commission-schemes"),
         api.get("/finance/config/collection"),
       ]);
-      setTax(t.data.data);
       setPaySchemes(ps.data.data || []);
       setComSchemes(cs.data.data || []);
       setCollectionCfg(col.data.data);
@@ -47,20 +44,6 @@ export default function ConfigPanel() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-
-  const saveTax = async () => {
-    setBusy(true);
-    try {
-      await api.put("/finance/config/tax", {
-        ppn_rate: Number(tax.ppn_rate) || 0,
-        bphtb_rate: Number(tax.bphtb_rate) || 0,
-        pph_rate: Number(tax.pph_rate) || 0,
-        npoptkp: Number(tax.npoptkp) || 0,
-      });
-      toast.success("Konfigurasi pajak disimpan.");
-    } catch (e) { toast.error(e?.response?.data?.detail || "Gagal menyimpan pajak."); }
-    finally { setBusy(false); }
-  };
 
   const saveCollection = async () => {
     setBusy(true);
@@ -96,44 +79,10 @@ export default function ConfigPanel() {
 
   if (loading) return <LoadingCards count={4} />;
   if (error) return <ErrorState message={error} onRetry={load} />;
-  if (!tax) return null;
-
-  const setT = (k, v) => setTax((prev) => ({ ...prev, [k]: v }));
-
   return (
     <div data-testid={FINANCE.configPanel} className="space-y-6">
-      {/* Tax config */}
-      <section className="rounded-xl border bg-card p-4 shadow-sm">
-        <h3 className="font-heading text-sm font-semibold">Konfigurasi Pajak</h3>
-        <p className="text-[11px] text-muted-foreground">Nilai acuan — wajib dikonfirmasi penasihat pajak saat go-live.</p>
-        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="ppn">PPN (%)</Label>
-            <Input id="ppn" type="number" value={tax.ppn_rate ?? ""} data-testid="tax-ppn"
-              onChange={(e) => setT("ppn_rate", e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="bphtb">BPHTB (%)</Label>
-            <Input id="bphtb" type="number" value={tax.bphtb_rate ?? ""} data-testid="tax-bphtb"
-              onChange={(e) => setT("bphtb_rate", e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="pph">PPh Final (%)</Label>
-            <Input id="pph" type="number" value={tax.pph_rate ?? ""} data-testid="tax-pph"
-              onChange={(e) => setT("pph_rate", e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="npoptkp">NPOPTKP (Rp)</Label>
-            <RupiahInput id="npoptkp" value={tax.npoptkp ?? ""} data-testid="tax-npoptkp"
-              onChange={(e) => setT("npoptkp", e.target.value)} />
-          </div>
-        </div>
-        <div className="mt-3 flex justify-end">
-          <Button data-testid={FINANCE.taxSubmit} onClick={saveTax} disabled={busy}>
-            {busy ? "Menyimpan\u2026" : "Simpan Pajak"}
-          </Button>
-        </div>
-      </section>
+      {/* Master Pajak (W2-A): tarif + mode PPN + penimpaan per proyek */}
+      <TaxMasterSection />
 
       {/* Collection config (denda + masa tenggang) */}
       {collectionCfg ? (

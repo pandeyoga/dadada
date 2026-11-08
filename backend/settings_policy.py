@@ -13,7 +13,8 @@ Aturan setiap kunci di sini:
 
 
 def _d(key, value, type_, label, help_, *, impact="", sensitive=True, minimum=None, maximum=None,
-       src="SISTEM", ref_group=None, levels=("org", "project"), unavailable=None, validator=None, editor=None):
+       src="SISTEM", ref_group=None, levels=("org", "project"), unavailable=None, validator=None, editor=None,
+       group="kebijakan", writer=None):
     options = []
     if ref_group:
         import reference as _ref
@@ -26,10 +27,11 @@ def _d(key, value, type_, label, help_, *, impact="", sensitive=True, minimum=No
     if type_ == "enum" and value in (unavailable or {}):
         raise ValueError(f"Setting '{key}': nilai bawaan '{value}' tidak boleh berstatus belum tersedia")
     return {
-        "key": key, "value": value, "type": type_, "group": "kebijakan", "label": label, "help": help_,
+        "key": key, "value": value, "type": type_, "group": group, "label": label, "help": help_,
         "impact": impact, "sensitive": sensitive, "min": minimum, "max": maximum, "options": options,
         "source": src, "ref_group": ref_group, "levels": tuple(levels), "unavailable": dict(unavailable or {}),
         "validator": validator, "editor": editor,   # nama (string) supaya spec tetap bisa diserialisasi ke UI
+        "writer": tuple(writer) if writer else None,   # (resource, aksi) pemegang izin MENGUBAH kunci ini; kosong = settings:manage
     }
 
 
@@ -167,3 +169,57 @@ DEFAULTS_POLICY: dict = {d["key"]: d for d in [
        impact="Mengisi batas mengubah siapa yang boleh menyetujui diskon berikutnya; permohonan yang menunggu tidak berubah.",
        validator="approval_tiers", editor="approval_tiers"),
 ]}
+
+
+# ===== W2-A — Master Pajak (keputusan #15) + PPN terkonfigurasi (keputusan #1) =====
+# Satu sumber tarif/dasar pajak yang boleh ditimpa per proyek; dibaca LEWAT `tax_master.resolve(project_id)` oleh perhitungan
+# pajak AR/penawaran, komponen biaya BPHTB/BANK_FEE, Faktur Pajak, dan dasar komisi. Dokumen `finance_configs` lama hanya
+# dimigrasikan ke sini (sekali, idempoten) lalu tidak dibaca lagi. Mengubah tarif/mode berlaku KE DEPAN (lihat `tax_master`).
+# Hanya pemegang `finance:manage` (Manajer Keuangan, owner, super admin) yang boleh mengubah — staf Keuangan tidak.
+_PAJAK_WRITER = ("finance", "manage")
+_PAJAK = dict(group="master_pajak", writer=_PAJAK_WRITER)
+
+DEFAULTS_W2A: dict = {d["key"]: d for d in [
+    _d("tax.ppn.mode", "eksklusif", "enum", "Perlakuan harga jual terhadap PPN",
+       "Menentukan cara harga jual diperlakukan terhadap PPN. EKSKLUSIF (bawaan = perilaku sistem sebelum pengaturan ini ada): "
+       "harga belum termasuk PPN — DPP = harga, PPN = tarif × DPP; dicatat sebagai catatan pajak & Faktur Pajak dan TIDAK "
+       "ditambahkan ke jadwal tagihan pembeli (tagihan tetap = harga). INKLUSIF: harga sudah termasuk PPN — DPP = harga × "
+       "100/(100+tarif), PPN = harga − DPP; tagihan pembeli tetap = harga. BEBAS PPN: tarif efektif 0 (mis. rumah subsidi) — "
+       "tanpa catatan PPN dan tanpa Faktur Pajak. Penawaran, deal, dan jadwal tagihan yang SUDAH ada tetap memakai mode saat ia lahir.",
+       impact="Mengubah angka PPN pada penawaran, catatan pajak, Faktur Pajak, dan dasar komisi 'nilai bersih' untuk transaksi BARU. "
+              "Akrual PPN tetap dibukukan ke Beban Pajak 6-1400 / Utang Pajak 2-1300 (pemisahan akun PPN Keluaran menunggu keputusan GL-04).",
+       ref_group="ppn_mode", **_PAJAK),
+    _d("tax.ppn.rate", 12.0, "pct", "Tarif PPN (%)",
+       "Tarif PPN nominal. Dipakai semua perhitungan PPN penjualan (kecuali mode Bebas PPN, yang berlaku 0%) dan estimasi PPN "
+       "masukan dari tagihan vendor. Konfirmasikan ke konsultan pajak.",
+       impact="Mengubah PPN untuk transaksi BARU; catatan pajak & Faktur Pajak yang sudah terbit tidak dihitung ulang.",
+       minimum=0, maximum=100, **_PAJAK),
+    _d("tax.master.npoptkp", 80_000_000, "money", "NPOPTKP BPHTB (Rp)",
+       "Nilai Perolehan Objek Pajak Tidak Kena Pajak untuk BPHTB — ditetapkan Perda tiap daerah, jadi layak ditimpa per proyek. "
+       "Dibaca komponen biaya BPHTB (skema all-in), penawaran, dan catatan pajak BPHTB.",
+       impact="Mengubah nominal BPHTB pada reservasi/penawaran BARU; kontrak yang sudah terbit (snapshot) tidak berubah.",
+       minimum=0, maximum=1_000_000_000_000, **_PAJAK),
+    _d("tax.master.bphtb_rate", 5.0, "pct", "Tarif BPHTB (%)",
+       "SATU sumber tarif BPHTB: komponen biaya BPHTB (rumus tarif × (NPOP − NPOPTKP)) dan catatan pajak BPHTB sama-sama membaca "
+       "ini (dulu komponen punya persennya sendiri).",
+       impact="Mengubah nominal BPHTB pada reservasi/penawaran BARU.", minimum=0, maximum=100, **_PAJAK),
+    _d("tax.master.pph_final_rate", 2.5, "pct", "Tarif PPh Final penjual (%)",
+       "PPh Final atas pengalihan hak tanah/bangunan (bawaan 2,5%). Timpa per proyek untuk proyek rumah sederhana/rusun sederhana "
+       "(tarif lebih rendah menurut peraturan) — konfirmasikan ke konsultan pajak.",
+       impact="Mengubah nominal catatan PPh Final pada jadwal tagihan yang dibuat/disusun ulang SETELAH perubahan.",
+       minimum=0, maximum=100, **_PAJAK),
+    _d("tax.master.njop_per_m2", 0, "money", "NJOP tanah per m² (Rp)",
+       "Dasar BPHTB pembanding: 0 = tidak dipakai (NPOP = harga transaksi, seperti sebelumnya). Bila > 0: NPOP = nilai TERBESAR antara "
+       "harga transaksi dan NJOP per m² × luas tanah unit (luas tanah unit harus terisi; bila kosong NJOP tidak diterapkan). "
+       "NJOP bangunan belum dimodelkan.",
+       impact="Menaikkan dasar BPHTB (komponen biaya & catatan pajak) bila NJOP lebih tinggi dari harga.",
+       minimum=0, maximum=1_000_000_000, **_PAJAK),
+    _d("tax.master.bank_fee_pct_of_plafon", 0.0, "pct", "Biaya bank (BANK_FEE) sebagai % dari plafon KPR",
+       "0 = tidak dipakai (komponen BANK_FEE tetap menghitung persen × harga, seperti sebelumnya). Bila > 0 dan plafon KPR diketahui, "
+       "BANK_FEE = persen ini × plafon: pada penawaran/reservasi plafon = porsi bank skema pembayaran KPR terpilih (cadangan: simulasi KPR "
+       "lengkap), pada amandemen skema biaya = plafon SP3K kontrak; bila plafon belum diketahui komponen memakai rumus aslinya. Tagihan "
+       "biaya yang sudah terbit tidak dihitung ulang otomatis — pakai amandemen skema biaya.",
+       impact="Mengubah nominal BANK_FEE pada komponen biaya yang dihitung/diamandemen SETELAH perubahan.",
+       minimum=0, maximum=100, **_PAJAK),
+]}
+DEFAULTS_POLICY.update(DEFAULTS_W2A)

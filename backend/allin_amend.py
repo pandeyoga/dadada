@@ -10,6 +10,7 @@ import logging
 import allin_engine as ae
 import finance_engine as fe
 import kpr_disburse as kd
+import tax_master
 from core_utils import new_id, now_iso
 from db import ORG_ID, db
 from engine import add_activity, create_notification
@@ -50,12 +51,14 @@ async def _request_locked(org: str, contract: dict, payload: dict, user: dict) -
         raise ValueError("Sudah ada kuitansi biaya yang diterima — skema tidak bisa diamandemen; "
                          "batalkan kuitansi dulu lewat finance.")
     deal = await db.deals.find_one({"id": contract.get("deal_id")},
-                                   {"_id": 0, "project_id": 1, "price": 1, "booking_fee": 1}) or {}
+                                   {"_id": 0, "project_id": 1, "price": 1, "booking_fee": 1, "unit_id": 1}) or {}
     price = int(contract.get("price") or deal.get("price") or 0)
     if payload.get("scheme_id"):
+        land = tax_master.land_area_of(await db.units.find_one({"id": deal.get("unit_id")}, {"_id": 0, "land_area": 1, "luas_tanah": 1}))
         new_costs = await ae.resolve_scheme(org, payload["scheme_id"], price, deal.get("project_id"),
                                             payload.get("scheme_kind") or contract.get("scheme"),   # W1-B #14: hitung untuk jenis TUJUAN
-                                            booking_fee=int(deal.get("booking_fee") or 0))
+                                            booking_fee=int(deal.get("booking_fee") or 0), land_area=land,
+                                            plafon=(contract.get("costs") or {}).get("plafon_kredit"))   # W2-A: BANK_FEE % plafon SP3K
     elif payload.get("items") is not None:
         if not await ae.may_manual(user):
             raise PermissionError("Komponen manual hanya finance_manager/superadmin.")

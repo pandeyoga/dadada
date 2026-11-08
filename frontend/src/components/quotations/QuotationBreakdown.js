@@ -176,8 +176,12 @@ export default function QuotationBreakdown({ calc, hideKpr = false, stale = fals
       )}
       {taxes.ppn != null || taxes.bphtb != null ? (
         <p data-testid="quotation-tax-note" className="text-xs text-muted-foreground">
-          Perkiraan pajak &amp; biaya (di luar harga): PPN {taxes.ppn_rate}%{" "}
-          <MoneyText value={taxes.ppn} /> · BPHTB {taxes.bphtb_rate}%{" "}
+          Perkiraan pajak &amp; biaya{taxes.ppn_mode === "inklusif" ? "" : " (di luar harga)"}:{" "}
+          {taxes.ppn_mode === "bebas_ppn" ? (
+            <span data-testid="quotation-ppn-bebas">PPN bebas (0%)</span>
+          ) : (<>PPN {taxes.ppn_rate}%{" "}<MoneyText value={taxes.ppn} />
+            {taxes.ppn_mode === "inklusif" ? <span data-testid="quotation-ppn-inklusif"> (sudah termasuk dalam harga)</span> : null}</>)}
+          {" "}· BPHTB {taxes.bphtb_rate}%{" "}
           <MoneyText value={taxes.bphtb} />. Dipakai untuk penjelasan ke pembeli, bukan
           bagian dari termin.
         </p>

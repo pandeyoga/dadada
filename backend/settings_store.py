@@ -578,6 +578,7 @@ GROUP_LABELS = {
     "whatsapp": "WhatsApp — Jam Kirim, Batas Laju & Biaya",
     "tampilan": "Tampilan",
     "kebijakan": "Kebijakan Akuntansi & Pembatalan",
+    "master_pajak": "Master Pajak & PPN",
 }
 
 
@@ -632,6 +633,8 @@ async def _rows(org_id: str) -> dict:
     now = time.time()
     if now - _CACHE["at"] < _TTL and org_id in _CACHE["rows"]:
         return _CACHE["rows"][org_id]
+    import tax_master   # W2-A: nilai pajak lama (`finance_configs`) dimigrasikan sekali ke master SEBELUM setting dibaca
+    await tax_master.ensure_migrated(org_id)
     out: dict = {}
     async for row in db.settings.find({"org_id": org_id}, {"_id": 0}):
         out.setdefault(row["key"], []).append(row)
