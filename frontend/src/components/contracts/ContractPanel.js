@@ -11,6 +11,8 @@ import CostsDialog from "@/components/contracts/CostsDialog";
 import LegalTimeline from "@/components/contracts/LegalTimeline";
 import KprPanel from "@/components/contracts/KprPanel";
 import CostBillingPanel from "@/components/contracts/CostBillingPanel";
+// W2-B — kebijakan tingkat kontrak (penanggung BPHTB, dst.): nilai efektif + asal, ubah per kontrak.
+import ContractPolicyPanel from "@/components/contracts/ContractPolicyPanel";
 import ContractDocuments from "@/components/contracts/ContractDocuments";
 import CancellationPanel from "@/components/contracts/CancellationPanel";
 // Fase 57A — skema pembayaran yang dipakai kontrak ini (dan asalnya) harus TERLIHAT.
@@ -302,6 +304,7 @@ export default function ContractPanel({ dealId = null, contractId = null, custom
 
       <LegalTimeline contract={contract} onChanged={refresh} />
       <CostBillingPanel contract={contract} onChanged={refresh} />
+      <ContractPolicyPanel contract={contract} onChanged={refresh} />
       <KprPanel contract={contract} onChanged={refresh} />
       <ContractDocuments contract={contract} onChanged={refresh} />
       <CancellationPanel contract={contract} onChanged={refresh} />
