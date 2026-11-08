@@ -37,7 +37,8 @@ def eligible(receipt: dict, item: dict) -> bool:
 async def mappable_receipts(org: str, deal_id: str) -> list:
     """Kuitansi aktif yang mengalokasikan uang ke AR (urut waktu) — inilah yang harus dipetakan."""
     rows = await db.receipts.find({"org_id": org, "deal_id": deal_id, "status": {"$ne": "void"},
-                                   "applied": {"$gt": 0}}, {"_id": 0}).sort("created_at", 1).to_list(2000)
+                                   "applied": {"$gt": 0}}, {"_id": 0}).to_list(2000)
+    rows.sort(key=lambda r: (r.get("created_at") or "", r.get("id") or ""))
     return rows
 
 

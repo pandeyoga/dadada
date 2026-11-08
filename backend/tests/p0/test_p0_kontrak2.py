@@ -29,6 +29,7 @@ import subprocess
 import sys
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -175,15 +176,17 @@ def test_kt06_regenerasi_jadwal_mempertahankan_alokasi_kuitansi(cleanup):
     assert al[0]["item_id"] == item(baru, "Cicilan 2/")["id"], "alokasi kuitansi harus ikut id termin baru"
 
 
-def test_kt06_ganti_ke_skema_lain_ditolak_bila_ada_uang_nyata(cleanup):
+def test_kt06_ganti_ke_skema_lain_ditahan_bila_ada_uang_nyata(cleanup):
+    """W1-B (#9): dulu ditolak "terbitkan adendum"; kini DITAHAN (202) menunggu pemetaan alokasi Keuangan, jadwal lama utuh."""
     _, deal, k = contract_of(cleanup, tag="K06c")
     inv, _ = ar_of(deal["id"])
     ok(pay(deal["id"], 1_000_000, item(inv, "Cicilan 1/")["id"]))
     code, body = call("finance", "POST", f"/finance/ar/{deal['id']}/schedule",
                       {"scheme_id": scheme_id("cash_keras")})
-    assert code == 400 and "adendum" in str(body), (code, str(body)[:300])
+    assert code == 202 and body["held"] is True and body["data"]["status"] == "menunggu_pemetaan", (code, str(body)[:300])
     sesudah, _ = ar_of(deal["id"])
     assert item(sesudah, "Cicilan 1/")["paid_amount"] == 1_000_000 and int(sesudah["paid"]) == 6_000_000
+    assert [i["id"] for i in sesudah["items"]] == [i["id"] for i in inv["items"]]
 
 
 def test_kt06_booking_fee_tetap_dialihkan_saat_ganti_skema_tanpa_uang_nyata(cleanup):
@@ -197,10 +200,23 @@ def test_kt06_booking_fee_tetap_dialihkan_saat_ganti_skema_tanpa_uang_nyata(clea
 
 
 # ============================================================================ KT-05
+@contextmanager
+def izinkan_kpr():
+    """W1-B (#14): bawaan MENOLAK ganti jenis kontrak ke KPR. Skenario KT-05 menguji penyelarasan deal+AR+KPR saat pemilik
+    MEMILIH `izinkan_manual` (perilaku lama) — dikembalikan ke bawaan di akhir."""
+    ok(call("owner", "PUT", "/settings/contract.scheme_change_to_kpr",
+            {"value": "izinkan_manual", "reason": "uji KT-05", "scope": "org"}))
+    try:
+        yield
+    finally:
+        call("owner", "POST", "/settings/contract.scheme_change_to_kpr/reset", None, {"scope": "org"})
+
+
 def test_kt05_ganti_jenis_skema_menyelaraskan_deal_ar_dan_kpr(cleanup):
     _, deal, k = contract_of(cleanup, scheme="cash_keras", tag="K05a", activate=False)
-    out = ok(call("finance", "POST", f"/contracts/{k['id']}/scheme",
-                  {"scheme": "kpr", "reason": "pembeli beralih ke KPR"}))
+    with izinkan_kpr():
+        out = ok(call("finance", "POST", f"/contracts/{k['id']}/scheme",
+                      {"scheme": "kpr", "reason": "pembeli beralih ke KPR"}))
     assert out["scheme"] == "kpr"
     d = ok(call("manager", "GET", f"/deals/{deal['id']}"))
     skema = {s["id"]: s for s in ok(call("manager", "GET", "/payment-schemes"))}
@@ -218,24 +234,30 @@ def test_kt05_ganti_jenis_skema_menyelaraskan_deal_ar_dan_kpr(cleanup):
         assert "skema_deal_beda" not in [b["code"] for b in t["blocks"]], t["code"]
 
 
-def test_kt05_ganti_jenis_skema_ditolak_bila_ada_uang_nyata(cleanup):
+def test_kt05_ganti_jenis_skema_dengan_uang_nyata_tidak_pernah_menimpa_diam_diam(cleanup):
+    """Bawaan W1-B: ke KPR ditolak (#14). Bila pemilik mengizinkan, uang nyata menahan penerapan (#9, 202) — bukan menimpa."""
     _, deal, k = contract_of(cleanup, scheme="cash_bertahap", tag="K05b")
     inv, _ = ar_of(deal["id"])
     ok(pay(deal["id"], 1_000_000, item(inv, "Cicilan 1/")["id"]))
     code, body = call("finance", "POST", f"/contracts/{k['id']}/scheme",
                       {"scheme": "kpr", "reason": "uji tolak"})
-    assert code == 400 and "penerimaan" in str(body), (code, str(body)[:300])
+    assert code == 400 and "kontrak baru" in str(body), (code, str(body)[:300])
+    with izinkan_kpr():
+        code, body = call("finance", "POST", f"/contracts/{k['id']}/scheme", {"scheme": "kpr", "reason": "uji tahan"})
+    assert code == 202 and body["held"] is True, (code, str(body)[:300])
     kk = ok(call("manager", "GET", f"/contracts/{k['id']}"))
     assert kk["scheme"] == "cash_bertahap"
     sesudah, _ = ar_of(deal["id"])
     assert item(sesudah, "Cicilan 1/")["paid_amount"] == 1_000_000
+    assert [i["id"] for i in sesudah["items"]] == [i["id"] for i in inv["items"]]
 
 
 def test_kt05_kembali_ke_tunai_dan_skema_sama_noop(cleanup):
     _, deal, k = contract_of(cleanup, scheme="cash_keras", tag="K05c", activate=False)
     assert ok(call("finance", "POST", f"/contracts/{k['id']}/scheme",
                    {"scheme": "cash_keras"}))["scheme"] == "cash_keras"
-    ok(call("finance", "POST", f"/contracts/{k['id']}/scheme", {"scheme": "kpr", "reason": "uji"}))
+    with izinkan_kpr():
+        ok(call("finance", "POST", f"/contracts/{k['id']}/scheme", {"scheme": "kpr", "reason": "uji"}))
     back = ok(call("finance", "POST", f"/contracts/{k['id']}/scheme",
                    {"scheme": "cash_bertahap", "reason": "kembali ke tunai bertahap"}))
     assert back["scheme"] == "cash_bertahap"

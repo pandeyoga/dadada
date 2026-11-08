@@ -158,9 +158,15 @@ async def remap_receipts_mapped(org: str, deal_id: str, carried: dict) -> int:
             continue
         baru = [{"item_id": items[j]["id"], "label": items[j].get("label"), "amount": a, "remapped": True}
                 for j, a in lst]
-        await db.receipts.update_one({"id": rid}, {"$set": {"allocations": baru}, "$push": {"allocation_history": {
-            "at": ts, "by": carried.get("by"), "request_id": carried.get("request_id"),
-            "reason": carried.get("reason"), "previous": rec.get("allocations") or []}}})
+        # CAS pada alokasi yang tadi dibaca: kuitansi yang berubah di sela-sela (tidak mungkin di bawah `deal_money`)
+        # ditolak, bukan ditimpa.
+        res = await db.receipts.update_one(
+            {"id": rid, "org_id": org, "deal_id": deal_id, "allocations": rec.get("allocations")},
+            {"$set": {"allocations": baru}, "$push": {"allocation_history": {
+                "at": ts, "by": carried.get("by"), "request_id": carried.get("request_id"),
+                "reason": carried.get("reason"), "previous": rec.get("allocations") or []}}})
+        if res.matched_count != 1:
+            raise Conflict("Kuitansi berubah saat alokasinya dipetakan — tidak ditimpa. Muat ulang lalu ulangi.")
         n += 1
     return n
 

@@ -16,6 +16,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import DataTable from "@/components/patterns/DataTable";
+import ApprovalTiersEditor, { summarizeTiers, validateTiers } from "@/components/config/ApprovalTiersEditor";
 import api from "@/services/apiClient";
 import { formatDateTimeWIB } from "@/utils/formatters";
 import { useReference } from "@/context/ReferenceContext";
@@ -31,6 +32,7 @@ function valueText(row) {
   if (row.type === "money") return new Intl.NumberFormat("id-ID").format(Number(v) || 0);
   if (row.type === "pct") return `${v}%`;
   if (row.type === "enum") return row.option_labels?.[v] || String(v);
+  if (row.editor === "approval_tiers") return summarizeTiers(v);
   if (Array.isArray(v)) return v.length ? v.join(", ") : "(kosong)";
   if (v && typeof v === "object") return JSON.stringify(v);
   return String(v);
@@ -93,6 +95,10 @@ export default function SettingsPanel() {
 
   const requestSave = (row) => {
     const value = draft[row.key] !== undefined ? draft[row.key] : row.value;
+    if (row.editor === "approval_tiers") {   // cermin validasi server (celah/tumpang tindih/tidak menaik)
+      const errs = validateTiers(value);
+      if (errs.length) { toast.error(errs[0]); return; }
+    }
     if (row.sensitive) { setConfirm({ row, value }); return; }
     save(row, value);
   };
@@ -145,6 +151,7 @@ export default function SettingsPanel() {
         </Select>
       );
     }
+    if (row.editor === "approval_tiers") return <ApprovalTiersEditor value={val} onChange={set} />;
     if (row.type === "list") {
       if (Array.isArray(val) && val.some((x) => x && typeof x === "object")) {
         return <span className="text-xs text-muted-foreground" data-testid={CONFIG.ruleInput}>Disunting lewat tab khusus (mis. Skor Lead) — {val.length} baris.</span>;
