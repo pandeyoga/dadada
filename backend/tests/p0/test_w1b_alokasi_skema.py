@@ -262,14 +262,17 @@ def test_proporsional_hitung_pratinjau_dan_konfirmasi(world):
 
 
 def test_hitung_sistem_tidak_muat_ditolak_saat_diajukan(world):
-    d = world.new_deal()
-    did = d["deal_id"]
-    inv = ar(did)["data"]
-    ok(pay(did, 150_000_000, allocations=[{"item_id": inv["items"][0]["id"], "amount": 150_000_000}]))
-    ok(pay(did, 200_000_000, allocations=[{"item_id": inv["items"][1]["id"], "amount": 200_000_000}]))
-    # skema KPR 100% porsi bank: setoran pembeli 350 jt tidak boleh dipasang ke porsi bank → tidak muat
-    with setting("urut_termin_tertua"):
-        r = _schedule(did, world, "KPR (DP 0% + pencairan bank)")
+    # ASUMSI: belum ada kontrak (kalau sudah ada, gerbang FN-11 menolak ganti ke KPR lebih dulu). Sejak W1-A pemicu bawaan
+    # membuat kontrak saat booking, maka `spr_signed` disetel eksplisit (tingkat org) selama tes dan SELALU dikembalikan.
+    with setting("spr_signed", key="lead.won_trigger"):
+        d = world.new_deal()
+        did = d["deal_id"]
+        inv = ar(did)["data"]
+        ok(pay(did, 150_000_000, allocations=[{"item_id": inv["items"][0]["id"], "amount": 150_000_000}]))
+        ok(pay(did, 200_000_000, allocations=[{"item_id": inv["items"][1]["id"], "amount": 200_000_000}]))
+        # skema KPR 100% porsi bank: setoran pembeli 350 jt tidak boleh dipasang ke porsi bank → tidak muat
+        with setting("urut_termin_tertua"):
+            r = _schedule(did, world, "KPR (DP 0% + pencairan bank)")
     assert r.status_code == 400 and "tidak muat" in r.text, r.text[:300]
     assert ar(did)["data"]["scheme_id"] == world.scheme["Cash Bertahap (3x)"]
 

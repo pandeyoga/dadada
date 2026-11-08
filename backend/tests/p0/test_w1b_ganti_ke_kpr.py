@@ -108,8 +108,41 @@ def test_bawaan_tolak_juga_lewat_jadwal_ar_dan_tidak_menghalangi_arah_sebaliknya
     assert _kontrak(d["contract_id"])["scheme"] == "cash_bertahap"
 
 
+@contextmanager
+def _pemicu_spr():
+    """ASUMSI tes 'belum ada kontrak': sejak W1-A pemicu bawaan = booking dikonfirmasi, yang LANGSUNG membuat kontrak. Tes ini
+    menyetel `spr_signed` (tingkat org) selama berjalan agar premis 'belum ada kontrak' berlaku; SELALU dikembalikan."""
+    ok(call(OWNER, "PUT", "/settings/lead.won_trigger", json={"value": "spr_signed", "reason": "uji W1-B tanpa kontrak", "scope": "org"}))
+    try:
+        yield
+    finally:
+        call(OWNER, "POST", "/settings/lead.won_trigger/reset", params={"scope": "org"})
+
+
 def test_tanpa_kontrak_dan_arah_non_kpr_tidak_dihalangi(world):
     # belum ada kontrak: komponen KPR-only dihitung saat kontrak lahir → ganti jadwal ke KPR tetap boleh
+    with _pemicu_spr():
+        _tanpa_kontrak_ganti_ke_kpr(world)
+    # kontrak tunai → tunai lain tidak dihalangi gerbang KPR
+    d = _contract(world)
+    r = call(FINANCE, "POST", f"/contracts/{d['contract_id']}/scheme", json={"scheme": "cash_keras", "reason": "uji W1-B"})
+    assert r.status_code == 200 and r.json()["data"]["scheme"] == "cash_keras", r.text[:300]
+
+
+def test_bawaan_booking_langsung_membuat_kontrak_sehingga_ganti_jadwal_ke_kpr_ditolak(world):
+    """Interaksi W1-A × W1-B: dengan pemicu bawaan (booking dikonfirmasi) kontrak sudah ada sejak booking, maka gerbang
+    FN-11 (`tolak_buat_baru`) berlaku juga untuk jadwal AR — skema KPR harus dipilih sejak reservasi."""
+    unit = world.units[world.next_unit]
+    world.next_unit += 1
+    lead = ok(call(SALES, "POST", "/leads", json={"name": f"Uji KPR3 {TAG}", "phone": "+62813" + str(int(time.time() * 1000))[-9:], "source": "manual"}))["data"]
+    deal = ok(call(SALES, "POST", "/deals/reserve", json={"unit_id": unit["id"], "lead_id": lead["id"], "booking_fee": 0,
+                                                          "scheme_id": world.scheme["Cash Bertahap (3x)"]}))["data"]
+    ok(call(SALES, "POST", f"/deals/{deal['id']}/book", json={}))
+    r = call(FINANCE, "POST", f"/finance/ar/{deal['id']}/schedule", json={"scheme_id": _kpr_scheme_id(world)})
+    assert r.status_code == 400 and "KPR" in r.text, (r.status_code, r.text[:300])
+
+
+def _tanpa_kontrak_ganti_ke_kpr(world):
     unit = world.units[world.next_unit]
     world.next_unit += 1
     lead = ok(call(SALES, "POST", "/leads", json={"name": f"Uji KPR2 {TAG}", "phone": "+62813" + str(int(time.time() * 1000))[-9:], "source": "manual"}))["data"]
@@ -118,10 +151,6 @@ def test_tanpa_kontrak_dan_arah_non_kpr_tidak_dihalangi(world):
     ok(call(SALES, "POST", f"/deals/{deal['id']}/book", json={}))
     r = call(FINANCE, "POST", f"/finance/ar/{deal['id']}/schedule", json={"scheme_id": _kpr_scheme_id(world)})
     assert r.status_code == 200, (r.status_code, r.text[:300])
-    # kontrak tunai → tunai lain tidak dihalangi gerbang KPR
-    d = _contract(world)
-    r = call(FINANCE, "POST", f"/contracts/{d['contract_id']}/scheme", json={"scheme": "cash_keras", "reason": "uji W1-B"})
-    assert r.status_code == 200 and r.json()["data"]["scheme"] == "cash_keras", r.text[:300]
 
 
 # ================================================================== izinkan_manual = perilaku lama
