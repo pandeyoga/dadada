@@ -149,3 +149,27 @@ Temuan sampingan: pemicu `spr_signed` dulu **tidak pernah jalan** (handler memba
 
 ⚖ Menunggu keputusan/konfirmasi pemilik: `hangus_sebagian` (uang titipan biaya = uang pihak ketiga, posting ke 4-1200; konfirmasi klausul SPR & perlakuan pajak ke konsultan pajak); `hangus` pada reservasi (mengubah uang pembeli menjadi pendapatan otomatis);
 urutan kewenangan peran tingkat persetujuan (`sales_manager < finance_manager < owner`; `finance_manager` pada jalur penawaran butuh izin `quotations:approve` bagi peran itu); owner tunggal yang membuat penawaran tidak bisa menyetujuinya sendiri di mode bertingkat (pakai `satu_level` atau owner/super_admin lain).
+
+## 7. Jawaban pemilik atas daftar 17 butir (setelah W1) — "setuju semua rekomendasi"
+
+| # | Butir | Keputusan yang berlaku |
+|---|---|---|
+| 1 | PPN | Bawaan = perilaku sekarang (12%); proyek yang berbeda ditandai kemudian lewat override proyek |
+| 2 | Master pajak | Nilai sekarang jadi bawaan (NPOPTKP Rp 80 jt, BPHTB 5%, PPh 2,5%); nilai khusus per proyek lewat override; konfirmasi konsultan pajak |
+| 3 | BPHTB per kontrak | Tidak ada rekomendasi sistem → bawaan **pembeli** (sama dengan perilaku sekarang: BPHTB ditagih sebagai biaya pembeli); per kontrak bisa diubah |
+| 4 | Input bebas biaya kontrak | Wajib persetujuan Keuangan (`contract.cost_free_input_needs_approval = true`) |
+| 5 | Batas wajar nominal komponen | Rp 10 miliar per komponen (dulu Rp 1 triliun), menjadi pengaturan `cost.component_max_amount` |
+| 6 | Izin konfigurasi pajak | Hanya owner dan finance lead |
+| 7 | Tanggal mulai pengakuan pendapatan bertahap | Kontrak baru saja; kontrak lama tetap diakui saat BAST sampai akuntan menyetujui penyesuaian saldo |
+| 8 | Sumber progres | Progres pembangunan; gerbang lunas aktif di awal (bisa dilonggarkan) |
+| 9 | Akun komisi dikapitalisasi | Dua akun baru di Bagan Akun (aset biaya perolehan kontrak dibayar di muka + beban amortisasi) |
+| 10 | Persediaan rata-rata bergerak | Per proyek; berlaku mulai periode berikutnya dengan saldo tercatat sekarang |
+| 11 | Konfirmasi akuntan/auditor untuk #7–#9 | Dilakukan sebelum dinyalakan di produksi |
+| 12 | Pengaman skema-bawaan tidak dikonversi otomatis | Dipertahankan |
+| 13 | "Won saat booking" | Coba satu proyek dulu lewat override proyek (konfigurasi, bukan kode) |
+| 14 | Tingkat persetujuan diskon | Angka belum diberikan → tetap satu tingkat (= perilaku lama); diisi pemilik di layar |
+| 15 | Akun piutang penerima komisi/fee | Dibiarkan manual (opsi `balik_otomatis_semua` tetap belum tersedia) |
+| 16 | `hangus_sebagian` titipan biaya | Bawaan 0% sampai konsultan pajak menjawab |
+| 17 | Owner tunggal & penawaran sendiri | Pakai mode `satu_level` atau tambah owner/super admin lain (konfigurasi organisasi) |
+
+Pengerjaan W2 dimulai: **W2-A** (master pajak + PPN) dan **W2-C** (satu master komponen biaya + model biaya kontrak + batas nominal) paralel; **W2-B** (BPHTB per kontrak + endpoint penimpaan tingkat kontrak) menyusul setelah master pajak masuk karena memakainya.
