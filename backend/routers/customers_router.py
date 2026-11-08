@@ -136,10 +136,7 @@ def _identity_keys(data: dict, allow_dup: bool) -> list:
         keys.append("n:" + str(data["nik"]))
     if not allow_dup:
         if data.get("phone"):
-            try:
-                keys.append("p:" + re.sub(r"\D", "", normalize_phone_e164(data["phone"]))[-9:])
-            except Exception:  # noqa: BLE001 — nomor tak sah ditolak oleh validator lain; jangan menggagalkan di sini
-                pass
+            keys.append("p:" + re.sub(r"\D", "", normalize_phone_e164(data["phone"]))[-9:])
         if data.get("email"):
             keys.append("e:" + str(data["email"]).strip().lower())
     return sorted(set(keys))

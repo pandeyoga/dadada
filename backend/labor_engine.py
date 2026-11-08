@@ -35,6 +35,7 @@ from core_utils import new_id, now_iso, today_wib
 from db import ORG_ID, db
 from engine import add_activity, create_notification, emit
 from idempotency import reserved, transition
+from money_op import money_op
 from reference_p47 import (ATTENDANCE_DAY_FACTOR, ATTENDANCE_LABEL, GL_BANK, GL_WIP,
                           LABOR_ROLE_LABEL, PAYROLL_LABEL)
 
@@ -400,14 +401,12 @@ async def pay_payroll(org: str, payroll_id: str, actor: str, *, bank_txn_id: str
         raise ValueError("Nilai rekap upah nol — tidak ada yang bisa dibayar.")
     import cash_bank as _cb
     bank_code = await _cb.resolve_code(org, None, GL_BANK)
-    # PL-03: kunci rekening + cek dana sampai jurnal upah terposting (rekonsiliasi bank: uang sudah keluar,
-    # pembukuan mengikuti kenyataan → tanpa cek/kunci).
-    from contextlib import nullcontext
-    guard = (_cb.funds_guard(org, amount, code=bank_code, kind=f"pembayaran upah {p['no']}")
-             if not skip_funds_check else nullcontext())
+    # PL-03 lewat `money_op`: kunci rekening + cek dana sampai jurnal upah terposting (rekonsiliasi bank: uang sudah
+    # keluar, pembukuan mengikuti kenyataan → `skip_funds_check` = tanpa cek/kunci).
     # PK-02: klaim atomik approved → paying SEBELUM jurnal/emit (bayar upah bersamaan = satu efek;
     # dulu jurnal-nya idempoten tetapi riwayat, aktivitas, dan event labor.paid terbit dua kali).
-    async with guard:
+    async with money_op(org, amount=0 if skip_funds_check else amount, cash_code=bank_code,
+                        kind=f"pembayaran upah {p['no']}"):
         async with reserved("labor_payrolls", {"id": payroll_id, "org_id": org}, {"state": "approved"},
                             {"$set": {"state": "paying", "updated_at": now_iso()}},
                             undo={"$set": {"state": "approved"}}, what="Rekap upah"):

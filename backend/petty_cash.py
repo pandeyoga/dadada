@@ -23,6 +23,7 @@ from db import db, ORG_ID
 from engine import add_activity, create_notification, emit
 from finance_engine import notify_finance
 from idempotency import reserved, transition
+from money_op import money_op
 from p27_utils import cash_account, rp
 
 logger = logging.getLogger("sipro.pettycash")
@@ -155,10 +156,9 @@ async def disburse_advance(advance_id: str, amount, source: str, note, actor: st
     import cash_bank as _cb
     cash_code = await _cb.resolve_code(org_id, cash_account_id, cash_account(source))
     cash_acc = await _cb.account_by_code(org_id, cash_code)
-    # PL-03: kunci rekening + cek dana sampai jurnal pencairan terposting.
-    guard = _cb.funds_guard(org_id, amt, cash_account_id=(cash_acc or {}).get("id"), code=cash_code,
-                            kind=f"pencairan kas bon {adv['no']}")
-    async with guard:
+    # PL-03 lewat `money_op`: kunci rekening + cek dana sampai jurnal pencairan terposting.
+    async with money_op(org_id, amount=amt, cash_account_id=(cash_acc or {}).get("id"), cash_code=cash_code,
+                        kind=f"pencairan kas bon {adv['no']}"):
         # PK-02: klaim atomik approved → disbursing SEBELUM jurnal (pencairan bersamaan = satu efek).
         async with reserved("cash_advances", {"id": advance_id, "org_id": org_id}, {"status": "approved"},
                             {"$set": {"status": "disbursing", "updated_at": ts}},
@@ -224,15 +224,11 @@ async def settle_advance(advance_id: str, items: list, note, actor: str, org_id=
         raise ValueError("Total realisasi pengeluaran harus lebih dari 0.")
     ts = now_iso()
     # Realisasi di atas uang muka = kas KELUAR tambahan (penggantian); sisa dikembalikan = kas masuk.
-    from contextlib import nullcontext
-    guard = nullcontext()
-    if reimburse:
-        import cash_bank as _cb
-        cash_code = adv.get("cash_account_code") or cash_account(adv.get("source"))
-        # PL-03: penggantian = kas KELUAR → kunci rekening + cek dana sampai jurnal terposting.
-        guard = _cb.funds_guard(org_id, reimburse, code=cash_code,
-                                kind=f"penggantian kelebihan realisasi kas bon {adv['no']}")
-    async with guard:
+    cash_code = adv.get("cash_account_code") or cash_account(adv.get("source"))
+    # PL-03 lewat `money_op`: penggantian = kas KELUAR → kunci rekening + cek dana sampai jurnal terposting
+    # (tanpa penggantian: amount=0 = tanpa kunci).
+    async with money_op(org_id, amount=reimburse, cash_code=cash_code,
+                        kind=f"penggantian kelebihan realisasi kas bon {adv['no']}"):
         # PK-02: klaim atomik disbursed → settling (pertanggungjawaban bersamaan = satu jurnal).
         async with reserved("cash_advances", {"id": advance_id, "org_id": org_id}, {"status": "disbursed"},
                             {"$set": {"status": "settling", "updated_at": ts}},

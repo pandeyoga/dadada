@@ -21,7 +21,8 @@ from core_utils import new_id, now_iso
 from db import db, ORG_ID
 from engine import add_activity
 from finance_engine import notify_finance
-from idempotency import expect_of, mutex, once
+from idempotency import expect_of, mutex
+from money_op import money_op
 from p27_utils import (cash_account, current_period, period_end_iso, period_of, rp,
                        validate_period)
 
@@ -134,19 +135,15 @@ async def create_asset(payload, actor: str, org_id=ORG_ID) -> dict:
                          "(agar utangnya tercatat di daftar tagihan vendor).")
     ts = now_iso()
     acquired = payload.acquired_date or ts
-    from contextlib import nullcontext
-    guard = nullcontext()
-    if payload.funding in ("kas", "bank"):
-        # PK-06 + PL-03: perolehan tunai/bank mengeluarkan kas → dana harus cukup, dan DUA pembelian berbeda
-        # yang bersamaan tidak boleh sama-sama lolos (terbukti: 2 aset @60% saldo → rekening −Rp 1,55 M).
-        import cash_bank as _cb
-        guard = _cb.funds_guard(org_id, cost, code=FUNDING_ACCOUNT[payload.funding],
-                                kind=f"perolehan aset {payload.name}")
-    # PK-02/22: klik ganda / retry membuat aset kembar (uang keluar 2x) → kunci permintaan identik.
-    async with once("asset.create", org_id, payload.name, cost, payload.acquired_date, payload.funding, actor,
-                    what="Pencatatan aset ini"):
-        async with guard:
-            return await _create_asset_locked(payload, actor, org_id, cost, salvage, method, life, ts, acquired)
+    # PK-06 + PL-03 + PK-02/22 lewat SATU pintu (`money_op`): klik ganda / retry membuat aset kembar (uang keluar 2x)
+    # → kunci permintaan identik; perolehan tunai/bank mengeluarkan kas → dana harus cukup dan DUA pembelian berbeda
+    # yang bersamaan tidak boleh sama-sama lolos (terbukti: 2 aset @60% saldo → rekening −Rp 1,55 M).
+    tunai = payload.funding in ("kas", "bank")
+    async with money_op(org_id, op="asset.create",
+                        key=(org_id, payload.name, cost, payload.acquired_date, payload.funding, actor),
+                        amount=cost if tunai else 0, cash_code=FUNDING_ACCOUNT[payload.funding] if tunai else None,
+                        kind=f"perolehan aset {payload.name}", what="Pencatatan aset ini"):
+        return await _create_asset_locked(payload, actor, org_id, cost, salvage, method, life, ts, acquired)
 
 
 async def _create_asset_locked(payload, actor, org_id, cost, salvage, method, life, ts, acquired) -> dict:

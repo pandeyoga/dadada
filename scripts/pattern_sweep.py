@@ -21,8 +21,15 @@ ROOT = os.path.join(os.path.dirname(HERE), "backend")
 BASELINE = os.path.join(HERE, "pattern_sweep_baseline.json")
 SKIP_PREFIX = ("backend_test", "test_", "seed", "_fixture", "models", "reference")
 GUARDS = {"once", "cas", "transition", "mutex", "locked", "reserved", "find_one_and_update",
-          "claim", "expect_of", "cash_lock"}
+          "claim", "expect_of", "cash_lock", "funds_guard", "deal_money", "money_op"}
+# Konvensi proyek: fungsi berakhiran ini dipanggil PEMANGGILNYA di bawah kunci (`async with mutex/locked/...: await _x_locked(...)`).
+# Dianggap berpenjaga HANYA bila ada fungsi lain di berkas yang sama yang memanggilnya DAN memegang salah satu GUARDS
+# (positif palsu "_locked" yang pemanggilnya tidak mengunci tetap terhitung).
+LOCKED_SUFFIXES = ("_locked", "_unlocked", "_claimed")
 MONEY_OUT_GUARD = "assert_funds"
+# G1: uang keluar harus lewat `money_op` (urut: once → deal_money → funds_guard). Pemanggil `assert_funds` langsung
+# di luar kedua berkas ini = pola baru P3b (jalur yang merakit sendiri cek dana tanpa pintu tunggal).
+MONEY_OP_HOMES = ("cash_bank.py", "money_op.py")
 
 
 def pyfiles():
@@ -66,12 +73,14 @@ def sweep():
             tree = ast.parse(src[p])
         except SyntaxError:
             continue
-        for fn in ast.walk(tree):
-            if not isinstance(fn, (ast.AsyncFunctionDef, ast.FunctionDef)):
-                continue
+        fns = [f for f in ast.walk(tree) if isinstance(f, (ast.AsyncFunctionDef, ast.FunctionDef))]
+        callnames = {id(f): {call_name(c) for c in ast.walk(f) if isinstance(c, ast.Call)} for f in fns}
+        held_by_caller = {n for f in fns if callnames[id(f)] & GUARDS
+                          for n in callnames[id(f)] if n.endswith(LOCKED_SUFFIXES)}
+        for fn in fns:
             calls = [c for c in ast.walk(fn) if isinstance(c, ast.Call)]
-            names = {call_name(c) for c in calls}
-            guarded = bool(names & GUARDS)
+            names = callnames[id(fn)]
+            guarded = bool(names & GUARDS) or fn.name in held_by_caller
             finds = {coll_of(c) for c in calls if call_name(c) == "find_one" and coll_of(c)}
             ins = {coll_of(c) for c in calls if call_name(c) == "insert_one" and coll_of(c)}
             upds = [(coll_of(c), c) for c in calls if call_name(c) in ("update_one", "update_many") and coll_of(c)]
@@ -86,7 +95,8 @@ def sweep():
                             and not dict_keys(c.args[0]) & {"status", "stage", "state"}:
                         det["P7_set_status_tanpa_syarat_status"].append(f"{where}:{coll}")
             for coll in finds & ins:
-                det["P12_find_lalu_insert"].append(f"{where}:{coll}")
+                if not guarded:   # H-B: fungsi yang memegang kunci sendiri / dipanggil di bawah kunci bukan kandidat lagi
+                    det["P12_find_lalu_insert"].append(f"{where}:{coll}")
             if "/routers/" in p:
                 for c in calls:
                     if call_name(c) in ("find_one", "update_one", "delete_one", "update_many", "delete_many") \
@@ -95,6 +105,8 @@ def sweep():
                         det["P11_router_by_id_tanpa_org_id"].append(f"{where}:{coll_of(c)}")
             if MONEY_OUT_GUARD in names and "cash_lock" not in names and "mutex" not in names:
                 det["P3_assert_funds_tanpa_kunci"].append(where)
+            if MONEY_OUT_GUARD in names and rel(p) not in MONEY_OP_HOMES:
+                det["P3b_assert_funds_langsung"].append(where)
         for h in ast.walk(tree):
             if isinstance(h, ast.ExceptHandler) and h.type is not None and "Exception" in ast.unparse(h.type):
                 logs = any(isinstance(n, ast.Call) and call_name(n) in
