@@ -112,6 +112,7 @@ EXTRA_PAIRS: dict = {
         ("cancellations", "unit_id", "unit_code", "code"),
         ("contracts", "unit_id", "unit_code", "code"),
         ("cost_invoices", "unit_id", "unit_code", "code"),
+        ("cost_deposit_settlements", "unit_id", "unit_code", "code"),
         ("coupon_redemptions", "unit_id", "unit_code", "code"),
         ("customer_deposits", "unit_id", "unit_code", "code"),
         ("inspections", "unit_id", "unit_code", "code"),

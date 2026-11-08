@@ -189,6 +189,20 @@ EVENTS = [
       cash_rule={"var": "method", "cash_values": ["tunai"]},
       lines=[L("D", "role:REFUND_PAYABLE", "amount"), L("K", "cash", "amount")],
       derive={"amount": "D_REFUND_PAYABLE"}, evidence=T),
+    # W1-C (docs/audit/12 #11/#12): jurnal koreksi/penyelesaian deal batal. Belum diuji ekuivalen dengan profil → tidak `covered`
+    # (tercatat di katalog supaya pagar anti-drift `source_type` tetap utuh).
+    _uncovered("cancel.cost_settlement", "Titipan biaya deal batal → utang refund (± hangus ke pendapatan lain-lain)", MODULES[1],
+               "cancel_cost_settlement.execute", [["cost_settlement", "costsettle:"]],
+               "kebijakan terkonfigurasi baru (W1-C #12); belum ada skenario ekuivalensi profil (Dr 2-1470 / Cr 2-1460 [+ Cr 4-1200])"),
+    _uncovered("cancel.cost_settlement_refund", "Pembayaran refund titipan biaya deal batal", MODULES[1],
+               "cancel_cost_settlement.pay_refund", [["cost_settlement_refund", "costsettle:"]],
+               "kebijakan terkonfigurasi baru (W1-C #12); belum ada skenario ekuivalensi profil (Dr 2-1460 / Cr kas|bank)"),
+    _uncovered("commission.reverse", "Pembalikan akrual komisi pada deal batal", MODULES[3],
+               "cancel_accrual_reversal.reverse_commissions", [["commission_reversal", "cancel.reverse:commission:"]],
+               "kebijakan terkonfigurasi baru (W1-C #11); jurnal = cermin jurnal akrual asli (Dr utang komisi / Cr beban komisi)"),
+    _uncovered("mktfee.reverse", "Pembalikan akrual marketing fee pada deal batal", MODULES[3],
+               "cancel_accrual_reversal.reverse_fees", [["marketing_fee_reversal", "cancel.reverse:mfee:"]],
+               "kebijakan terkonfigurasi baru (W1-C #11); jurnal = cermin jurnal akrual asli (Dr utang fee [+ Dr utang pajak] / Cr beban pemasaran)"),
     # ====================================================================== Utang Usaha (AP)
     E("ap.approve", "Tagihan AP disetujui (± retensi, ± potongan termin)", MODULES[2],
       "finance_ap.approve_ap_bill → event ap.approved → gl_engine._gl_ap_approved",

@@ -332,3 +332,49 @@ kontrak sudah ada lebih dulu dan konversinya idempoten (tidak ada yang digandaka
 Tes: `test_w1a_won_trigger.py` (15) dan `test_w1a_kedaluwarsa_bf.py` (13); tes lama yang berasumsi konversi MANUAL kini menyetel `lead.won_trigger=spr_signed` eksplisit (`pemicu_spr` di `test_p0_kontrak.py`: KT-01/02/12/17/21; PK3-19 pada proyek ujinya). Uji peramban `scripts/ui/w1a_kebijakan.js` (22 pemeriksaan) + `w0_kebijakan.js` disesuaikan (jumlah aturan ber-level proyek dibandingkan dengan API).
 Merah di kode lama `4c940d9`: 14 dari 15 (#7) dan 10 dari 13 (#13); yang hijau di kode lama adalah bukti "tidak berubah" (tanpa booking fee terbayar tetap kedaluwarsa), fungsi SSOT (in-process) dan rekonsiliasi.
 Verifikasi W1A (kode final, DB baru): suite penuh `tests/p0` **727 lulus, 2 dilewati**; `pattern_sweep --check` tidak naik (sama dengan baseline); gerbang kepatuhan hanya 3 pelanggaran lama (`AdminPermissions.js`, `finance_engine.py`, `models.py`).
+
+### 8.W1-W1C — Deal batal: akrual komisi/fee/pajak (#11) & titipan biaya 2-1470 / invoice biaya terbuka (#12) — kebijakan terkonfigurasi
+
+Basis `4c940d9` (W0). Dua keputusan pemilik tentang deal yang DIBATALKAN (jalur batal satu-klik, batal formal, kedaluwarsa — penutup bersama
+`deal_cancel_cleanup.close_deal_dependents`) menjadi kunci pengaturan di Pusat Konfigurasi › Aturan Bisnis › Kebijakan (level organisasi + proyek;
+mengganti berlaku KE DEPAN saja, nilai yang berlaku disnapshot ke `deals.cancel_policy_snapshot` dan ke `settlement.dependents.policy_snapshot`).
+
+| Kunci | Bawaan | Opsi (tersedia) | Opsi `unavailable` (alasan jujur) |
+|---|---|---|---|
+| `cancel.accrual_reversal.commission` | `manual_keuangan` | `manual_keuangan`, `balik_otomatis_yang_belum_dibayar` | `balik_otomatis_semua` — butuh akun piutang ke penerima komisi; Bagan Akun tidak punya (1-1300 dikendalikan subledger AR pembeli, 1-1500 kas bon); akun tidak dikarang |
+| `cancel.accrual_reversal.marketing_fee` | `manual_keuangan` | `manual_keuangan`, `balik_otomatis_yang_belum_dibayar` | `balik_otomatis_semua` — alasan sama (piutang ke agen/mitra) |
+| `cancel.accrual_reversal.tax` | `manual_keuangan` | `manual_keuangan` | kedua opsi otomatis: akrual pajak baru dijurnal saat DILAPORKAN ke negara; membaliknya = pembetulan SPT, tidak boleh otomatis. Pajak `pending` tak berjurnal dan selalu dibatalkan penutup |
+| `cancel.cost_deposit.policy` | `refund_dan_batalkan_invoice` | `refund_dan_batalkan_invoice`, `manual_dengan_pengakuan`, `hangus_sebagian` | — |
+| `cancel.cost_deposit.forfeit_pct` | `0` (usulan sistem, bukan dokumen legal) | pct 0–100, hanya dibaca `hangus_sebagian` | — |
+| `cancel.cost_deposit.requires_approval` | `true` | bool | — |
+
+**#11 perilaku** (`backend/cancel_accrual_reversal.py`): `manual_keuangan` = perilaku lama PERSIS (ditandai `cancel_followup` + tugas/notifikasi Keuangan, tanpa jurnal balik).
+`balik_otomatis_yang_belum_dibayar`: komisi `approved` dan fee `approved` ber-`paid_amount=0` dibalik — status diklaim atomik `approved → cancelled` (`idempotency.reserved`),
+jurnal koreksi = CERMIN jurnal akrual aslinya (komisi: Dr 2-1600 / Cr 6-1100; fee: Dr 2-1500 [+ Dr 2-1300 PPh] / Cr 6-1200), `source_event` unik per dokumen
+(`cancel.reverse:commission:<id>`, `cancel.reverse:mfee:<id>`), antrean event dikosongkan dulu supaya jurnal akrual asli ada. Subledger (komisi/fee `approved`) dan GL (2-1600, 2-1500)
+turun bersama → rekonsiliasi tetap hijau. Yang tidak bisa dibalik (sudah dibayar sebagian/penuh, jurnal asli belum terbit, kalah balapan dengan pembayaran, jurnal gagal) jatuh ke
+tanda tindak lanjut manual dengan SEBAB tertulis di tugas Keuangan — pembatalan tidak pernah macet. Pajak yang sudah dilaporkan/disetor TIDAK PERNAH dibalik otomatis apa pun pengaturannya.
+
+**#12 perilaku** (`backend/cancel_cost_settlement.py`, `routers/cost_settlement_router.py`, koleksi `cost_deposit_settlements`, nomor `RTB/…`):
+`manual_dengan_pengakuan` = gerbang pengakuan lama persis (400 sampai `acknowledge_costs` + catatan ≥ 10 huruf, tanpa jurnal). Kebijakan lain MENANGANI titipan/invoice sendiri, jadi
+pembatalan tidak diblok (`cancellation_costs.holds().handled_by_policy`; `cancel-preview.requires_cost_ack=false`). Penutup melahirkan PERMOHONAN (`diajukan`, satu per deal —
+indeks unik parsial `uq_costsettle_inflight`). Dengan `requires_approval=true` Manajer Keuangan (`cancellation:approve`, orang lain dari pemohon) harus menyetujui; `false` = dijalankan saat batal
+oleh `sistem:kebijakan`. Eksekusi di bawah `deal_money` + mutex titipan kontrak (kunci yang sama dengan bayar-invoice-biaya & salurkan-titipan), saldo dibaca ULANG:
+saldo titipan = Σ kuitansi − Σ penyaluran (biaya yang sudah disalurkan ke pihak ketiga otomatis tidak ikut direfund); subledger = baris `cost_disbursements` (`kind` refund_pembatalan /
+hangus_pembatalan) sehingga rekonsiliasi 2-1470 tidak berubah rumus; jurnal tunggal `costsettle:<id>:approve`: Dr 2-1470 / Cr 2-1460 refund [/ Cr 4-1200 hangus]. Invoice biaya:
+`unpaid` → `void`; `partial` → `cancelled` (outstanding 0, `paid` tetap, `cancelled_outstanding` dicatat — uang yang sudah masuk ikut direfund lewat saldo titipan); `paid` tidak disentuh;
+kalah balapan → dilewati + dicatat. Pembayaran refund `POST /cancel-cost-settlements/{id}/refund` memakai `money_op` (once → deal_money → funds_guard), bertahap, Dr 2-1460 / Cr kas|bank.
+Laporan utang refund (`refund_debt`) menyertakan sisa refund titipan biaya dalam uji-cocok 2-1460 (`ledger.cost_refund_outstanding`). Deal batal tidak bisa menerbitkan invoice biaya baru (400).
+UI: dialog batal (`CancellationCostAck`) menampilkan pemberitahuan kebijakan bukan kotak pengakuan; Keuangan › Pembatalan & Refund memuat `CostSettlementsPanel` (setujui/tolak/bayar).
+
+Perubahan perilaku BAWAAN yang akan terlihat pemakai:
+- **Batal dengan titipan biaya / invoice biaya terbuka TIDAK lagi 400** (bawaan baru `refund_dan_batalkan_invoice`): pembatalan lolos tanpa pengakuan, lahir permohonan refund yang menunggu Keuangan. Untuk gerbang lama pasang `manual_dengan_pengakuan`.
+- Invoice biaya terbuka milik deal batal berstatus `void`/`cancelled` setelah permohonan disetujui; deal batal menolak penerbitan invoice biaya baru.
+- Komisi/fee/pajak: bawaan `manual_keuangan` = TIDAK berubah.
+
+⚖ Butuh keputusan pemilik: (1) akun piutang ke penerima komisi/fee bila `balik_otomatis_semua` ingin dibuka; (2) `hangus_sebagian` memposting ke 4-1200 Pendapatan Lain-lain (sama dengan potongan pembatalan & booking fee hangus) — titipan biaya
+adalah uang pihak ketiga (BPHTB/notaris); klausul SPR dan perlakuan pajaknya perlu konfirmasi; (3) pembalikan akrual pajak yang sudah dilaporkan (pembetulan SPT) tetap manual.
+
+Verifikasi (kode final, DB baru): suite penuh `tests/p0` **730 lulus, 2 dilewati**; pattern_sweep tidak naik; gerbang kepatuhan hanya 3 pelanggaran lama. Merah di kode lama `4c940d9` (server+DB terpisah): 29 dari 31 tes baru (2 kontrol hijau: fee bawaan manual, validasi persen).
+Tes: `test_w1c_akrual.py` (15), `test_w1c_titipan.py` (16), UI `scripts/ui/w1c_titipan.js` (35 pemeriksaan) + `seed_w1c.py`. Tes lama gerbang pengakuan (FN-03) kini memakai dekorator `manual_cost_gate` (`test_p0_masuk_2.py`);
+`ronde_a_pembatalan.js` / `ronde_f_batal_reservasi.js` memasang `manual_dengan_pengakuan` di level org dan mengembalikannya; `w0_kebijakan.js` tak lagi membatasi jumlah aturan tampilan proyek ≤ 3.

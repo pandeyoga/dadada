@@ -18,6 +18,7 @@ import { useReference } from "@/context/ReferenceContext";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import ArrearsCandidatesPanel from "@/components/finance/ArrearsCandidatesPanel";
+import CostSettlementsPanel from "@/components/finance/CostSettlementsPanel";
 import { P56 } from "@/constants/testIds";
 import SearchInput from "@/components/patterns/SearchInput";
 
@@ -90,6 +91,9 @@ export default function CancellationsPanel() {
           sudah melewatinya. Ia MENGUSULKAN saja — pembatalan tetap diajukan Manajer Sales
           dan diputus Manajer Keuangan lewat alur di bawah. */}
       <ArrearsCandidatesPanel />
+
+      {/* W1-C #12: permohonan refund titipan biaya + pembatalan invoice biaya pada deal batal (kebijakan cancel.cost_deposit.*). */}
+      <CostSettlementsPanel />
 
       <div className="grid gap-3 sm:grid-cols-3">
         <MetricCard label="Menunggu keputusan" value={counts.diajukan || 0}

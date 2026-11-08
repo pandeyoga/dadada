@@ -13,6 +13,7 @@ tak berlaku tidak ditawarkan, layar menyegarkan diri sesudah galat, dan tidak ad
 | `ronde_f_batal_reservasi.js` | Batal reservasi satu-klik: pengakuan titipan/invoice biaya (butuh backend dengan `cost_holds`; dilewati bila belum ada) |
 | `w0_kebijakan.js` | Pusat Konfigurasi › Aturan Bisnis: kebijakan terkonfigurasi (kelompok Kebijakan, alasan wajib, pemilih tingkat proyek, opsi "belum tersedia" nonaktif) |
 | `w1a_kebijakan.js` | Pusat Konfigurasi › Aturan Bisnis: kunci reservasi kedaluwarsa (enum + angka bertetapan batas), `lead.won_trigger` kini bisa ditimpa per proyek dan bawaannya "Booking fee terverifikasi" |
+| `w1c_titipan.js` | W1-C #12 deal batal: dialog batal menampilkan kebijakan titipan biaya (bukan kotak pengakuan), Keuangan › Pembatalan & Refund memuat permohonan refund (maker-checker, setujui, bayar, tolak beralasan, putusan basi 400), kunci kebijakan baru + opsi belum tersedia (butuh `seed_w1c.py`; sekali jalan per penyemaian) |
 | `ronde_e_aksi_409.js` | Setujui/tolak permintaan material, status izin, status komplain, batal PO `partially_received`, buka-blokir unit, setujui/tolak transfer kas |
 
 ## Menjalankan

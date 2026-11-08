@@ -18,9 +18,13 @@ async function openDialog(page, s) {
 
 (async () => {
   const R = reporter("(f) Batal reservasi satu-klik — pengakuan biaya");
+  // W1-C: bawaan baru `refund_dan_batalkan_invoice` menangani titipan/invoice biaya; skrip ini menguji gerbang pengakuan LAMA,
+  // jadi kebijakan org dipasang `manual_dengan_pengakuan` dan DIKEMBALIKAN di akhir.
+  await api(OWNER, "PUT", "/settings/cancel.cost_deposit.policy", { value: "manual_dengan_pengakuan", reason: "uji peramban gerbang pengakuan lama", scope: "org" });
   const pv = (await api(OWNER, "GET", `/deals/${seed.deal_cancel_cost.deal_id}/cancel-preview`)).body.data;
   if (!("cost_holds" in pv)) {
     console.log("  ..    backend belum memuat `cost_holds` pada cancel-preview (butuh perubahan H-A) — dilewati");
+    await api(OWNER, "POST", "/settings/cancel.cost_deposit.policy/reset?scope=org");
     return;
   }
   const { browser, page, log } = await openAs(OWNER);
@@ -54,6 +58,9 @@ async function openDialog(page, s) {
     const t2 = await waitToast(page, /dibatalkan|kembali tersedia/i);
     R.check("toast sukses batal (deal biasa)", !!t2, t2 || "");
     R.check("tanpa respons 5xx", !log.http.some((h) => /^5/.test(h)), JSON.stringify(log.http));
-  } finally { await browser.close(); }
+  } finally {
+    await api(OWNER, "POST", "/settings/cancel.cost_deposit.policy/reset?scope=org");
+    await browser.close();
+  }
   R.finish(log);
 })().catch((e) => { console.error(e); process.exit(2); });

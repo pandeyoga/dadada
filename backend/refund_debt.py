@@ -146,6 +146,12 @@ async def report(org: str = ORG_ID, *, horizon: int = 6) -> dict:
     total = sum(r["refund_outstanding"] for r in rows)
     saldo = await gl.account_balances(org)
     gl_balance = int((saldo.get(AKUN_UTANG_REFUND) or {}).get("balance") or 0)
+    # W1-C #12: refund titipan biaya deal batal (permohonan disetujui, belum lunas) juga berdiri di 2-1460 — ikut lembar kerja
+    # supaya uji-cocok dengan buku besar tetap jujur (bukan "selisih" palsu).
+    cost_refund = 0
+    async for cs in db.cost_deposit_settlements.find(
+            {"org_id": org, "state": {"$in": ["disetujui", "refund_sebagian"]}}, {"_id": 0, "settlement": 1, "refund_paid_total": 1}):
+        cost_refund += max(0, int((cs.get("settlement") or {}).get("refund_amount") or 0) - int(cs.get("refund_paid_total") or 0))
     return {
         "rows": rows,
         "totals": {
@@ -171,10 +177,10 @@ async def report(org: str = ORG_ID, *, horizon: int = 6) -> dict:
             "account_code": AKUN_UTANG_REFUND,
             "account_name": (saldo.get(AKUN_UTANG_REFUND) or {}).get("name")
             or "Utang Refund",
-            "balance": gl_balance, "worksheet": total, "difference": gl_balance - total,
-            "matched": gl_balance == total,
+            "balance": gl_balance, "worksheet": total + cost_refund, "difference": gl_balance - total - cost_refund,
+            "matched": gl_balance == total + cost_refund, "cost_refund_outstanding": cost_refund,
             "note": ("Saldo buku besar dan jumlah sisa refund pada dokumen pembatalan "
-                     "seharusnya SAMA. Selisih berarti ada jurnal refund yang tidak punya "
+                     "(ditambah sisa refund titipan biaya deal batal, W1-C) seharusnya SAMA. Selisih berarti ada jurnal refund yang tidak punya "
                      "dokumen (atau sebaliknya) — itu temuan, bukan pembulatan."),
         },
         "due_days": due_days,

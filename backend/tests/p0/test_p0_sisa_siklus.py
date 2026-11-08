@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from test_p0_masuk import FINANCE, OWNER, SALES, World, call, ok, upload_proof
-from test_p0_masuk_2 import allin_deal, approve, cancel_case, cost_ledger
+from test_p0_masuk_2 import allin_deal, approve, cancel_case, cost_ledger, manual_cost_gate
 from test_p0_siklus_deal import assert_dependents_closed, drop_seeds, mdb, now, seed_dependents
 
 
@@ -154,6 +154,7 @@ def test_kedaluwarsa_idempoten_tidak_menggandakan_tindak_lanjut(world):
         drop_seeds(ids)
 
 
+@manual_cost_gate   # W1-C: pada kebijakan bawaan (refund) uang biaya jadi permohonan refund (lihat test_w1c_titipan); ini menguji jalur manual lama
 def test_kedaluwarsa_mencatat_uang_biaya_yang_menggantung_untuk_keuangan(world):
     """Sweeper tak bisa 'mengakui' titipan/invoice biaya — maka ia menaruhnya di tindak lanjut Keuangan (bukan diam)."""
     d = reserved_deal(world)
@@ -256,6 +257,7 @@ def _n_jurnal(deal_id: str) -> int:
     return mdb().journal_entries.count_documents({"$or": [{"source_deal_id": deal_id}, {"source_event": {"$regex": deal_id}}]})
 
 
+@manual_cost_gate
 def test_batal_satu_klik_diblokir_selama_ada_titipan_biaya_dan_invoice_terbuka(world):
     d = _biaya_deal(world)
     pv = ok(call(OWNER, "GET", f"/deals/{d['deal_id']}/cancel-preview"))["data"]
@@ -271,6 +273,7 @@ def test_batal_satu_klik_diblokir_selama_ada_titipan_biaya_dan_invoice_terbuka(w
     assert mdb().units.find_one({"id": mdb().deals.find_one({"id": d["deal_id"]})["unit_id"]})["status"] != "available"
 
 
+@manual_cost_gate
 def test_batal_satu_klik_hanya_invoice_biaya_terbuka_tanpa_titipan_tetap_diblokir(world):
     d = _biaya_deal(world, bayar=0)
     r = call(OWNER, "POST", f"/deals/{d['deal_id']}/cancel", json={"reason": "uji sisa siklus invoice terbuka"})
@@ -278,6 +281,7 @@ def test_batal_satu_klik_hanya_invoice_biaya_terbuka_tanpa_titipan_tetap_dibloki
     assert mdb().deals.find_one({"id": d["deal_id"]})["status"] == "booked"
 
 
+@manual_cost_gate
 def test_batal_satu_klik_dengan_pengakuan_sah_tercatat_di_deal_dan_audit_tanpa_jurnal_baru(world):
     d = _biaya_deal(world)
     note = "titipan biaya Rp 20 jt dikembalikan lewat keputusan pemilik terpisah"

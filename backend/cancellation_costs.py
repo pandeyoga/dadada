@@ -1,7 +1,10 @@
 """Titipan biaya (2-1470) & invoice biaya pada PEMBATALAN KONTRAK (audit FN-03) — sisi AMAN saja.
 
 Perlakuan uangnya (dikembalikan penuh ke pembeli? dipotong? disalurkan dulu ke notaris/BPN? invoice biaya
-di-void?) adalah KEPUTUSAN PEMILIK — modul ini TIDAK menjurnal apa pun dan TIDAK mengubah saldo. Yang dikerjakan:
+di-void?) adalah KEPUTUSAN PEMILIK — modul ini TIDAK menjurnal apa pun dan TIDAK mengubah saldo. Keputusan itu kini
+KEBIJAKAN TERKONFIGURASI (`cancel.cost_deposit.policy`, W1-C #12): bawaan `refund_dan_batalkan_invoice` ditangani modul
+`cancel_cost_settlement` (permohonan refund + pembatalan invoice); `manual_dengan_pengakuan` = gerbang pengakuan di bawah
+(perilaku lama, tidak berubah). Yang dikerjakan modul ini:
 
   * `holds()` menghitung apa yang masih menggantung (saldo titipan biaya + invoice biaya yang belum lunas/void)
     supaya layar & berkas pengajuan MENAMPILKANNYA;
@@ -13,25 +16,36 @@ di-void?) adalah KEPUTUSAN PEMILIK — modul ini TIDAK menjurnal apa pun dan TID
     menerobos (`override_of()`); tidak ada jurnal baru di sini.
 """
 MIN_NOTE = 10
+KEY_POLICY = "cancel.cost_deposit.policy"                      # W1-C #12 (docs/audit/12)
+POLICY_HANDLING = ("refund_dan_batalkan_invoice", "hangus_sebagian")   # kebijakan yang MENANGANI titipan/invoice sendiri
+POLICY_MANUAL = "manual_dengan_pengakuan"                      # perilaku lama: gerbang pengakuan + catatan
 
 
-async def holds(org: str, contract: dict) -> dict:
-    """Saldo titipan biaya + invoice biaya terbuka milik kontrak ini (hanya membaca)."""
+async def holds(org: str, contract: dict, project_id: str = None) -> dict:
+    """Saldo titipan biaya + invoice biaya terbuka milik kontrak ini (hanya membaca).
+
+    W1-C #12: memuat juga kebijakan yang berlaku (`policy`, `handled_by_policy`). Bila kebijakan MENANGANI titipan/invoice itu
+    (refund + batalkan invoice / hangus sebagian), pembatalan tidak lagi diblok gerbang pengakuan — penutup deal batal
+    (`cancel_cost_settlement`) melahirkan permohonan refund. Kebijakan `manual_dengan_pengakuan` = gerbang lama persis."""
     import allin_engine as allin
+    import policy
     led = await allin.ledger(org, contract)
-    open_inv = [{"number": i.get("number"), "status": i.get("status"), "outstanding": int(i.get("outstanding") or 0)}
-                for i in led["invoices"] if i.get("status") not in ("void", "paid") and int(i.get("outstanding") or 0) > 0]
+    open_inv = [{"id": i.get("id"), "number": i.get("number"), "status": i.get("status"),
+                 "outstanding": int(i.get("outstanding") or 0)}
+                for i in led["invoices"] if i.get("status") not in ("void", "paid", "cancelled") and int(i.get("outstanding") or 0) > 0]
     titipan = max(0, int(led.get("titipan_balance") or 0))
     open_total = sum(i["outstanding"] for i in open_inv)
+    mode = await policy.resolve(KEY_POLICY, org_id=org, project_id=project_id or contract.get("project_id"))
+    has = bool(titipan or open_inv)
     return {"titipan_balance": titipan, "open_invoices": open_inv, "open_invoice_total": open_total,
-            "has_holds": bool(titipan or open_inv)}
+            "has_holds": has, "policy": mode, "handled_by_policy": has and mode in POLICY_HANDLING}
 
 
-async def holds_of_deal(org: str, deal: dict) -> dict:
+async def holds_of_deal(org: str, deal: dict, project_id: str = None) -> dict:
     """`holds()` untuk sebuah DEAL (jalur batal satu-klik): memakai "kontrak semu" dari deal, sehingga invoice/kuitansi
     biaya yang lahir saat booking (belum punya kontrak) ikut terbaca — sama dengan `allin_engine._scope`."""
     import allin_engine as allin
-    return await holds(org, await allin.deal_as_contract(org, deal))
+    return await holds(org, await allin.deal_as_contract(org, deal), project_id or deal.get("project_id"))
 
 
 def _rp(v) -> str:
@@ -40,6 +54,7 @@ def _rp(v) -> str:
 
 def assert_ack(hold: dict, ack: dict, actor: str, ts: str, aksi: str = "disetujui") -> dict:
     """Tolak persetujuan bila ada tanggungan biaya yang belum diakui. Kembalikan catatan pengakuan (atau None).
+    Bila kebijakan MENANGANI tanggungan itu (`hold["handled_by_policy"]`), tidak ada yang ditolak.
     `aksi` hanya mengubah kata kerja pada pesan ("disetujui" untuk jalur formal, "dilakukan" untuk satu-klik)."""
     if not (hold or {}).get("has_holds"):
         return None
@@ -47,6 +62,12 @@ def assert_ack(hold: dict, ack: dict, actor: str, ts: str, aksi: str = "disetuju
     note = str(ack.get("reason") or "").strip()
     if ack.get("acknowledge") and len(note) >= MIN_NOTE:
         return {"acknowledged_by": actor, "at": ts, "note": note, "titipan_balance": hold["titipan_balance"],
+                "open_invoice_total": hold["open_invoice_total"],
+                "open_invoices": [i["number"] for i in hold["open_invoices"]],
+                **({"handled_by_policy": hold["policy"]} if hold.get("handled_by_policy") else {})}
+    if hold.get("handled_by_policy"):
+        # W1-C #12: kebijakan menangani titipan/invoice biaya (permohonan refund lahir di penutup deal batal) → tidak diblok.
+        return {"handled_by_policy": hold["policy"], "at": ts, "by": actor, "titipan_balance": hold["titipan_balance"],
                 "open_invoice_total": hold["open_invoice_total"],
                 "open_invoices": [i["number"] for i in hold["open_invoices"]]}
     parts = []

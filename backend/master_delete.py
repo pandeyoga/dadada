@@ -33,7 +33,8 @@ async def _cleanup_entity(org: str, entity_type: str, entity_id: str) -> None:
 _MONEY_TRACE = (
     ("receipts", {}), ("cost_receipts", {}), ("cost_disbursements", {}), ("cost_expenses", {}),
     ("kpr_disbursements", {}), ("payment_intakes", {}), ("refund_debts", {}), ("revenue_recognitions", {}),
-    ("cancellations", {}), ("pdc_instruments", {}), ("customer_deposits", {"received_total": {"$gt": 0}}),
+    ("cancellations", {}), ("pdc_instruments", {}), ("cost_deposit_settlements", {}),
+    ("customer_deposits", {"received_total": {"$gt": 0}}),
     ("booking_fee_invoices", {"paid": {"$gt": 0}}), ("commissions", {"status": {"$in": ["approved", "paid"]}}),
     ("marketing_fees", {"status": {"$in": ["approved", "paid"]}}),
     ("tax_records", {"status": {"$in": ["reported", "paid"]}}),

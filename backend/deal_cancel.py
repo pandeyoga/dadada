@@ -11,7 +11,9 @@ dibatalkan, kupon dilepas, tugas terkait ditutup, tahap lead mundur ke nurturing
 Gerbang biaya (sisa FN-03): bila deal masih punya saldo titipan biaya (2-1470) atau invoice biaya terbuka, batal
 satu-klik DITOLAK kecuali `acknowledge_costs=true` + `cost_note` ≥ 10 huruf (gerbang yang sama dengan jalur formal,
 `cancellation_costs.assert_ack`). Pengakuan dicatat di deal & audit; TIDAK ada jurnal baru — perlakuan uang biayanya
-tetap keputusan pemilik.
+tetap keputusan pemilik. KECUALI kebijakan `cancel.cost_deposit.policy` (W1-C #12; bawaan `refund_dan_batalkan_invoice`)
+MENANGANI titipan/invoice itu: pembatalan tidak diblok dan penutup deal batal melahirkan permohonan refund
+(`cancel_cost_settlement`); hanya `manual_dengan_pengakuan` mempertahankan gerbang ini.
 
 Penutup turunan (tugas, komisi/fee belum disetujui, KPR, kupon, pajak, janji temu, dokumen draft) = SATU fungsi
 `deal_cancel_cleanup.close_deal_dependents`, dipakai tiga jalur: batal satu-klik, batal formal, dan kedaluwarsa.
@@ -76,7 +78,7 @@ async def preview(org: str, deal: dict, user: dict) -> dict:
         "deposit_balance": int((await get_deposit(org, deal["id"])).get("balance") or 0),
         "ar_paid": ar_paid,
         "contract": contract,
-        "cost_holds": cost_holds, "requires_cost_ack": bool(cost_holds["has_holds"]),
+        "cost_holds": cost_holds, "requires_cost_ack": bool(cost_holds["has_holds"] and not cost_holds.get("handled_by_policy")),
         "requires_admin": requires_admin, "is_admin": admin,
         "refund_modes": list(REFUND_MODES) if refundable > 0 else [],
         "can_cancel": blocked is None, "blocked_reason": blocked,
@@ -143,7 +145,7 @@ async def expire(org: str, deal: dict, actor: str = "scheduler") -> bool:
     try:
         holds = await cc.holds_of_deal(org, deal)
         cleanup = await dcc.close_deal_dependents(org, deal, actor=actor, reason="Reservasi kedaluwarsa",
-                                                  source="kedaluwarsa", cost_holds=holds)
+                                                  source="kedaluwarsa", cost_holds=holds, money_locked=False)
     except Exception as e:  # noqa: BLE001
         logging.getLogger("sipro.deal_cancel").exception("Penutupan turunan deal %s (kedaluwarsa) gagal", deal["id"])
         cleanup = {"error": str(e)[:200]}

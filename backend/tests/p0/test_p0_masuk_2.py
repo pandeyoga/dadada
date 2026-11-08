@@ -409,6 +409,23 @@ def cost_ledger(cid):
     return ok(call(FINANCE, "GET", f"/contracts/{cid}/costs-ledger"))["data"]
 
 
+def manual_cost_gate(fn):
+    """W1-C #12: bawaan baru `cancel.cost_deposit.policy` = `refund_dan_batalkan_invoice` MENANGANI titipan/invoice biaya, jadi pembatalan
+    tidak lagi diblok. Tes gerbang pengakuan LAMA (FN-03) memasang `manual_dengan_pengakuan` di proyek `world`-nya (dikembalikan di akhir)."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(world, *a, **kw):
+        key, scope = "cancel.cost_deposit.policy", {"scope": "project", "scope_id": world.project_id}
+        ok(call(OWNER, "PUT", f"/settings/{key}", json={"value": "manual_dengan_pengakuan",
+                                                         "reason": "uji gerbang pengakuan lama FN-03", **scope}))
+        try:
+            return fn(world, *a, **kw)
+        finally:
+            call(OWNER, "POST", f"/settings/{key}/reset", params=scope)
+    return wrapper
+
+
 def test_in01_bayar_invoice_biaya_paralel_hanya_satu(world):
     d = allin_deal(world)
     iid, total = d["invoice"]["id"], int(d["invoice"]["total"])
