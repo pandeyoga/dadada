@@ -70,10 +70,22 @@ async def add_activity(*, entity_type, entity_id, body, type="comment", actor="s
     return doc
 
 # ----------------------------- Guided Work Engine -----------------------------
-async def auto_create_task(*, source_event, title, type, related_entity_type, related_entity_id,
-                           assigned_to=None, due_date=None, sla_due_at=None, description=None,
-                           priority="medium", org_id=ORG_ID, jobdesk_code=None):
+async def auto_create_task(*, source_event, org_id=ORG_ID, **kw):
     """Idempotent auto-task: skip if an OPEN task with same source_event exists.
+
+    H-B (P12): "cari tugas terbuka → insert" tanpa kunci melahirkan tugas kembar bila dua event sama datang bersamaan
+    (sweeper ‖ event, dua worker). Diserialkan per (org, source_event) — kunci yang sama dengan `workhub.create_task`.
+    Argumen lain (title, type, related_entity_*, assigned_to, due_date, ...) diteruskan apa adanya.
+    """
+    from idempotency import mutex
+    async with mutex(f"task.src:{org_id}:{source_event}", wait=10.0, what="Pembuatan tugas otomatis ini"):
+        return await _auto_create_task(source_event=source_event, org_id=org_id, **kw)
+
+
+async def _auto_create_task(*, source_event, title, type, related_entity_type, related_entity_id,
+                            assigned_to=None, due_date=None, sla_due_at=None, description=None,
+                            priority="medium", org_id=ORG_ID, jobdesk_code=None):
+    """Isi `auto_create_task` (dipanggil di bawah kunci).
 
     Fase 29: setiap task diberi **divisi** (diturunkan dari penerima bila `jobdesk_code`
     tidak diberikan) supaya muncul di papan divisi yang benar. Tanpa ini, task warisan

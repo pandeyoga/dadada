@@ -122,6 +122,8 @@ async def requisition_to_po(rid: str, payload: ReqToPoIn,
         out = await pe.to_po(org, req, vendor, items, due_date=payload.due_date,
                             note=payload.note, actor=user.get("email"),
                             price_checker=ve.price_check)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     po = out["po"]

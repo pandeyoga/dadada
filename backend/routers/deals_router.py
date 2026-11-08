@@ -8,6 +8,7 @@ from db import db, ORG_ID, BOOKING_HOLD_DAYS
 from core_utils import new_id, now_iso, serialize_doc, parse_pagination
 from rbac import can, require_permission, scope_query, is_scoped_sales, audit_log, has_role
 from org_scope import get_in_org
+from idempotency import transition
 import lead_lifecycle as lc
 from engine import emit, add_activity, dispatch_pending
 from models import DealReserve, DealAction, DealCancel, DealPricingDecision, PpjbSign, AjbSign
@@ -368,8 +369,11 @@ async def decide_pricing(deal_id: str, payload: DealPricingDecision,
     state = "approved" if payload.approve else "rejected"
     new_pa = {**pa, "state": state, "decided_by": user.get("email"), "decided_at": ts,
               "decision_reason": payload.reason.strip()}
-    await db.deals.update_one({"id": deal_id, "org_id": d["org_id"]},
-                              {"$set": {"pricing_approval": new_pa, "updated_at": ts}})
+    # H-B (P7): keputusan diambil SEKALI — setuju ‖ tolak / setuju ×2 dulu sama-sama 200 dan yang terakhir
+    # menimpa; sekarang status "pending" yang tadi dibaca masuk ke filter, yang kalah mendapat 409.
+    await transition("deals", {"id": deal_id, "org_id": d["org_id"]}, {"pricing_approval.state": "pending"},
+                     {"$set": {"pricing_approval": new_pa, "updated_at": ts}},
+                     what="Persetujuan potongan reservasi ini")
     await audit_log(user, "approve" if payload.approve else "reject", "deals", deal_id,
                     {"pricing_approval": state, "reason": payload.reason.strip()})
     await add_activity(entity_type="lead", entity_id=d["lead_id"], type="sales", actor=user.get("email"),

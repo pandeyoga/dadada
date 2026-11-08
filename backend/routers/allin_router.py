@@ -412,6 +412,8 @@ async def request_amendment(cid: str, p: AmendIn, user: dict = Depends(require_p
     c = await _contract(cid, user)
     try:
         doc = await am.request_amendment(_org(user), c, p.model_dump(), user)
+    except Conflict:
+        raise
     except (ValueError, PermissionError) as e:
         raise _err(e)
     await audit_log(user, "request", "allin_amendments", doc["id"], {"contract_id": cid, "reason": p.reason})
@@ -422,6 +424,8 @@ async def request_amendment(cid: str, p: AmendIn, user: dict = Depends(require_p
 async def decide_amendment(aid: str, p: DecideIn, user: dict = Depends(require_permission("finance", "approve"))):
     try:
         doc = await am.decide_amendment(_org(user), aid, p.approve, p.note, user)
+    except Conflict:
+        raise
     except (ValueError, PermissionError) as e:
         raise _err(e)
     await audit_log(user, "approve" if p.approve else "reject", "allin_amendments", aid, {"note": p.note})

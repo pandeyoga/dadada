@@ -195,7 +195,20 @@ async def account_or_error(org: str, account_id: str) -> dict:
 
 async def import_csv(org: str, account_id: str, filename: str, csv_text: str, actor: str,
                      dry_run: bool = True) -> dict:
-    """Impor satu berkas mutasi. `dry_run=True` HANYA melaporkan, tanpa menulis apa pun."""
+    """Impor satu berkas mutasi. `dry_run=True` HANYA melaporkan, tanpa menulis apa pun.
+
+    H-B (P12): dua impor berkas yang sama bersamaan (klik ganda / dua tab) dulu sama-sama menganggap baris "baru";
+    indeks unik sidik jari menggagalkan salah satunya di TENGAH putaran (409, sebagian baris masuk, tanpa catatan
+    berkas). Impor sungguhan diserialkan per rekening: yang kedua menunggu lalu melihat semua baris "sudah ada"."""
+    if dry_run:
+        return await _import_csv(org, account_id, filename, csv_text, actor, dry_run)
+    from idempotency import mutex
+    async with mutex(f"bank.import:{org}:{account_id}", wait=30.0, ttl=120, what="Impor mutasi rekening ini"):
+        return await _import_csv(org, account_id, filename, csv_text, actor, dry_run)
+
+
+async def _import_csv(org: str, account_id: str, filename: str, csv_text: str, actor: str,
+                      dry_run: bool) -> dict:
     acc = await account_or_error(org, account_id)
     parsed = parse_csv(csv_text)
     ts = now_iso()

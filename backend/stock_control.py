@@ -14,6 +14,8 @@ Tiga lubang yang ditutup:
    seperti itu dilaporkan `missing_price` dan tidak ikut menambah nilai, serta porsi yang
    berharga ditulis apa adanya (`priced_share_pct`).
 """
+from pymongo.errors import DuplicateKeyError
+
 import sequences as seq
 from db import db
 from idempotency import mutex
@@ -27,18 +29,25 @@ async def _material(org: str, material_id: str) -> dict | None:
 
 async def _twin_material(org: str, src: dict, to_project_id: str) -> tuple:
     """Material kembar di proyek tujuan (dibuat bila belum ada, kode/nama/satuan sama)."""
-    found = await db.materials.find_one(
-        {"org_id": org, "project_id": to_project_id, "code": src["code"]}, {"_id": 0})
-    if found:
-        return found, False
-    ts = now_iso()
-    doc = {"id": new_id(), "org_id": org, "project_id": to_project_id, "code": src["code"],
-           "name": src["name"], "uom": src.get("uom"), "boq_item_id": None, "budget_qty": 0,
-           "min_qty": src.get("min_qty", 0), "consumed_qty": 0, "over_budget": False,
-           "created_at": ts, "updated_at": ts}
-    await db.materials.insert_one(dict(doc))
-    doc.pop("_id", None)
-    return doc, True
+    # H-B (P12): dua transfer serentak dari sumber berbeda ke proyek tujuan yang sama (kunci stok per-SUMBER tidak
+    # menyerialkannya) sama-sama tidak menemukan material kembar lalu menubruk indeks unik (409, stok belum bergerak).
+    # Pembuatan kembar diserialkan per (tujuan, kode); tabrakan indeks tetap dijawab dengan material yang sudah ada.
+    q = {"org_id": org, "project_id": to_project_id, "code": src["code"]}
+    async with mutex(f"material.twin:{org}:{to_project_id}:{src['code']}", what="Material tujuan transfer ini"):
+        found = await db.materials.find_one(q, {"_id": 0})
+        if found:
+            return found, False
+        ts = now_iso()
+        doc = {"id": new_id(), "org_id": org, "project_id": to_project_id, "code": src["code"],
+               "name": src["name"], "uom": src.get("uom"), "boq_item_id": None, "budget_qty": 0,
+               "min_qty": src.get("min_qty", 0), "consumed_qty": 0, "over_budget": False,
+               "created_at": ts, "updated_at": ts}
+        try:
+            await db.materials.insert_one(dict(doc))
+        except DuplicateKeyError:
+            return await db.materials.find_one(q, {"_id": 0}), False
+        doc.pop("_id", None)
+        return doc, True
 
 
 async def transfer(org: str, data: dict, actor: str) -> dict:

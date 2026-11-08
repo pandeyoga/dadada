@@ -202,6 +202,21 @@ async def create_task(org: str, jd: dict, *, source_event: str, assigned_to: str
     task walau task periode itu sudah diselesaikan (dulu task harian yang sudah selesai
     langsung dibuat ulang pada tick berikutnya di hari yang sama).
     """
+    # H-B (P12): cari-lalu-insert diserialkan per (org, source_event) — kunci yang sama dengan `engine.auto_create_task`.
+    from idempotency import mutex
+    async with mutex(f"task.src:{org}:{source_event}", wait=10.0, what="Pembuatan tugas ini"):
+        return await _create_task_locked(org, jd, source_event=source_event, assigned_to=assigned_to,
+                                         title=title, description=description, entity_type=entity_type,
+                                         entity_id=entity_id, due_date=due_date, assigned_by=assigned_by,
+                                         strict_once=strict_once, meta=meta, link=link)
+
+
+async def _create_task_locked(org: str, jd: dict, *, source_event: str, assigned_to: str,
+                              title: str = None, description: str = None,
+                              entity_type: str = None, entity_id: str = None,
+                              due_date: str = None, assigned_by: str = "system",
+                              strict_once: bool = False, meta: dict = None,
+                              link: str = None) -> dict:
     dedup = {"org_id": org, "source_event": source_event}
     if not strict_once:
         dedup["status"] = {"$in": OPEN_STATES}

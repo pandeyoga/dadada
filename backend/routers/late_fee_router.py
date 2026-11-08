@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import late_fee_engine as lf
 from core_utils import serialize_doc
 from db import ORG_ID, db
+from idempotency import Conflict
 from models_p58 import LateFeeApplyIn, LateFeeWaiveIn
 from rbac import audit_log, can, is_scoped_sales, require_permission
 
@@ -55,6 +56,8 @@ async def apply(deal_id: str, payload: LateFeeApplyIn,
     try:
         out = await lf.apply(_org(user), deal_id, user.get("email"),
                              item_id=payload.item_id, client_ref=payload.client_ref)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if out["created"]:
@@ -73,6 +76,8 @@ async def waive(deal_id: str, penalty_id: str, payload: LateFeeWaiveIn,
     try:
         out = await lf.waive(_org(user), deal_id, penalty_id, user.get("email"),
                              reason=payload.reason, may_waive=may_waive)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not out.get("replay"):

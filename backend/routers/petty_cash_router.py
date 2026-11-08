@@ -69,6 +69,8 @@ async def approve(advance_id: str, payload: NoteOnly,
     try:
         doc = await pc.approve_advance(advance_id, user.get("email"), payload.note,
                                        user.get("org_id", ORG_ID))
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "approve", "petty_cash", advance_id)
@@ -82,6 +84,8 @@ async def reject(advance_id: str, payload: NoteOnly,
     try:
         doc = await pc.reject_advance(advance_id, user.get("email"), payload.note,
                                       user.get("org_id", ORG_ID))
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "reject", "petty_cash", advance_id)
@@ -101,6 +105,8 @@ async def cancel(advance_id: str,
                                                    "dapat membatalkan kas bon ini.")
     try:
         doc = await pc.cancel_advance(advance_id, user.get("email"), org)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"data": serialize_doc(doc)}

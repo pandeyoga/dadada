@@ -22,11 +22,31 @@ from core_utils import new_id, now_iso
 from db import db, ORG_ID
 from engine import add_activity, create_notification, emit
 from finance_engine import notify_finance
-from idempotency import reserved
+from idempotency import reserved, transition
 from p27_utils import cash_account, rp
 
 logger = logging.getLogger("sipro.pettycash")
 ADVANCE_ACCOUNT = "1-1500"
+
+# H-B (P7): tabel transisi status kas bon. Aksi pemutus (setuju / tolak / batal / cairkan) hanya sah dari
+# status yang tercantum; status yang tadi dibaca masuk ke filter update (`transition`), jadi dua aksi
+# yang bersamaan (setuju ‖ tolak, cairkan ‖ tolak, batal ×2) tidak bisa sama-sama menang.
+ADVANCE_TRANSITIONS = {
+    "submitted": ("approved", "rejected", "cancelled"),
+    "approved": ("disbursing", "rejected", "cancelled"),
+    "disbursing": ("disbursed", "approved"),     # `disbursing` = klaim sementara selama jurnal pencairan
+    "disbursed": ("settling",),
+    "settling": ("settled", "disbursed"),
+    "rejected": (), "cancelled": (), "settled": (),
+}
+
+
+async def _move(adv: dict, to: str, setter: dict, msg: str, org_id: str) -> dict:
+    """Pindahkan kas bon ke `to` hanya bila transisi sah DAN status masih sama dengan yang dibaca."""
+    if to not in ADVANCE_TRANSITIONS.get(adv["status"], ()):
+        raise ValueError(msg)
+    return await transition("cash_advances", {"id": adv["id"], "org_id": org_id}, {"status": adv["status"]},
+                            {"$set": {"status": to, **setter}}, what="Kas bon")
 
 
 async def _get(advance_id: str, org_id: str) -> dict:
@@ -81,9 +101,9 @@ async def approve_advance(advance_id: str, actor: str, note=None, org_id=ORG_ID)
     if adv.get("requested_by") == actor:
         raise ValueError("Pemisahan tugas: pemohon tidak boleh menyetujui kas bonnya sendiri.")
     ts = now_iso()
-    await db.cash_advances.update_one({"id": advance_id}, {"$set": {
-        "status": "approved", "approved_by": actor, "approved_at": ts,
-        "approve_note": note, "updated_at": ts}})
+    await _move(adv, "approved", {"approved_by": actor, "approved_at": ts, "approve_note": note,
+                                  "updated_at": ts},
+                "Hanya kas bon berstatus 'Diajukan' yang dapat disetujui.", org_id)
     await add_activity(entity_type="cash_advance", entity_id=advance_id, type="system",
                        body=f"Kas bon {adv['no']} disetujui.", actor=actor, org_id=org_id)
     await create_notification(user_email=adv["requested_by"], title="Kas bon disetujui",
@@ -99,9 +119,9 @@ async def reject_advance(advance_id: str, actor: str, reason=None, org_id=ORG_ID
     if adv["status"] not in ("submitted", "approved"):
         raise ValueError("Kas bon ini tidak dapat ditolak (sudah dicairkan atau selesai).")
     ts = now_iso()
-    await db.cash_advances.update_one({"id": advance_id}, {"$set": {
-        "status": "rejected", "rejected_by": actor, "rejected_at": ts,
-        "reject_reason": reason, "updated_at": ts}})
+    await _move(adv, "rejected", {"rejected_by": actor, "rejected_at": ts, "reject_reason": reason,
+                                  "updated_at": ts},
+                "Kas bon ini tidak dapat ditolak (sudah dicairkan atau selesai).", org_id)
     await create_notification(user_email=adv["requested_by"], title="Kas bon ditolak",
                               body=f"Kas bon {adv['no']} ditolak. {reason or ''}".strip(),
                               type="approval", related_entity_type="cash_advance",
@@ -114,8 +134,8 @@ async def cancel_advance(advance_id: str, actor: str, org_id=ORG_ID) -> dict:
     if adv["status"] not in ("submitted", "approved"):
         raise ValueError("Hanya kas bon yang belum dicairkan dapat dibatalkan.")
     ts = now_iso()
-    await db.cash_advances.update_one({"id": advance_id}, {"$set": {
-        "status": "cancelled", "cancelled_by": actor, "cancelled_at": ts, "updated_at": ts}})
+    await _move(adv, "cancelled", {"cancelled_by": actor, "cancelled_at": ts, "updated_at": ts},
+                "Hanya kas bon yang belum dicairkan dapat dibatalkan.", org_id)
     return await _get(advance_id, org_id)
 
 

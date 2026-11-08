@@ -59,7 +59,23 @@ async def shortage(org: str, req: dict) -> dict:
 
 async def to_po(org: str, req: dict, vendor: dict, items_in: list, *, due_date: str,
                 note: str, actor: str, price_checker=None) -> dict:
-    """Buat PO dari kekurangan permintaan. Idempoten terhadap kuantitas yang SUDAH dipesan."""
+    """Buat PO dari kekurangan permintaan. Idempoten terhadap kuantitas yang SUDAH dipesan.
+
+    H-B (P1/P12): dulu `shortage` dihitung dari salinan permintaan yang dibaca SEBELUM kunci apa pun —
+    empat pemanggilan paralel sama-sama melihat kekurangan penuh dan melahirkan empat PO (nomor PO terpakai
+    empat kali, barang dipesan empat kali), dan `qty_po` ditulis dengan MENIMPA seluruh array `items`
+    (pembaruan `qty_issued` bersamaan hilang). Sekarang: kunci per permintaan, permintaan dibaca ULANG
+    di dalam kunci, nomor PO baru diambil setelah semua validasi lolos, dan `qty_po` ditulis per baris."""
+    async with mutex(f"req.to_po:{org}:{req['id']}", what="Pembuatan PO dari permintaan ini"):
+        fresh = await db.material_requisitions.find_one({"id": req["id"], "org_id": org}, {"_id": 0})
+        if not fresh:
+            raise ValueError("Permintaan material tidak ditemukan.")
+        return await _to_po_locked(org, fresh, vendor, items_in, due_date=due_date, note=note,
+                                   actor=actor, price_checker=price_checker)
+
+
+async def _to_po_locked(org: str, req: dict, vendor: dict, items_in: list, *, due_date: str,
+                        note: str, actor: str, price_checker=None) -> dict:
     if req.get("status") not in ("approved", "partially_issued"):
         raise ValueError("Hanya permintaan yang SUDAH DISETUJUI yang boleh dibuatkan PO "
                          f"(status sekarang: {req.get('status')}).")
@@ -114,15 +130,15 @@ async def to_po(org: str, req: dict, vendor: dict, items_in: list, *, due_date: 
     }
     await db.purchase_orders.insert_one(dict(po))
     # Catat kuantitas terpesan di permintaan supaya panggilan kedua tidak melahirkan PO kembar.
-    ritems = req["items"]
-    for it in ritems:
+    # Ditulis PER BARIS (`items.<i>.qty_po`) — tidak menimpa `qty_issued` yang diubah proses lain.
+    sets = {"updated_at": ts}
+    for idx, it in enumerate(req["items"]):
         add = next((float(x["qty"] if isinstance(x, dict) else x.qty) for x in wanted
                     if (x["material_id"] if isinstance(x, dict) else x.material_id) == it["material_id"]), 0)
         if add:
-            it["qty_po"] = round(float(it.get("qty_po", 0) or 0) + add, 2)
-    await db.material_requisitions.update_one({"id": req["id"], "org_id": org}, {"$set": {
-        "items": ritems, "updated_at": ts}, "$addToSet": {"po_ids": po["id"],
-                                                         "po_numbers": po["po_number"]}})
+            sets[f"items.{idx}.qty_po"] = round(float(it.get("qty_po", 0) or 0) + add, 2)
+    await db.material_requisitions.update_one({"id": req["id"], "org_id": org}, {
+        "$set": sets, "$addToSet": {"po_ids": po["id"], "po_numbers": po["po_number"]}})
     po.pop("_id", None)
     return {"po": po, "price_checks": checks}
 

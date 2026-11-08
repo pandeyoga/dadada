@@ -1,7 +1,9 @@
 """Projects & Units management — Slice B. Project-membership scoped for pm/site."""
 from fastapi import APIRouter, Depends, HTTPException
+from pymongo.errors import DuplicateKeyError
 
 from db import db, ORG_ID
+from idempotency import Conflict
 from core_utils import new_id, now_iso, serialize_doc, parse_pagination
 from rbac import require_permission, project_query, assert_project_access
 from engine import build_s_curve
@@ -106,7 +108,12 @@ async def generate_units(project_id: str, payload: UnitGenerate,
             "payment_status": "none", "reserved_by_deal": None, "booked_by_deal": None,
             "created_at": ts, "updated_at": ts,
         }
-        await db.units.insert_one(unit)
+        try:
+            await db.units.insert_one(unit)
+        except DuplicateKeyError:
+            # H-B (P12): dua pembuatan unit serentak (klik ganda) — kode yang baru saja dibuat proses lain DILEWATI,
+            # bukan menggagalkan seluruh putaran di tengah jalan (sebagian unit terbuat, sisanya 409).
+            continue
         created.append(code)
     return {"data": {"created": created, "count": len(created)}}
 
@@ -212,7 +219,15 @@ async def update_unit(project_id: str, unit_id: str, payload: UnitUpdate,
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
     upd["updated_at"] = now_iso()
-    await db.units.update_one({"id": unit_id, "org_id": org}, {"$set": upd})
+    flt = {"id": unit_id, "org_id": org}
+    if "price" in upd or "scheme_prices" in upd:
+        # H-B (P1): cek "belum booked/terjual" di atas dibaca SEBELUM menulis — booking yang masuk di sela-sela
+        # mengubah dasar tagihan setelah deal terkunci. Syarat status ikut ke filter update.
+        flt["status"] = {"$nin": ["booked", "sold"]}
+    res = await db.units.update_one(flt, {"$set": upd})
+    if res.matched_count != 1:
+        raise Conflict("Unit ini baru saja di-booking/terjual oleh proses lain, harga tidak diubah. "
+                       "Muat ulang lalu coba lagi.")
     await audit_log(user, "update", "units", unit_id, {"fields": sorted(upd)})
     return {"data": serialize_doc(await db.units.find_one({"id": unit_id, "org_id": org}, {"_id": 0}))}
 

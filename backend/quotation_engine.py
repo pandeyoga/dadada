@@ -32,10 +32,36 @@ import settings_store as cfg
 from core_utils import new_id, now_iso, today_iso_date
 from db import ORG_ID, db
 from engine import add_activity, create_notification, emit
+from idempotency import Conflict, cas, once, reserved, transition
 from reference_p47 import QUOTATION_LABEL
 
 logger = logging.getLogger("sipro.quotation")
 MIN_REASON = 5
+
+# H-B (P7): tabel transisi status penawaran. Aksi pemutus membaca status TERSIMPAN (bukan status turunan
+# "expired") lalu memakainya sebagai syarat update; yang kalah balapan mendapat 409.
+# `converting` = klaim sementara selama reservasi dibuat (bisa dipulihkan lewat undo bila gagal).
+QUOTE_TRANSITIONS = {
+    "draft": ("sent", "converting", "superseded"),
+    "awaiting_approval": ("approved", "rejected", "superseded"),
+    "approved": ("sent", "converting", "superseded"),
+    "sent": ("sent", "converting", "superseded"),
+    "converting": ("converted",),
+    "rejected": ("superseded",),
+    "converted": (), "superseded": (), "expired": (),
+}
+
+
+def _can_move(state: str, to: str) -> bool:
+    return to in QUOTE_TRANSITIONS.get(state, ())
+
+
+async def _raw(org: str, quotation_id: str) -> dict:
+    """Penawaran apa adanya di database (status TERSIMPAN, tanpa penurunan 'expired')."""
+    q = await db.quotations.find_one({"id": quotation_id, "org_id": org}, {"_id": 0})
+    if not q:
+        raise ValueError("Penawaran tidak ditemukan.")
+    return q
 
 
 def _label(state: str) -> str:
@@ -430,9 +456,11 @@ async def create(org: str = ORG_ID, *, lead_id: str, unit_id: str, addons: list 
     await db.quotations.insert_one(dict(doc))
     doc.pop("_id", None)
     if version_of:
-        await db.quotations.update_one({"id": version_of["id"]}, {"$set": {
-            "state": "superseded", "state_label": _label("superseded"),
-            "superseded_by": doc["id"], "updated_at": ts}})
+        # H-B: revisi ‖ konversi — penawaran yang sudah/sedang menjadi reservasi tidak diubah menjadi "superseded".
+        await db.quotations.update_one(
+            {"id": version_of["id"], "state": {"$nin": ["converted", "converting"]}}, {"$set": {
+                "state": "superseded", "state_label": _label("superseded"),
+                "superseded_by": doc["id"], "updated_at": ts}})
     await add_activity(entity_type="lead", entity_id=lead_id, type="sales", actor=actor,
                        org_id=org,
                        body=(f"Penawaran {doc['no']} v{doc['version']} dibuat untuk unit "
@@ -498,18 +526,19 @@ async def decide_discount(org: str, quotation_id: str, actor: str, approve: bool
     if len((reason or "").strip()) < MIN_REASON:
         raise ValueError(f"Alasan keputusan minimal {MIN_REASON} huruf.")
     q = await get(org, quotation_id)
-    if q["state"] != "awaiting_approval":
+    state = "approved" if approve else "rejected"
+    if q["state"] != "awaiting_approval" or not _can_move("awaiting_approval", state):
         raise ValueError(f"Penawaran ini berstatus {q.get('state_label')} — tidak sedang "
                          "menunggu persetujuan diskon.")
-    state = "approved" if approve else "rejected"
     ts = now_iso()
-    await db.quotations.update_one({"id": quotation_id}, {"$set": {
-        "state": state, "state_label": _label(state), "approved_by": actor,
-        "approved_at": ts, "decision_reason": reason.strip(), "updated_at": ts},
+    # H-B (P7): setuju ‖ tolak / setuju ×2 — keputusan SEKALI; status yang dibaca masuk ke filter.
+    await transition("quotations", {"id": quotation_id, "org_id": org}, {"state": "awaiting_approval"}, {
+        "$set": {"state": state, "state_label": _label(state), "approved_by": actor,
+                 "approved_at": ts, "decision_reason": reason.strip(), "updated_at": ts},
         "$push": {"history": {"at": ts, "by": actor,
                               "action": ("approve_discount" if approve
                                          else "reject_discount"),
-                              "reason": reason.strip(), "state": state}}})
+                              "reason": reason.strip(), "state": state}}}, what="Penawaran ini")
     await add_activity(entity_type="lead", entity_id=q["lead_id"], type="sales", actor=actor,
                        org_id=org,
                        body=(f"Diskon penawaran {q['no']} {'DISETUJUI' if approve else 'DITOLAK'}"
@@ -525,23 +554,28 @@ async def mark_sent(org: str, quotation_id: str, actor: str, channel: str = "wha
                     note: str = None) -> dict:
     """Kirim penawaran. Kanal WhatsApp berjalan MODE SIMULASI bila kredensial belum ada —
     statusnya ditulis apa adanya (`simulated`), tidak pernah diklaim "terkirim"."""
-    q = await get(org, quotation_id)
-    if q["state"] not in ("draft", "approved", "sent"):
-        raise ValueError(f"Penawaran berstatus {q.get('state_label')} tidak bisa dikirim.")
-    if q.get("needs_discount_approval") and q["state"] == "draft":
-        raise ValueError("Diskon belum disetujui manajer — penawaran belum boleh dikirim.")
-    from notifications import send_whatsapp
-    text = (f"Penawaran {q['no']} unit {q['unit_code']}: harga Rp {q['net_price']:,}"
-            .replace(",", ".") + f" · berlaku s/d {q['valid_until']}.")
-    res = await send_whatsapp(q.get("lead_phone"), text) if q.get("lead_phone") else \
-        {"status": "skipped", "reason": "lead tanpa nomor telepon"}
-    ts = now_iso()
-    await db.quotations.update_one({"id": quotation_id}, {"$set": {
-        "state": "sent", "state_label": _label("sent"), "sent_at": ts,
-        "sent_channel": channel, "sent_status": res.get("status"), "updated_at": ts},
-        "$push": {"history": {"at": ts, "by": actor, "action": "send",
-                              "channel": channel, "result": res.get("status"),
-                              "note": note}}})
+    # H-B: klik ganda / dua tab dulu mengirim WhatsApp dua kali ke calon pembeli — kunci anti-ganda per
+    # penawaran (dilepas bila gagal; yang SUKSES menahan pengiriman identik selama jendela waktunya).
+    async with once("quotation.send", org, quotation_id, what="Pengiriman penawaran ini"):
+        raw = await _raw(org, quotation_id)
+        q = _with_expiry(raw)
+        if q["state"] not in ("draft", "approved", "sent") or not _can_move(raw["state"], "sent"):
+            raise ValueError(f"Penawaran berstatus {q.get('state_label')} tidak bisa dikirim.")
+        if q.get("needs_discount_approval") and q["state"] == "draft":
+            raise ValueError("Diskon belum disetujui manajer — penawaran belum boleh dikirim.")
+        from notifications import send_whatsapp
+        text = (f"Penawaran {q['no']} unit {q['unit_code']}: harga Rp {q['net_price']:,}"
+                .replace(",", ".") + f" · berlaku s/d {q['valid_until']}.")
+        res = await send_whatsapp(q.get("lead_phone"), text) if q.get("lead_phone") else \
+            {"status": "skipped", "reason": "lead tanpa nomor telepon"}
+        ts = now_iso()
+        # H-B (P7): jangan menimpa penawaran yang di sela-sela sudah dikonversi/direvisi (status yang dibaca = syarat).
+        await transition("quotations", {"id": quotation_id, "org_id": org}, {"state": raw["state"]}, {
+            "$set": {"state": "sent", "state_label": _label("sent"), "sent_at": ts,
+                     "sent_channel": channel, "sent_status": res.get("status"), "updated_at": ts},
+            "$push": {"history": {"at": ts, "by": actor, "action": "send",
+                                  "channel": channel, "result": res.get("status"),
+                                  "note": note}}}, what="Penawaran ini")
     return {"quotation": await get(org, quotation_id), "delivery": res}
 
 
@@ -553,11 +587,17 @@ async def convert(org: str, quotation_id: str, actor: str, note: str = None) -> 
     sini hanya JEJAK: deal menyimpan `quotation_id` sehingga "yang dijanjikan" bisa
     dibandingkan dengan "yang ditagihkan".
     """
-    q = await get(org, quotation_id)
+    raw = await _raw(org, quotation_id)
+    q = _with_expiry(raw)
+    if raw["state"] == "converting":
+        raise Conflict("Penawaran ini sedang dikonversi menjadi reservasi oleh proses lain. "
+                       "Muat ulang daftar penawaran sebelum mengulang.")
     if q["state"] == "converted":
         raise ValueError("Penawaran ini sudah menjadi reservasi.")
     if q["state"] == "expired":
         raise ValueError("Penawaran sudah kedaluwarsa — buat revisi lebih dulu.")
+    if q["state"] not in ("draft", "approved", "sent") or not _can_move(raw["state"], "converting"):
+        raise ValueError(f"Penawaran berstatus {q.get('state_label')} tidak bisa dikonversi.")
     if q.get("needs_discount_approval") and q["state"] not in ("approved", "sent"):
         raise ValueError("Diskon belum disetujui manajer — penawaran belum bisa dikonversi.")
     unit = await _unit_or_error(org, q["unit_id"])
@@ -568,12 +608,25 @@ async def convert(org: str, quotation_id: str, actor: str, note: str = None) -> 
     lead = await db.leads.find_one({"id": q["lead_id"], "org_id": org}, {"_id": 0})
     if not lead:
         raise ValueError("Lead penawaran ini tidak ditemukan.")
-    # SATU JALUR RESERVASI (Fase 53A). Dulu di sini deal dibuat sendiri dengan bentuk LAIN
-    # (`stage="reserved", status="active"`, tanpa `reserved_until`/booking fee/ikatan unit),
-    # sehingga deal hasil penawaran DITOLAK saat mau di-booking ("Deal harus berstatus
-    # 'reserved'") — AR tidak pernah lahir dan tahap lead mandek. Sekarang reservasi dibuat
-    # oleh mesin yang sama dengan tombol "Buat Reservasi", dan penawaran hanya MENAMBAH
-    # jejak (nomor penawaran, add-on, diskon, harga netto yang dijanjikan).
+    # H-B (P7): penawaran DIKLAIM atomik (status tersimpan → converting) SEBELUM kupon/unit disentuh —
+    # konversi ×N / konversi ‖ kirim / konversi ‖ revisi tidak lagi menulis status saling menimpa
+    # (penawaran "converted" bisa tertimpa "sent" lalu dikonversi lagi). Yang kalah → 409; gagal → status dipulihkan.
+    async with reserved("quotations", {"id": quotation_id, "org_id": org}, {"state": raw["state"]},
+                        {"$set": {"state": "converting", "state_label": _label("converting"),
+                                  "updated_at": ts}},
+                        undo={"$set": {"state": raw["state"], "state_label": _label(raw["state"])}},
+                        what="Penawaran ini"):
+        return await _convert_claimed(org, q, unit, lead, actor, note, ts)
+
+
+async def _convert_claimed(org: str, q: dict, unit: dict, lead: dict, actor: str, note: str, ts: str) -> dict:
+    """SATU JALUR RESERVASI (Fase 53A). Dulu di sini deal dibuat sendiri dengan bentuk LAIN
+    (`stage="reserved", status="active"`, tanpa `reserved_until`/booking fee/ikatan unit),
+    sehingga deal hasil penawaran DITOLAK saat mau di-booking ("Deal harus berstatus
+    'reserved'") — AR tidak pernah lahir dan tahap lead mandek. Sekarang reservasi dibuat
+    oleh mesin yang sama dengan tombol "Buat Reservasi", dan penawaran hanya MENAMBAH
+    jejak (nomor penawaran, add-on, diskon, harga netto yang dijanjikan)."""
+    quotation_id = q["id"]
     import sales_reserve as sr
     import pricing_engine as pe
     if q.get("coupon_code"):
@@ -606,11 +659,11 @@ async def convert(org: str, quotation_id: str, actor: str, note: str = None) -> 
         if redeemed:
             await pe.release_coupon(org, ref_type="deal", ref_id=deal_id, actor=actor)
         raise
-    await db.quotations.update_one({"id": quotation_id}, {"$set": {
-        "state": "converted", "state_label": _label("converted"),
-        "converted_deal_id": deal["id"], "converted_at": ts, "updated_at": ts},
+    await cas("quotations", {"id": quotation_id, "org_id": org}, {"state": "converting"}, {
+        "$set": {"state": "converted", "state_label": _label("converted"),
+                 "converted_deal_id": deal["id"], "converted_at": ts, "updated_at": ts},
         "$push": {"history": {"at": ts, "by": actor, "action": "convert",
-                              "deal_id": deal["id"]}}})
+                              "deal_id": deal["id"]}}}, what="Penawaran ini")
     await add_activity(entity_type="lead", entity_id=q["lead_id"], type="sales", actor=actor,
                        org_id=org,
                        body=(f"Penawaran {q['no']} dikonversi menjadi reservasi unit "

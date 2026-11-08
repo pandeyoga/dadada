@@ -128,6 +128,23 @@ async def list_customers(q: str = None, kyc_status: str = None,
             "legal_counts": legal_counts}
 
 
+def _identity_keys(data: dict, allow_dup: bool) -> list:
+    """Kunci identitas (NIK, HP, email) yang harus diserialkan agar pemeriksaan duplikat tidak bocor."""
+    import re
+    keys = []
+    if data.get("nik"):
+        keys.append("n:" + str(data["nik"]))
+    if not allow_dup:
+        if data.get("phone"):
+            try:
+                keys.append("p:" + re.sub(r"\D", "", normalize_phone_e164(data["phone"]))[-9:])
+            except Exception:  # noqa: BLE001 — nomor tak sah ditolak oleh validator lain; jangan menggagalkan di sini
+                pass
+        if data.get("email"):
+            keys.append("e:" + str(data["email"]).strip().lower())
+    return sorted(set(keys))
+
+
 @router.post("")
 async def create_customer(payload: CustomerCreate,
                           user: dict = Depends(require_permission("customers", "create"))):
@@ -138,6 +155,18 @@ async def create_customer(payload: CustomerCreate,
         data = customer_identity.clean_identity(data)  # KT-17: NIK 16 digit, NPWP 15/16, penghasilan >= 0
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    # H-B (P12): "cari duplikat HP/email → insert" tanpa kunci (HP/email tidak punya indeks unik karena
+    # `allow_duplicate` sah) — empat permintaan serentak dengan HP yang sama melahirkan empat pembeli kembar.
+    # Diserialkan per kunci identitas (urut tetap supaya tidak saling mengunci).
+    from contextlib import AsyncExitStack
+    from idempotency import mutex
+    async with AsyncExitStack() as stack:
+        for k in _identity_keys(data, allow_dup):
+            await stack.enter_async_context(mutex(f"customer.identity:{org}:{k}", what="Pendaftaran pembeli ini"))
+        return await _create_customer_locked(org, data, allow_dup, user)
+
+
+async def _create_customer_locked(org: str, data: dict, allow_dup: bool, user: dict) -> dict:
     if data.get("nik"):
         dup = await db.customers.find_one({"org_id": org, "nik": data["nik"]}, {"_id": 0})
         if dup:
