@@ -60,12 +60,20 @@ async def _ensure_sub_account(org: str, acc: dict) -> str:
                                              {"$set": {"parent_code": HEADER[kind_of(acc)]}})
             return code
     kind = kind_of(acc)
-    code = await _next_sub_code(org, kind)
     name = acc["name"] if kind == "cash" else f"{acc.get('bank_name') or 'Bank'} — {acc['name']}"
-    await db.accounts.insert_one({
-        "id": new_id(), "org_id": org, "code": code, "name": name[:80], "type": "asset",
-        "parent_code": HEADER[kind], "is_active": True, "cash_account_id": acc["id"],
-        "created_at": now_iso()})
+    # H-B (P12): "ambil kode sub-akun kosong berikutnya → insert" tanpa kunci — dua rekening yang dibuat serentak
+    # sama-sama mendapat kode yang sama; yang kalah menubruk indeks unik (org, code) dan rekening/kas-nya
+    # tertinggal tanpa akun GL. Alokasi kode diserialkan per jenis dan akun milik rekening ini dicari ulang di bawah kunci.
+    async with idem.mutex(f"cashbank.subcode:{org}:{kind}", wait=20.0, what="Pembuatan sub-akun kas/bank"):
+        mine = await db.accounts.find_one({"org_id": org, "cash_account_id": acc["id"]}, {"_id": 0, "code": 1})
+        if mine:
+            code = mine["code"]
+        else:
+            code = await _next_sub_code(org, kind)
+            await db.accounts.insert_one({
+                "id": new_id(), "org_id": org, "code": code, "name": name[:80], "type": "asset",
+                "parent_code": HEADER[kind], "is_active": True, "cash_account_id": acc["id"],
+                "created_at": now_iso()})
     await db.bank_accounts.update_one({"id": acc["id"]}, {"$set": {
         "gl_account_code": code, "gl_account_name": name[:80], "updated_at": now_iso()}})
     return code
@@ -130,6 +138,13 @@ async def _bootstrap_account(org: str, kind: str) -> dict:
 
 
 async def ensure_setup(org: str = ORG_ID) -> dict:
+    # H-B (P1/P12): penyiapan (rekening bawaan, sub-akun, default, saldo awal, migrasi baris induk) diserialkan per org —
+    # dua pemanggil serentak (mis. startup ganda / seed) dulu bisa membuat dua rekening bawaan sejenis.
+    async with idem.mutex(f"cashbank.setup:{org}", wait=60.0, ttl=120, what="Penyiapan Kas & Bank"):
+        return await _ensure_setup_locked(org)
+
+
+async def _ensure_setup_locked(org: str = ORG_ID) -> dict:
     await gl.ensure_coa(org)
     await db.accounts.update_many({"org_id": org, "code": {"$in": list(HEADER_CODES)}},
                                   {"$set": {"is_header": True}})
@@ -164,7 +179,13 @@ async def default_account(org: str, kind: str) -> dict:
             or await db.bank_accounts.find_one({"org_id": org, "kind": kind, "is_active": True},
                                                {"_id": 0}, sort=[("created_at", 1)])
         if not acc:
-            acc = await _bootstrap_account(org, kind)
+            # H-B (P12): dua pemanggil serentak pada org baru dulu sama-sama membuat rekening bawaan → kembar.
+            async with idem.mutex(f"cashbank.bootstrap:{org}:{kind}", wait=20.0, what="Penyiapan rekening bawaan"):
+                acc = await db.bank_accounts.find_one({"org_id": org, "kind": kind, "is_default": True}, {"_id": 0}) \
+                    or await db.bank_accounts.find_one({"org_id": org, "kind": kind, "is_active": True},
+                                                       {"_id": 0}, sort=[("created_at", 1)])
+                if not acc:
+                    acc = await _bootstrap_account(org, kind)
         _DEFAULT_CACHE[key] = acc
     return _DEFAULT_CACHE[key]
 
@@ -463,6 +484,16 @@ async def create_account(org: str, payload: dict, actor: str) -> dict:
 
 
 async def update_account(org: str, account_id: str, payload: dict, actor: str) -> dict:
+    acc0 = await db.bank_accounts.find_one({"id": account_id, "org_id": org}, {"_id": 0, "kind": 1})
+    if not acc0:
+        raise ValueError("Rekening/kas tidak ditemukan.")
+    # H-B (P1): "nonaktifkan rekening default" ‖ "jadikan rekening ini default" dulu sama-sama lolos cek —
+    # rekening nonaktif berstatus default (jurnal otomatis jatuh ke rekening nonaktif). Kunci SAMA dengan `set_default`.
+    async with idem.mutex(f"cashbank.default:{org}:{kind_of(acc0)}", what="Pengaturan rekening/kas ini"):
+        return await _update_account_locked(org, account_id, payload, actor)
+
+
+async def _update_account_locked(org: str, account_id: str, payload: dict, actor: str) -> dict:
     acc = await db.bank_accounts.find_one({"id": account_id, "org_id": org}, {"_id": 0})
     if not acc:
         raise ValueError("Rekening/kas tidak ditemukan.")
@@ -496,16 +527,23 @@ async def update_account(org: str, account_id: str, payload: dict, actor: str) -
 
 
 async def set_default(org: str, account_id: str) -> dict:
-    acc = await db.bank_accounts.find_one({"id": account_id, "org_id": org}, {"_id": 0})
-    if not acc:
+    acc0 = await db.bank_accounts.find_one({"id": account_id, "org_id": org}, {"_id": 0, "kind": 1})
+    if not acc0:
         raise ValueError("Rekening/kas tidak ditemukan.")
-    if not acc.get("is_active", True):
-        raise ValueError("Rekening nonaktif tidak boleh menjadi default.")
-    kind = kind_of(acc)
-    await db.bank_accounts.update_many({"org_id": org, "kind": kind}, {"$set": {"is_default": False}})
-    await db.bank_accounts.update_one({"id": account_id}, {"$set": {"is_default": True}})
-    _DEFAULT_CACHE.clear()
-    return await db.bank_accounts.find_one({"id": account_id}, {"_id": 0})
+    # H-B (P1): "kosongkan semua default → set satu" tanpa kunci — dua pemanggil serentak bisa meninggalkan DUA
+    # rekening default sejenis (jurnal otomatis jatuh ke salah satunya secara acak) atau tidak ada. Diserialkan per jenis.
+    async with idem.mutex(f"cashbank.default:{org}:{kind_of(acc0)}", what="Pengaturan rekening/kas ini"):
+        acc = await db.bank_accounts.find_one({"id": account_id, "org_id": org}, {"_id": 0})
+        if not acc:
+            raise ValueError("Rekening/kas tidak ditemukan.")
+        if not acc.get("is_active", True):
+            raise ValueError("Rekening nonaktif tidak boleh menjadi default.")
+        kind = kind_of(acc)
+        await db.bank_accounts.update_many({"org_id": org, "kind": kind, "id": {"$ne": account_id}},
+                                           {"$set": {"is_default": False}})
+        await db.bank_accounts.update_one({"id": account_id, "org_id": org}, {"$set": {"is_default": True}})
+        _DEFAULT_CACHE.clear()
+        return await db.bank_accounts.find_one({"id": account_id}, {"_id": 0})
 
 
 # ----------------------------------------------------------------- transfer internal

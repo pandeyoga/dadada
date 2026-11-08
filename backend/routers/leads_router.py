@@ -1,5 +1,6 @@
 """Leads (CRM) + Appointments — Slice A. RBAC + row-scope enforced."""
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from pymongo.errors import DuplicateKeyError
 
 import listing as lst
 import reference as ref
@@ -172,6 +173,15 @@ async def _resolve_partner(payload, phone: str, org: str, lead_id: str = None) -
 async def create_lead(payload: LeadCreate,
                       user: dict = Depends(require_permission("leads", "create"))):
     org = user.get("org_id", ORG_ID)
+    # H-B (P12): "nomor sudah ada? → insert" diserialkan per nomor. Indeks unik `uq_leads_phone` mencegah lead
+    # kembar, tetapi pemenang-ganda dulu meninggalkan efek samping (konflik atribusi mitra yatim, pembagian
+    # sales) dan pemanggil kedua mendapat 409 generik tanpa pesan "sudah terdaftar sebagai lead ...".
+    async with mutex(f"lead.phone:{org}:{normalize_phone_e164(payload.phone)}", what="Pendaftaran lead dengan nomor ini"):
+        return await _create_lead_locked(payload, user)
+
+
+async def _create_lead_locked(payload: LeadCreate, user: dict) -> dict:
+    org = user.get("org_id", ORG_ID)
     ts = now_iso()
     phone = normalize_phone_e164(payload.phone)
     dup = await db.leads.find_one({"org_id": org, "phone": phone},
@@ -246,7 +256,13 @@ async def import_leads(payload: LeadImport,
             "created_at": ts, "updated_at": ts, "created_by": user.get("email"),
         }
         lead.update(compute_lead_score(lead))
-        await db.leads.insert_one(lead)
+        try:
+            await db.leads.insert_one(lead)
+        except DuplicateKeyError:
+            # H-B (P12): impor ‖ impor / impor ‖ POST /leads — nomor yang baru dibuat proses lain DILEWATI (skipped),
+            # bukan menggagalkan seluruh impor di tengah jalan (sebagian lead masuk, sisanya 409).
+            skipped += 1
+            continue
         await emit("lead.created", "lead", lead["id"], {"source": lead["source"]}, org_id=org)
         created += 1
     await dispatch_pending()

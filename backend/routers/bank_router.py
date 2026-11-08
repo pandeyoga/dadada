@@ -102,6 +102,8 @@ async def update_account(account_id: str, payload: BankAccountIn,
     try:
         doc = await _cb.update_account(org, account_id, payload.model_dump(exclude={"gl_account_code"}),
                                        user.get("email"))
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "update", "bank_accounts", account_id, {"name": payload.name})
@@ -118,6 +120,8 @@ async def import_statement(payload: BankImportIn,
         out = await bimp.import_csv(_org(user), payload.account_id, payload.filename,
                                     payload.csv_text, user.get("email"),
                                     dry_run=payload.dry_run)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not payload.dry_run:

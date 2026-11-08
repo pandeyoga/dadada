@@ -272,7 +272,19 @@ async def apply(org: str, deal_id: str, actor: str, *, item_id: str | None = Non
 
     Yang ditagihkan adalah SELISIH denda berjalan dengan denda yang sudah pernah
     ditagihkan, jadi penekanan tombol dua kali pada hari yang sama tidak menagih dua kali.
+
+    H-B (P1): `_recalc` MENULIS ULANG seluruh array `items` tagihan dari salinan yang dibaca sebelumnya —
+    pembayaran/alokasi kuitansi yang masuk di sela-sela hilang dari tagihan (kuitansi + jurnal ada, AR tidak
+    berkurang). Penagihan & keringanan denda kini dikerjakan di bawah mutex per-deal yang SAMA dengan penerimaan,
+    void kuitansi, pembatalan, dan hapus-paksa (`deal_money`); tagihan dibaca ULANG di dalam kunci.
     """
+    from deal_money import deal_money
+    async with deal_money(org, deal_id):
+        return await _apply_locked(org, deal_id, actor, item_id=item_id, client_ref=client_ref)
+
+
+async def _apply_locked(org: str, deal_id: str, actor: str, *, item_id: str | None = None,
+                        client_ref: str | None = None) -> dict:
     inv = await db.ar_invoices.find_one({"org_id": org, "deal_id": deal_id}, {"_id": 0})
     if not inv:
         raise ValueError("Transaksi ini belum punya jadwal tagihan.")
@@ -331,7 +343,16 @@ async def apply(org: str, deal_id: str, actor: str, *, item_id: str | None = Non
 
 async def waive(org: str, deal_id: str, penalty_id: str, actor: str, *, reason: str,
                 may_waive: bool = False) -> dict:
-    """Keringanan denda — MEMBALIK jurnalnya, wajib beralasan, hanya Manajer Keuangan."""
+    """Keringanan denda — MEMBALIK jurnalnya, wajib beralasan, hanya Manajer Keuangan.
+
+    H-B (P1): di bawah `deal_money` (lihat `apply`) — keringanan ‖ pembayaran denda tidak saling menimpa `items`."""
+    from deal_money import deal_money
+    async with deal_money(org, deal_id):
+        return await _waive_locked(org, deal_id, penalty_id, actor, reason=reason, may_waive=may_waive)
+
+
+async def _waive_locked(org: str, deal_id: str, penalty_id: str, actor: str, *, reason: str,
+                        may_waive: bool = False) -> dict:
     if not may_waive:
         raise ValueError("Hanya Manajer Keuangan yang boleh memberi keringanan denda.")
     if len((reason or "").strip()) < 10:

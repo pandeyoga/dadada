@@ -248,7 +248,10 @@ async def verify_claim(cid: str, payload: ClaimOpnameIn,
               "verified_by": user.get("email"), "verified_at": ts}
     if payload.note:
         setter["note"] = ((claim.get("note") or "") + f"\n[opname {today_wib()}] {payload.note}").strip()
-    await db.progress_claims.update_one({"id": cid, "org_id": org}, {"$set": setter})
+    # H-B (P7): opname SEKALI, hanya dari `submitted` — opname ‖ opname / opname ‖ setuju / opname ‖ tolak
+    # dulu saling menimpa (nilai termin yang dibaca setuju bisa berbeda dengan hasil opname).
+    await cas("progress_claims", {"id": cid, "org_id": org}, {"status": "submitted"}, {"$set": setter},
+              what="Termin")
     return {"data": serialize_doc(await db.progress_claims.find_one({"id": cid, "org_id": org}, {"_id": 0}))}
 
 
@@ -292,7 +295,8 @@ async def _opname_item_claim(org: str, claim: dict, payload: ClaimOpnameIn,
     if payload.note or reason:
         setter["note"] = ((claim.get("note") or "") +
                           f"\n[opname {today_wib()}] {payload.note or reason}").strip()
-    await db.progress_claims.update_one({"id": claim["id"], "org_id": org}, {"$set": setter})
+    await cas("progress_claims", {"id": claim["id"], "org_id": org}, {"status": "submitted"}, {"$set": setter},
+              what="Termin")
     if dropset:
         await add_activity(entity_type="project", entity_id=claim["project_id"], type="system",
                            body=(f"Opname termin {claim.get('claim_number')}: {len(dropset)} "
@@ -437,7 +441,11 @@ async def reject_claim(cid: str, payload: StatusNote,
     setter = {"status": "rejected", "rejected_by": user.get("email"), "rejected_at": ts, "updated_at": ts}
     if payload.note:
         setter["note"] = ((claim.get("note") or "") + f"\n[tolak {today_wib()}] {payload.note}").strip()
-    await db.progress_claims.update_one({"id": cid, "org_id": org}, {"$set": setter})
+    # H-B (P7): tolak ‖ setuju / tolak ‖ opname / tolak ×2 — status yang dibaca masuk ke filter, yang kalah 409.
+    # (Tanpa ini penolakan menimpa `approving` lalu persetujuan menulis `approved` sesudahnya: termin disetujui,
+    # tagihan AP lahir, tetapi pekerjaannya sudah dilepas ke daftar "siap ditagih" → bisa ditagih dua kali.)
+    await cas("progress_claims", {"id": cid, "org_id": org}, {"status": claim["status"]}, {"$set": setter},
+              what="Termin")
     if claim.get("basis") == "items":
         # Pekerjaan kembali ke daftar "siap ditagih" — tidak hangus karena termin ditolak.
         await op.release_lines(org, claim)

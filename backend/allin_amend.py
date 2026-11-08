@@ -13,6 +13,7 @@ import kpr_disburse as kd
 from core_utils import new_id, now_iso
 from db import ORG_ID, db
 from engine import add_activity, create_notification
+from idempotency import mutex, reserved
 from rbac import has_role
 
 logger = logging.getLogger("sipro.p79")
@@ -31,6 +32,13 @@ async def list_amendments(org: str, contract_id: str) -> list:
 
 
 async def request_amendment(org: str, contract: dict, payload: dict, user: dict) -> dict:
+    # H-B (P12): "masih ada amandemen menunggu?" → insert dulu bocor — dua pengajuan serentak melahirkan dua
+    # amandemen `pending` untuk satu kontrak (keduanya bisa disetujui → skema berubah dua kali). Diserialkan per kontrak.
+    async with mutex(f"allin.amend:{org}:{contract['id']}", what="Pengajuan amandemen untuk kontrak ini"):
+        return await _request_locked(org, contract, payload, user)
+
+
+async def _request_locked(org: str, contract: dict, payload: dict, user: dict) -> dict:
     if contract.get("state") == "cancelled":
         raise ValueError("Kontrak sudah dibatalkan.")
     reason = (payload.get("reason") or "").strip()
@@ -91,21 +99,28 @@ async def decide_amendment(org: str, amendment_id: str, approve: bool, note: str
         raise ValueError("Alasan penolakan wajib diisi.")
     ts = now_iso()
     status = "approved" if approve else "rejected"
-    await db.allin_amendments.update_one({"id": amendment_id}, {"$set": {
-        "status": status, "decided_by": user.get("email"), "decided_at": ts, "decision_note": note or ""}})
-    contract = await db.contracts.find_one({"id": am["contract_id"]}, {"_id": 0})
-    if approve and contract:
-        old = contract.get("costs") or {}
-        keep = {k: old[k] for k in ("pph_seller", "promo_discount", "plafon_kredit", "dp_percent") if k in old}
-        new_costs = {**keep, **am["new_costs"], "amended_at": ts, "amendment_id": amendment_id}
-        await db.contracts.update_one({"id": contract["id"]}, {
-            "$set": {"costs": new_costs, "updated_at": ts, "costs_updated_by": user.get("email"), "costs_updated_at": ts},
-            "$push": {"costs_history": {"amendment_id": amendment_id, "at": ts, "by": user.get("email"),
-                                        "from": am["from"], "to": am["to"], "reason": am["reason"]}}})
-        # invoice biaya yang belum dibayar ikut dibatalkan (nominal berubah); yang sudah dibayar diblokir di pengajuan
-        await db.cost_invoices.update_many(
-            {"org_id": org, "contract_id": contract["id"], "status": {"$in": ["unpaid"]}},
-            {"$set": {"status": "void", "void_reason": f"amandemen skema {amendment_id}", "updated_at": ts}})
+    # H-B (P7): amandemen diputuskan SEKALI. Dulu setuju ×2 menulis riwayat biaya dua kali dan setuju ‖ tolak
+    # berakhir dengan status "rejected" padahal skema kontrak sudah berubah. Klaim atomik pending → keputusan
+    # SEBELUM kontrak disentuh; yang kalah → 409; bila perubahan kontrak gagal, status dikembalikan ke pending.
+    async with reserved("allin_amendments", {"id": amendment_id, "org_id": org}, {"status": "pending"},
+                        {"$set": {"status": status, "decided_by": user.get("email"), "decided_at": ts,
+                                  "decision_note": note or ""}},
+                        undo={"$set": {"status": "pending", "decided_by": None, "decided_at": None,
+                                       "decision_note": None}}, what="Amandemen ini"):
+        contract = await db.contracts.find_one({"id": am["contract_id"]}, {"_id": 0})
+        if approve and contract:
+            old = contract.get("costs") or {}
+            keep = {k: old[k] for k in ("pph_seller", "promo_discount", "plafon_kredit", "dp_percent") if k in old}
+            new_costs = {**keep, **am["new_costs"], "amended_at": ts, "amendment_id": amendment_id}
+            await db.contracts.update_one({"id": contract["id"]}, {
+                "$set": {"costs": new_costs, "updated_at": ts, "costs_updated_by": user.get("email"),
+                         "costs_updated_at": ts},
+                "$push": {"costs_history": {"amendment_id": amendment_id, "at": ts, "by": user.get("email"),
+                                            "from": am["from"], "to": am["to"], "reason": am["reason"]}}})
+            # invoice biaya yang belum dibayar ikut dibatalkan (nominal berubah); yang sudah dibayar diblokir di pengajuan
+            await db.cost_invoices.update_many(
+                {"org_id": org, "contract_id": contract["id"], "status": {"$in": ["unpaid"]}},
+                {"$set": {"status": "void", "void_reason": f"amandemen skema {amendment_id}", "updated_at": ts}})
     await create_notification(user_email=am["requested_by"], org_id=org, type="finance",
                               title=f"Amandemen skema kontrak {am.get('contract_no')} {'DISETUJUI' if approve else 'DITOLAK'}",
                               body=note or am["reason"], related_entity_type="allin_amendment", related_entity_id=amendment_id)

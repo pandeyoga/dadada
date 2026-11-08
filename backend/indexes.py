@@ -173,6 +173,14 @@ UNIQUE_INDEXES = [
     # indeks ini dilaporkan sebagai `conflict` (tidak menggagalkan startup, tidak ada data yang dihapus);
     # penjagaan aplikasi (`marketing_fee.fee_lock`) tetap berlaku sampai kembaran lama dibereskan manual.
     ("marketing_fees", [("org_id", 1), ("agent_id", 1), ("deal_id", 1), ("trigger", 1)], "uq_mfee_open_dedup"),
+    # H-B (P12): satu tugas TERBUKA per (org, source_event) — `auto_create_task` / `workhub.create_task` mencari lalu
+    # menyisipkan; tanpa indeks ini dua event serentak melahirkan tugas kembar. Parsial menurut status terbuka (tugas
+    # selesai/batal tidak menghalangi tugas periode berikutnya) dan hanya untuk `source_event` bertipe string
+    # (tugas manual bernilai null). Data lama yang sudah kembar dilaporkan sebagai `conflict` (tidak menggagalkan startup,
+    # tidak ada yang dihapus); penjagaan aplikasi (kunci `task.src:`) tetap berlaku.
+    ("tasks", [("org_id", 1), ("source_event", 1)], "uq_task_open_source"),
+    # H-B (P12): satu amandemen skema all-in `pending` per kontrak (pengajuan ganda → dua amandemen yang bisa sama-sama disetujui).
+    ("allin_amendments", [("org_id", 1), ("contract_id", 1)], "uq_allin_amend_pending"),
 ]
 
 # Natural key yang boleh kosong (partial index: hanya baris yang punya nilai dijaga).
@@ -210,6 +218,9 @@ PARTIAL = {
 # Index parsial dengan ekspresi sendiri (bukan sekadar "field bertipe string").
 PARTIAL_EXPR = {
     "uq_mfee_open_dedup": {"status": {"$in": ["submitted", "approved", "paid"]}},
+    "uq_task_open_source": {"source_event": {"$type": "string"},
+                            "status": {"$in": ["open", "in_progress", "snoozed", "submitted"]}},
+    "uq_allin_amend_pending": {"status": "pending"},
 }
 
 

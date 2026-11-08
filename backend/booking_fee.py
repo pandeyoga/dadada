@@ -17,7 +17,7 @@ import settings_store as cfg
 from core_utils import due_in, new_id, now_iso
 from db import db
 from engine import add_activity, emit
-from idempotency import cas
+from idempotency import Conflict, cas, expect_of
 from money_lock import locked
 
 logger = logging.getLogger("sipro.booking_fee")
@@ -202,11 +202,18 @@ async def _pay_unlocked(org: str, deal_id: str, *, amount: int, method: str, not
 
 async def cancel(org: str, deal_id: str, actor: str) -> None:
     """Deal batal: tagihan yang belum dibayar ditutup; yang sudah dibayar tetap (refund via titipan)."""
-    inv = await get_invoice(org, deal_id)
-    if not inv or inv["status"] == "paid":
-        return
-    await db.booking_fee_invoices.update_one({"id": inv["id"]}, {"$set": {
-        "status": "cancelled", "cancelled_at": now_iso(), "cancelled_by": actor}})
+    # H-B (P7): status & `paid` yang dibaca masuk ke filter. Pembayaran yang masuk di sela-sela (kuitansi sudah terbit,
+    # status berubah ke paid/partial) tidak lagi ditimpa "cancelled" — dibaca ulang lalu diputuskan lagi.
+    for _ in range(5):
+        inv = await get_invoice(org, deal_id)
+        if not inv or inv["status"] in ("paid", "cancelled"):
+            return
+        res = await db.booking_fee_invoices.update_one(
+            {"id": inv["id"], "status": inv["status"], **expect_of(inv, "paid")}, {"$set": {
+                "status": "cancelled", "cancelled_at": now_iso(), "cancelled_by": actor}})
+        if res.matched_count == 1:
+            return
+    raise Conflict("Tagihan booking fee ini terus berubah oleh proses lain. Coba lagi sebentar lagi.")
 
 
 async def block_booking_reason(org: str, deal: dict) -> str:

@@ -17,6 +17,7 @@ from db import ORG_ID, db
 from engine import add_activity, create_notification, emit
 from finance_engine import notify_finance
 from idempotency import Conflict, reserved
+from money_op import money_op
 from p27_utils import cash_account, rp
 from petty_cash import ADVANCE_ACCOUNT, _settle_lines
 
@@ -191,13 +192,10 @@ async def disburse(rid: str, payload, actor: str, org: str = ORG_ID) -> dict:
     import cash_bank as cb
     cash_code = await cb.resolve_code(org, payload.cash_account_id, cash_account(payload.source))
     cash_acc = await cb.account_by_code(org, cash_code)
-    # PL-03: kunci rekening + cek dana sampai jurnal terposting. Jalur AP memeriksa dana (dan mengunci) di
-    # pay_ap_bill sendiri — jangan dikunci dua kali (mutex yang sama akan saling menunggu).
-    from contextlib import nullcontext
-    guard = (cb.funds_guard(org, amt, cash_account_id=(cash_acc or {}).get("id"), code=cash_code,
-                            kind=f"pencairan pengajuan {r['no']}")
-             if not r.get("ap_bill_id") else nullcontext())
-    async with guard:
+    # PL-03 lewat `money_op`: kunci rekening + cek dana sampai jurnal terposting. Jalur AP memeriksa dana (dan mengunci) di
+    # pay_ap_bill sendiri — jangan dikunci dua kali (mutex yang sama akan saling menunggu) → amount=0 = tanpa kunci.
+    async with money_op(org, amount=0 if r.get("ap_bill_id") else amt, cash_account_id=(cash_acc or {}).get("id"),
+                        cash_code=cash_code, kind=f"pencairan pengajuan {r['no']}"):
         ts = now_iso()
         # PK-02: klaim atomik approved → disbursing SEBELUM uang bergerak. Dua pencairan bersamaan dulu
         # sama-sama lolos cek status (jalur AP: tagihan dibayar 2x; non-AP: riwayat/aktivitas ganda).

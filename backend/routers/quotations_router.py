@@ -13,6 +13,7 @@ import quotation_engine as qe
 import reference as ref
 from core_utils import parse_pagination, serialize_doc
 from db import ORG_ID, db
+from idempotency import Conflict
 from models_p47 import (QuotationCreateIn, QuotationDecisionIn, QuotationSendIn,
                        QuotationSimulateIn)
 from pdf_utils import build_document_pdf
@@ -176,6 +177,8 @@ async def decision(quotation_id: str, payload: QuotationDecisionIn,
     try:
         out = await qe.decide_discount(_org(user), quotation_id, user.get("email"),
                                        payload.approve, payload.reason)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "decide_discount", "quotations", quotation_id,
@@ -193,6 +196,8 @@ async def send(quotation_id: str, payload: QuotationSendIn,
         await _guard_owner(org, quotation_id, user)
         out = await qe.mark_sent(org, quotation_id, user.get("email"),
                                  channel=payload.channel or "whatsapp", note=payload.note)
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"data": serialize_doc(out),
@@ -207,6 +212,8 @@ async def convert(quotation_id: str,
     try:
         await _guard_owner(org, quotation_id, user)
         out = await qe.convert(org, quotation_id, user.get("email"))
+    except Conflict:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await audit_log(user, "convert", "quotations", quotation_id,

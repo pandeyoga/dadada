@@ -13,6 +13,7 @@ from contextlib import AsyncExitStack
 
 from idempotency import Conflict, mutex, reserved, transition
 from fastapi import APIRouter, Depends, HTTPException
+from pymongo.errors import DuplicateKeyError
 
 import sequences as seq
 from models_master import MaterialUpdate
@@ -183,7 +184,11 @@ async def create_material(payload: MaterialCreate, user: dict = Depends(require_
            "boq_item_id": payload.boq_item_id, "budget_qty": float(payload.budget_qty or 0),
            "consumed_qty": 0.0, "over_budget": False,
            "created_at": ts, "created_by": user.get("email"), "updated_at": ts}
-    await db.materials.insert_one(mat)
+    try:
+        await db.materials.insert_one(mat)
+    except DuplicateKeyError:
+        # H-B (P12): dua permintaan bersamaan dengan kode yang sama — jawaban sama dengan pemeriksaan di atas.
+        raise HTTPException(status_code=400, detail="Kode material sudah ada di proyek ini")
     mat.pop("_id", None)
     mat["stock"] = 0
     return {"data": serialize_doc(mat)}

@@ -222,3 +222,36 @@ Perubahan perilaku yang akan terlihat pemakai:
 
 Butuh keputusan pemilik / belum dikerjakan: perlakuan akuntansi titipan 2-1470 & invoice biaya pada deal batal (⚖, hanya diakui+dicatat); reservasi kedaluwarsa yang booking fee-nya sudah dibayar (sweeper tetap melepas unit tanpa refund — ⚖);
 `record_developer_expense` (beban developer-borne) pada deal batal belum digerbang; janji temu untuk lead yang masih punya deal hidup lain sengaja dibiarkan.
+### 8.H-B — Sisa mesin status (P1/P7), dedup manual (P12), `money_op` (G1)
+
+Pola perbaikan sama dengan G-B: tabel transisi status (dict) + `transition()/cas()/reserved()` atas status yang dibaca; yang kalah balapan → 409, transisi tak sah → 400;
+router tidak boleh menelan `Conflict` lewat `except ValueError → 400`. Tes: `test_p0_sisa_status.py`, `test_p0_dedup_manual.py`, `test_p0_money_op.py`.
+
+| ID | Status | Perubahan | Alat |
+|---|:-:|---|---|
+| H-B1 | ✔ | `POST /deals/{id}/pricing-approval`: setuju ‖ tolak ‖ setuju ×N → satu pemenang (dulu semua 200, yang terakhir menimpa) | `transition(deals, pricing_approval.state=pending)` |
+| H-B2 | ✔ | Kas bon: setuju / tolak / batal memakai `ADVANCE_TRANSITIONS` + `_move`; cairkan ‖ tolak tidak lagi menimpa `disbursing` (pemohon tidak diberi tahu "ditolak" padahal uang keluar) | `petty_cash.ADVANCE_TRANSITIONS`, `transition` |
+| H-B3 | ✔ | Termin subkon: opname (lumpsum & per item) hanya dari `submitted`; tolak memakai status yang dibaca (dulu tolak menimpa `approving` lalu persetujuan menulis `approved` → pekerjaan dilepas ke daftar "siap ditagih" padahal tagihan AP sudah lahir) | `cas(progress_claims, status)` |
+| H-B4 | ✔ | Penawaran: putusan diskon sekali; kirim WA sekali (kunci anti-ganda per penawaran); konversi mengklaim penawaran `→ converting` SEBELUM kupon/unit disentuh (kirim/revisi tidak lagi menimpa `converted`); revisi tidak men-supersede penawaran yang sudah/sedang dikonversi | `QUOTE_TRANSITIONS`, `transition`, `reserved`, `once` |
+| H-B5 | ✔ | Amandemen all-in: pengajuan ×N → satu `pending` (kunci per kontrak + indeks unik parsial `uq_allin_amend_pending`); putusan sekali (riwayat biaya kontrak satu entri; status akhir = putusan pemenang) | `mutex`, `reserved` |
+| H-B6 | ✔ | `to-po`: kunci per permintaan, permintaan dibaca ULANG di dalam kunci (4 pemanggilan paralel dulu → 4 PO + 4 nomor PO), `qty_po` ditulis per baris (tidak menimpa `qty_issued`) | `mutex` |
+| H-B7 | ✔ | Kas & Bank: `set_default` / nonaktifkan rekening diserialkan per jenis (tepat satu default; tidak ada rekening nonaktif yang berstatus default); pembuatan sub-akun GL diserialkan per jenis (dulu dua rekening serentak → kode sama, 409, rekening tanpa akun GL); `ensure_setup` & bootstrap rekening bawaan diserialkan | `mutex` |
+| H-B8 | ✔ | Aset tetap: penyusutan dan pelepasan diserialkan PER ASET dan aset dibaca ulang di dalam kunci (penyusutan ‖ pelepasan tidak lagi menjurnal akumulasi basi; penyusutan ×N tidak gugur di tengah putaran) | `mutex` per aset |
+| H-B9 | ✔ | Denda keterlambatan: tagih/ringankan di bawah `deal_money` (dulu `_recalc` menulis ulang seluruh `items` tagihan dari salinan basi → pembayaran yang masuk di sela-sela hilang dari AR) | `deal_money` |
+| H-B10 | ✔ | Batal tagihan booking fee: status & `paid` yang dibaca masuk ke filter (pembayaran yang masuk di sela-sela tidak ditimpa `cancelled`); giro (kliring/tolak/batal): sudah dikunci per giro (**positif palsu**) — ditambah syarat `status=received` di filter update | `expect_of` |
+| H-B11 | ✔ | Impor mutasi bank: impor sungguhan diserialkan per rekening (dulu sebagian 409 di tengah putaran); `generate_units`, impor lead: tabrakan indeks unik → dilewati, bukan menggagalkan seluruh putaran; harga unit tidak bisa diubah bila unit baru saja booked/terjual | `mutex`, `DuplicateKeyError` per baris |
+| H-B12 | ✔ | P12: pembeli (kunci identitas NIK/HP/email), lead (kunci nomor, pesan "sudah terdaftar" tetap jelas), tugas (`auto_create_task` & `workhub.create_task` satu kunci `task.src:` + indeks unik parsial `uq_task_open_source` untuk tugas terbuka), material kembar tujuan transfer, kode material kembar → 400 | `mutex`, `PARTIAL_EXPR` |
+| H-B13 | ✔ | **`money_op` (G1)** `backend/money_op.py`: `once → deal_money → funds_guard → blok`, urutan tetap. Dipakai `fixed_assets.create_asset`, `marketing_fee.pay_fee`, `labor_engine.pay_payroll`, `fund_requests.disburse`, `petty_cash.disburse_advance/settle_advance` — tanpa perubahan perilaku | `money_op` |
+| H-B14 | ✔ | Sapuan: pola baru `P3b_assert_funds_langsung` (fungsi di luar `cash_bank.py`/`money_op.py` yang memanggil `assert_funds`: 4 sekarang — `subcon_finance.pay_advance`, `loans.pay_installment`, `finance_ap.pay_ap_bill`, `allin_engine.disburse_titipan`); sapuan mengenali wrapper pemegang kunci (`*_locked`/`*_unlocked`/`*_claimed` yang dipanggil fungsi ber-`GUARDS`) dan `funds_guard/deal_money/money_op` sebagai penjaga | `scripts/pattern_sweep.py` |
+
+Positif palsu / tidak diubah (telaah): `pdc_engine` (dikunci per giro), `fixed_assets.run_depreciation` ganda (dijaga indeks `uq_asset_depr` + `source_event` jurnal; kini bersih tanpa 409), `finance_reports.send_reminder` (hanya cap waktu pengingat), `routers/*update_*` (CRUD "terakhir menang" tanpa efek uang/stok), `warranty_engine` (sudah G-B). ⚖ tidak ada keputusan bisnis baru.
+
+Perubahan perilaku yang akan terlihat pemakai:
+- Dua orang menekan aksi pemutus yang sama pada potongan reservasi, kas bon, termin subkon, putusan diskon penawaran, amandemen all-in → yang kedua melihat 409 "baru saja diubah oleh proses lain".
+- Mengirim penawaran dua kali dalam ±15 detik → yang kedua 409 (anti kirim WA ganda). Konversi penawaran memakai status sementara `converting` (dipulihkan otomatis bila gagal; bisa tertinggal bila proses mati tepat di tengah).
+- Penawaran berstatus `superseded`/`rejected` tidak bisa dikonversi menjadi reservasi.
+- Pembuat PO dari permintaan ke-2 yang bersamaan → 409/400 (tidak ada PO kembar). Pembuatan lead/pembeli dengan kunci identitas yang sama serentak → satu berhasil, sisanya 409.
+- Aset tetap yang sedang disusutkan/dilepas oleh proses lain → antre (maks. 15 dtk) lalu 409. Mengubah harga unit yang baru booked → 409.
+- Material dengan kode kembar yang dibuat serentak dijawab 400 (bukan 409 generik). Tugas otomatis kembar (source_event sama, status terbuka) kini mustahil.
+
+Verifikasi H-B (kode final, DB baru): suite penuh `tests/p0` **609 lulus, 1 dilewati**; satu kegagalan awal (`test_impor_commit_serentak...`, galat `'BACKUP_DIR'`) murni lingkungan (server uji dimulai tanpa env itu) dan lulus setelah backend dimulai ulang dengan `srv.sh` terbaru. Tes baru: 23 (`test_p0_sisa_status.py`) + 12 (`test_p0_dedup_manual.py`) + 10 (`test_p0_money_op.py`). Di kode lama (4582e8a, server+DB terpisah): 16 dari 23 + 9 dari 12 (hingga 11 pada sebagian putaran) + 7 dari 10 merah; sisanya hijau (dijaga indeks/kontrol) atau soak probabilistik (lihat laporan). Sapuan: P1 165→149, P7 85→65, P12 104→90 (dari ini P1 165→157, P7 85→71, P12 104→104 murni dari perubahan kode; selisihnya karena sapuan kini mengenali wrapper pemegang kunci), P3b baru = 4 (baseline oleh orkestrator). Gerbang kepatuhan: hanya 3 pelanggaran lama.

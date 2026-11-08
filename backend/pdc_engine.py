@@ -157,7 +157,8 @@ async def _clear_locked(org: str, pdc_id: str, payload: dict, actor: str) -> dic
             date=cleared, source_type="pdc", source_id=pdc_id, source_event=f"pdc.clear.cash:{pdc_id}",
             posted_by=actor, auto=False)
         clear_no = je["entry_no"]
-    await db.pdc_instruments.update_one({"id": pdc_id}, {"$set": {
+    # H-B (P7): sudah di bawah kunci per giro; syarat status di filter = sabuk kedua bagi penulis yang tak lewat kunci itu.
+    await db.pdc_instruments.update_one({"id": pdc_id, "status": "received"}, {"$set": {
         "status": "cleared", "cleared_date": cleared, "cash_account_id": acc["id"], "cash_account_name": acc["name"],
         "receipt_id": receipt_id, "receipt_no": receipt_no, "clear_journal_no": clear_no,
         "reverse_journal_no": rev["entry_no"], "cleared_by": actor, "updated_at": ts},
@@ -177,7 +178,7 @@ async def _bounce_locked(org: str, pdc_id: str, reason: str, actor: str) -> dict
         raise ValueError(f"Giro {doc['no']} sudah {doc['status']}.")
     ts = now_iso()
     rev = await _reverse_pair(org, doc, "bounce", f"Giro {doc['no']} DITOLAK bank — {reason}", actor)
-    await db.pdc_instruments.update_one({"id": pdc_id}, {"$set": {
+    await db.pdc_instruments.update_one({"id": pdc_id, "status": "received"}, {"$set": {
         "status": "bounced", "bounce_reason": reason, "bounced_by": actor, "bounced_at": ts,
         "reverse_journal_no": rev["entry_no"], "updated_at": ts},
         "$push": {"history": {"at": ts, "by": actor, "action": "bounced", "journal_no": rev["entry_no"], "reason": reason}}})
@@ -199,7 +200,7 @@ async def _cancel_locked(org: str, pdc_id: str, reason: str, actor: str) -> dict
         raise ValueError(f"Giro {doc['no']} sudah {doc['status']}.")
     ts = now_iso()
     rev = await _reverse_pair(org, doc, "cancel", f"Giro {doc['no']} dibatalkan/dikembalikan — {reason}", actor)
-    await db.pdc_instruments.update_one({"id": pdc_id}, {"$set": {
+    await db.pdc_instruments.update_one({"id": pdc_id, "status": "received"}, {"$set": {
         "status": "cancelled", "cancel_reason": reason, "cancelled_by": actor, "cancelled_at": ts,
         "reverse_journal_no": rev["entry_no"], "updated_at": ts},
         "$push": {"history": {"at": ts, "by": actor, "action": "cancelled", "journal_no": rev["entry_no"], "reason": reason}}})

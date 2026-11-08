@@ -1,10 +1,11 @@
 {
  "P11_router_by_id_tanpa_org_id": 17,
- "P12_find_lalu_insert": 104,
+ "P12_find_lalu_insert": 90,
  "P13_pemindaian_besar_50k": 31,
  "P13_sort_naik_lalu_to_list_N": 109,
- "P1_baca_lalu_tulis_tanpa_penjaga": 165,
+ "P1_baca_lalu_tulis_tanpa_penjaga": 149,
+ "P3b_assert_funds_langsung": 4,
  "P6_kode_akun_GL_literal": 174,
- "P7_set_status_tanpa_syarat_status": 85,
+ "P7_set_status_tanpa_syarat_status": 65,
  "P9_except_Exception_ditelan": 38
 }

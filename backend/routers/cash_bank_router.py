@@ -8,6 +8,7 @@ from fastapi.responses import PlainTextResponse
 import cash_bank as cb
 from core_utils import serialize_doc, today_wib
 from db import ORG_ID, db
+from idempotency import Conflict
 from models_p82 import CashAccountIn, CashAccountUpdate, CashTransferIn, CashTransferReject
 from rbac import audit_log, can, require_permission
 
@@ -19,7 +20,8 @@ def _org(user: dict) -> str:
 
 
 def _err(e: Exception) -> HTTPException:
-    return HTTPException(status_code=400, detail=str(e))
+    # H-B: yang kalah balapan (Conflict) dijawab 409, bukan 400 "salah masukan".
+    return HTTPException(status_code=409 if isinstance(e, Conflict) else 400, detail=str(e))
 
 
 @router.get("/accounts")

@@ -21,7 +21,8 @@ from core_utils import new_id, now_iso
 from db import db, ORG_ID
 from engine import add_activity
 from finance_engine import notify_finance
-from idempotency import once
+from idempotency import expect_of, mutex
+from money_op import money_op
 from p27_utils import (cash_account, current_period, period_end_iso, period_of, rp,
                        validate_period)
 
@@ -134,19 +135,15 @@ async def create_asset(payload, actor: str, org_id=ORG_ID) -> dict:
                          "(agar utangnya tercatat di daftar tagihan vendor).")
     ts = now_iso()
     acquired = payload.acquired_date or ts
-    from contextlib import nullcontext
-    guard = nullcontext()
-    if payload.funding in ("kas", "bank"):
-        # PK-06 + PL-03: perolehan tunai/bank mengeluarkan kas → dana harus cukup, dan DUA pembelian berbeda
-        # yang bersamaan tidak boleh sama-sama lolos (terbukti: 2 aset @60% saldo → rekening −Rp 1,55 M).
-        import cash_bank as _cb
-        guard = _cb.funds_guard(org_id, cost, code=FUNDING_ACCOUNT[payload.funding],
-                                kind=f"perolehan aset {payload.name}")
-    # PK-02/22: klik ganda / retry membuat aset kembar (uang keluar 2x) → kunci permintaan identik.
-    async with once("asset.create", org_id, payload.name, cost, payload.acquired_date, payload.funding, actor,
-                    what="Pencatatan aset ini"):
-        async with guard:
-            return await _create_asset_locked(payload, actor, org_id, cost, salvage, method, life, ts, acquired)
+    # PK-06 + PL-03 + PK-02/22 lewat SATU pintu (`money_op`): klik ganda / retry membuat aset kembar (uang keluar 2x)
+    # → kunci permintaan identik; perolehan tunai/bank mengeluarkan kas → dana harus cukup dan DUA pembelian berbeda
+    # yang bersamaan tidak boleh sama-sama lolos (terbukti: 2 aset @60% saldo → rekening −Rp 1,55 M).
+    tunai = payload.funding in ("kas", "bank")
+    async with money_op(org_id, op="asset.create",
+                        key=(org_id, payload.name, cost, payload.acquired_date, payload.funding, actor),
+                        amount=cost if tunai else 0, cash_code=FUNDING_ACCOUNT[payload.funding] if tunai else None,
+                        kind=f"perolehan aset {payload.name}", what="Pencatatan aset ini"):
+        return await _create_asset_locked(payload, actor, org_id, cost, salvage, method, life, ts, acquired)
 
 
 async def _create_asset_locked(payload, actor, org_id, cost, salvage, method, life, ts, acquired) -> dict:
@@ -190,50 +187,26 @@ async def _create_asset_locked(payload, actor, org_id, cost, salvage, method, li
 
 
 async def run_depreciation(period: str, actor: str, org_id=ORG_ID) -> dict:
-    """Jalankan penyusutan satu periode untuk semua aset aktif. IDEMPOTEN per (aset, periode)."""
+    """Jalankan penyusutan satu periode untuk semua aset aktif. IDEMPOTEN per (aset, periode).
+
+    H-B (P1/P7): tiap aset diproses di bawah kunci PER ASET (kunci yang sama dengan pelepasan aset) dan dibaca
+    ULANG di dalam kunci. Dulu dua proses penyusutan serentak sama-sama lolos cek "belum ada" lalu yang kalah
+    menubruk indeks unik di tengah putaran (409, sebagian aset tak tersusut), dan penyusutan yang bersamaan dengan
+    pelepasan aset menjurnal akumulasi basi (1-2200 ≠ Σ akumulasi aset yang belum dilepas)."""
     p = validate_period(period)
     assets = await db.fixed_assets.find(
         {"org_id": org_id, "status": "active"}, {"_id": 0}).to_list(5000)
     posted, skipped, rows, total = 0, 0, [], 0
     date = period_end_iso(p)
-    for a in assets:
-        if a.get("method") == "tidak_disusutkan" or int(a.get("useful_life_months", 0)) <= 0:
+    for a0 in assets:
+        async with mutex(f"asset:{org_id}:{a0['id']}", wait=15.0, what="Aset ini"):
+            row = await _depreciate_one(org_id, a0["id"], p, date, actor)
+        if row is None:
             skipped += 1
             continue
-        if period_of(a.get("acquired_date")) > p:
-            skipped += 1
-            continue
-        exists = await db.asset_depreciations.find_one(
-            {"org_id": org_id, "asset_id": a["id"], "period": p}, {"_id": 0, "id": 1})
-        if exists:
-            skipped += 1
-            continue
-        amt = monthly_amount(a)
-        if amt <= 0:
-            skipped += 1
-            continue
-        je = await gl.post_journal(
-            org_id, f"Penyusutan {p} — {a['code']} {a['name']}",
-            [{"account_code": EXPENSE_ACC, "debit": amt, "credit": 0},
-             {"account_code": ACCUM_ACC, "debit": 0, "credit": amt}],
-            date=date, source_type="asset_depreciation", source_id=a["id"],
-            source_event=f"asset.depr:{a['id']}:{p}", posted_by=actor)
-        accum = int(a.get("accumulated_depreciation", 0)) + amt
-        base = int(a["cost"]) - int(a.get("salvage_value", 0))
-        status = "fully_depreciated" if accum >= base else "active"
-        await db.asset_depreciations.insert_one({
-            "id": new_id(), "org_id": org_id, "asset_id": a["id"], "asset_code": a["code"],
-            "asset_name": a["name"], "category": a.get("category"), "period": p,
-            "amount": amt, "method": a.get("method"), "accumulated_after": accum,
-            "book_value_after": int(a["cost"]) - accum, "journal_id": je["id"],
-            "entry_no": je["entry_no"], "created_by": actor, "created_at": now_iso()})
-        await db.fixed_assets.update_one({"id": a["id"]}, {"$set": {
-            "accumulated_depreciation": accum, "book_value": int(a["cost"]) - accum,
-            "last_depreciated_period": p, "status": status, "updated_at": now_iso()}})
         posted += 1
-        total += amt
-        rows.append({"asset_id": a["id"], "code": a["code"], "name": a["name"],
-                     "amount": amt, "entry_no": je["entry_no"], "status": status})
+        total += row["amount"]
+        rows.append(row)
     if posted:
         await notify_finance(org_id, f"Penyusutan periode {p} diposting",
                              f"{posted} aset disusutkan, total beban {rp(total)}.",
@@ -242,9 +215,56 @@ async def run_depreciation(period: str, actor: str, org_id=ORG_ID) -> dict:
             "rows": rows, "already_posted": posted == 0 and bool(assets)}
 
 
+async def _depreciate_one(org_id: str, asset_id: str, p: str, date: str, actor: str):
+    """Susutkan SATU aset untuk periode `p` (dipanggil di bawah kunci aset). None = dilewati."""
+    a = await db.fixed_assets.find_one({"id": asset_id, "org_id": org_id}, {"_id": 0})
+    if not a or a.get("status") != "active":
+        return None
+    if a.get("method") == "tidak_disusutkan" or int(a.get("useful_life_months", 0)) <= 0:
+        return None
+    if period_of(a.get("acquired_date")) > p:
+        return None
+    if await db.asset_depreciations.find_one(
+            {"org_id": org_id, "asset_id": a["id"], "period": p}, {"_id": 0, "id": 1}):
+        return None
+    amt = monthly_amount(a)
+    if amt <= 0:
+        return None
+    je = await gl.post_journal(
+        org_id, f"Penyusutan {p} — {a['code']} {a['name']}",
+        [{"account_code": EXPENSE_ACC, "debit": amt, "credit": 0},
+         {"account_code": ACCUM_ACC, "debit": 0, "credit": amt}],
+        date=date, source_type="asset_depreciation", source_id=a["id"],
+        source_event=f"asset.depr:{a['id']}:{p}", posted_by=actor)
+    accum = int(a.get("accumulated_depreciation", 0)) + amt
+    base = int(a["cost"]) - int(a.get("salvage_value", 0))
+    status = "fully_depreciated" if accum >= base else "active"
+    await db.asset_depreciations.insert_one({
+        "id": new_id(), "org_id": org_id, "asset_id": a["id"], "asset_code": a["code"],
+        "asset_name": a["name"], "category": a.get("category"), "period": p,
+        "amount": amt, "method": a.get("method"), "accumulated_after": accum,
+        "book_value_after": int(a["cost"]) - accum, "journal_id": je["id"],
+        "entry_no": je["entry_no"], "created_by": actor, "created_at": now_iso()})
+    # Syarat: asset masih `active` dan akumulasi sama dengan yang dibaca (bukan dilepas/ditulis proses lain).
+    await db.fixed_assets.update_one(
+        {"id": a["id"], "status": "active", **expect_of(a, "accumulated_depreciation")},
+        {"$set": {"accumulated_depreciation": accum, "book_value": int(a["cost"]) - accum,
+                  "last_depreciated_period": p, "status": status, "updated_at": now_iso()}})
+    return {"asset_id": a["id"], "code": a["code"], "name": a["name"], "amount": amt,
+            "entry_no": je["entry_no"], "status": status}
+
+
 async def dispose_asset(asset_id: str, proceeds: int, source: str, date, note,
                         actor: str, org_id=ORG_ID, cash_account_id: str = None) -> dict:
-    """Lepas/jual aset: hapus perolehan + akumulasi, akui laba/rugi pelepasan."""
+    """Lepas/jual aset: hapus perolehan + akumulasi, akui laba/rugi pelepasan.
+
+    H-B (P1/P7): diserialkan per aset (kunci yang sama dengan penyusutan) dan aset dibaca ULANG di dalam kunci —
+    pelepasan ×N / pelepasan ‖ penyusutan dulu menjurnal akumulasi basi dan menumpuk riwayat jurnal ganda."""
+    async with mutex(f"asset:{org_id}:{asset_id}", wait=15.0, what="Aset ini"):
+        return await _dispose_locked(asset_id, proceeds, source, date, note, actor, org_id, cash_account_id)
+
+
+async def _dispose_locked(asset_id, proceeds, source, date, note, actor, org_id, cash_account_id) -> dict:
     a = await _get(asset_id, org_id)
     if a["status"] == "disposed":
         raise ValueError("Aset ini sudah dilepas sebelumnya.")
@@ -275,7 +295,7 @@ async def dispose_asset(asset_id: str, proceeds: int, source: str, date, note,
         org_id, f"Pelepasan aset tetap {a['code']} — {a['name']}", lines,
         date=date or ts, source_type="fixed_asset", source_id=asset_id,
         source_event=f"asset.dispose:{asset_id}", posted_by=actor)
-    await db.fixed_assets.update_one({"id": asset_id}, {"$set": {
+    await db.fixed_assets.update_one({"id": asset_id, "status": {"$ne": "disposed"}}, {"$set": {
         "status": "disposed", "disposed_date": date or ts, "disposal_proceeds": proceeds,
         "disposal_gain_loss": gain, "disposal_note": note, "disposed_by": actor,
         "book_value": 0, "updated_at": ts}, "$push": {"journal_ids": je["id"]}})
