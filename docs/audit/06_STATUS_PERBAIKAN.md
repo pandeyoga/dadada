@@ -289,4 +289,4 @@ Perubahan perilaku yang akan terlihat pemakai:
 ### 8.I — Keputusan pemilik terkumpul (16 keputusan) → rancangan konfigurasi
 Seluruh keputusan §4 telah dijawab pemilik; tiap jawaban menjadi **nilai bawaan pengaturan** (bukan perilaku kaku) di Pusat Konfigurasi, dengan opsi lain tetap
 dapat dipilih (override organisasi/proyek/kontrak). Rincian tabel keputusan→key→opsi, risiko, dan gelombang pengerjaan W0–W3 ada di
-`docs/audit/12_KEPUTUSAN_PEMILIK_DAN_RANCANGAN_KONFIGURASI.md`. Belum ada kode yang diubah untuk keputusan ini; W0 (resolver + pendaftaran key) adalah langkah berikutnya.
+`docs/audit/12_KEPUTUSAN_PEMILIK_DAN_RANCANGAN_KONFIGURASI.md`. **W0 selesai** (resolver kebijakan, level penimpaan, opsi "belum tersedia", UI tingkat proyek, kunci percontohan `deposit.on_cancelled_deal`) — lihat doc 12 §6. W1–W3 belum.

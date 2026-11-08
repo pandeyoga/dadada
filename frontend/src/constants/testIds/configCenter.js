@@ -11,6 +11,7 @@ export const CONFIG = {
   rulesPanel: "config-rules-panel",
   rulesSearch: "config-rules-search",
   rulesGroup: "config-rules-group",
+  rulesProject: "config-rules-project",
   rulesRow: "config-rules-row",
   ruleInput: "config-rule-input",
   ruleSwitch: "config-rule-switch",

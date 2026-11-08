@@ -41,8 +41,8 @@ Kolom **Bawaan** = jawaban pemilik. **Override**: O=organisasi, P=proyek, K=kont
 
 | # | Keputusan | Bawaan | Key | Opsi | Override |
 |---|---|---|---|---|---|
-| 7 | Kapan deal berstatus *won* | **Saat booking dikonfirmasi** | `deal.won_trigger` (enum) | `booking_confirmed`, `contract_signed`, `bast` | O, P |
-| 8 | Persetujuan diskon | **Bertingkat menurut nilai** | `discount.approval_tiers` (list of `{max_amount, role}`), `discount.approval_mode` (enum) | mode: `bertingkat`, `satu_level`, `tanpa_persetujuan_sampai_batas` | O, P |
+| 7 | Kapan lead/deal dianggap *won* | **Saat booking dikonfirmasi** | `lead.won_trigger` (kunci yang SUDAH ada; opsi `booking_fee_verified` · `spr_signed` · `ppjb_signed` · `ajb_signed`) — bawaan kode sekarang `spr_signed`, diubah ke `booking_fee_verified` di W1 | `booking_fee_verified`, `spr_signed`, `ppjb_signed`, `ajb_signed` | O |
+| 8 | Persetujuan diskon | **Bertingkat menurut nilai** | memperluas `pricing.approval_min_amount` (+ ambang persen yang ada) menjadi `discount.approval_tiers` (list of `{max_amount, role}`) dan `discount.approval_mode` (enum) | mode: `bertingkat`, `satu_level`, `tanpa_persetujuan_sampai_batas` | O, P |
 | 9 | Ganti skema setelah ada pembayaran (IN-14) | **Manual oleh keuangan** | `payment.scheme_change.allocation` (enum) | `manual_keuangan`, `urut_termin_tertua`, `proporsional` | O, P |
 | 13 | Reservasi kedaluwarsa, booking fee sudah dibayar | **Reservasi diperpanjang, unit tidak dilepas** | `reservation.expiry.paid_booking_fee` (enum), `reservation.expiry.extend_days` (int), `reservation.expiry.max_extensions` (int) | `perpanjang`, `antrean_refund`, `hangus` | O, P |
 | 14 | Ganti skema KE KPR (FN-11) | **Tolak, buat kontrak baru** | `contract.scheme_change_to_kpr` (enum) | `tolak_buat_baru`, `hitung_ulang_dengan_persetujuan`, `izinkan_manual` | O, P |
@@ -104,3 +104,21 @@ Tiap gelombang diselesaikan, diverifikasi, dan di-push sebelum gelombang berikut
 - Daftar tingkat persetujuan diskon (#8): batas nominal & peran belum disebut → disemai dari kebijakan persetujuan yang berlaku sekarang; **angka perlu diisi pemilik di UI**.
 - `forfeit_pct` (#12) dan `extend_days`/`max_extensions` (#13): disemai 0 / 7 hari / 2 kali sebagai usulan sistem (`src="SISTEM"`), bukan dokumen legal.
 - Belum ada kebijakan akuntansi untuk pembalikan **PPN** pada deal batal (di luar 16 keputusan ini) — dicatat untuk W2.
+
+## 6. Status pengerjaan
+
+### W0 — Fondasi (selesai; tanpa perubahan perilaku bawaan)
+- `backend/policy.py`: resolver tunggal (`resolve`, `resolve_with_origin`, `snapshot`) — kontrak → klaster → proyek → organisasi → bawaan kode; tingkat kontrak
+  hanya untuk kunci yang `levels`-nya memuat `"contract"`, nilai usang/tak sah diabaikan (jatuh ke tingkat berikutnya, tidak diam-diam berlaku).
+- `settings_store.py`: `get_with_origin`; `levels` (tingkat penimpaan yang sah — `set_value` menolak tingkat lain); `unavailable` (opsi belum dibangun
+  ditolak server); grup baru **"Kebijakan Akuntansi & Pembatalan"**; `settings_policy.py` = modul kebijakan (pola `settings_p88`), `reference_p102.py` = kosakata enum,
+  asal nilai `cluster`/`contract` ditambahkan ke `setting_origin`.
+- Kunci percontohan end-to-end: **`deposit.on_cancelled_deal`** (keputusan #10; bawaan `bebas` = perilaku lama) — dibaca di `deposit_policy.py` oleh
+  `POST /finance/ar/{deal}/deposit`; opsi `tolak` dan `wajib_alasan_dan_antrean_refund` (alasan ≥ 10 karakter + tugas & notifikasi Keuangan) berlaku nyata.
+- UI Pusat Konfigurasi › Aturan Bisnis: **pemilih tingkat proyek** (sebelumnya UI hanya bisa mengubah tingkat organisasi); di tampilan proyek hanya aturan yang
+  mendeklarasikan `levels` memuat `project` yang ditawarkan (aturan lama tidak diam-diam tak berpengaruh); simpan/reset sadar-tingkat; opsi `unavailable` nonaktif + label.
+- Keputusan desain: **kunci baru didaftarkan bersama pembacanya** di tiap gelombang (bukan semua di muka) — kunci tanpa pembaca = pengaturan mati, melanggar prinsip.
+- Tes: `backend/tests/p0/test_w0_kebijakan.py` (12 tes: resolver, level, opsi belum tersedia, API, perilaku titipan; 7 tes HTTP merah di kode lama `7f31394`,
+  5 tes resolver memanggil modul yang tidak ada di kode lama), `scripts/ui/w0_kebijakan.js` (17 pemeriksaan peramban).
+- Belum: endpoint penimpaan tingkat kontrak (dikirim bersama kunci kontrak pertama, BPHTB, di W2); backend belum menolak penimpaan tingkat proyek untuk kunci LAMA yang tidak
+  mendeklarasikan `levels` (UI sudah tidak menawarkannya).

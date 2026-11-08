@@ -555,6 +555,8 @@ DEFAULTS: dict = {d["key"]: d for d in [
 
 from settings_p88 import DEFAULTS_P88  # noqa: E402
 DEFAULTS.update(DEFAULTS_P88)
+from settings_policy import DEFAULTS_POLICY  # noqa: E402   (kebijakan akuntansi/pembatalan terkonfigurasi — docs/audit/12)
+DEFAULTS.update(DEFAULTS_POLICY)
 
 GROUP_LABELS = {
     "reservasi": "Reservasi & Keep Unit", "lead": "Lead & Lifecycle",
@@ -571,6 +573,7 @@ GROUP_LABELS = {
     "pengingat": "Pengingat Otomatis (WhatsApp)",
     "whatsapp": "WhatsApp — Jam Kirim, Batas Laju & Biaya",
     "tampilan": "Tampilan",
+    "kebijakan": "Kebijakan Akuntansi & Pembatalan",
 }
 
 
@@ -597,6 +600,8 @@ def coerce(spec: dict, value):
         if spec.get("options") and value not in spec["options"]:
             raise ValueError(f"{spec['label']}: pilihan tidak valid "
                              f"({', '.join(spec['options'])}).")
+        if value in (spec.get("unavailable") or {}):   # aturan: tidak ada pengaturan "mati"
+            raise ValueError(f"{spec['label']}: opsi '{value}' belum tersedia — {spec['unavailable'][value]}")
     elif t == "list":
         if isinstance(value, str):
             value = [v.strip() for v in value.split(",") if v.strip()]
@@ -633,9 +638,9 @@ def invalidate():
     _CACHE["rows"] = {}
 
 
-async def get(key: str, *, org_id: str = ORG_ID, project_id: str = None,
-              cluster_id: str = None):
-    """Nilai efektif: cluster → project → org → default kode."""
+async def get_with_origin(key: str, *, org_id: str = ORG_ID, project_id: str = None,
+                          cluster_id: str = None):
+    """(nilai efektif, asal): cluster → project → org → default kode."""
     spec = DEFAULTS.get(key)
     if not spec:
         raise KeyError(f"Setting tidak dikenal: {key}")
@@ -643,8 +648,15 @@ async def get(key: str, *, org_id: str = ORG_ID, project_id: str = None,
     by = {(r.get("scope"), r.get("scope_id")): r.get("value") for r in rows}
     for scope, sid in (("cluster", cluster_id), ("project", project_id), ("org", org_id)):
         if sid and (scope, sid) in by:
-            return by[(scope, sid)]
-    return spec["value"]
+            return by[(scope, sid)], scope
+    return spec["value"], "default"
+
+
+async def get(key: str, *, org_id: str = ORG_ID, project_id: str = None,
+              cluster_id: str = None):
+    """Nilai efektif: cluster → project → org → default kode."""
+    return (await get_with_origin(key, org_id=org_id, project_id=project_id,
+                                  cluster_id=cluster_id))[0]
 
 
 async def get_many(keys, *, org_id: str = ORG_ID, project_id: str = None,
@@ -702,6 +714,8 @@ async def set_value(key: str, value, *, actor: str, reason: str = None,
         raise ValueError(f"Setting tidak dikenal: {key}")
     if scope not in SCOPES:
         raise ValueError(f"Scope tidak valid: {scope}")
+    if spec.get("levels") and scope not in spec["levels"]:
+        raise ValueError(f"'{spec['label']}' hanya bisa diatur di tingkat: {', '.join(spec['levels'])}.")
     scope_id = scope_id or (org_id if scope == "org" else None)
     if not scope_id:
         raise ValueError("scope_id wajib untuk scope project/cluster.")

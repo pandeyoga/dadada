@@ -29,7 +29,7 @@ import importlib  # noqa: E402
 
 from reference_p28 import SYNONYMS_P28 as _SYN_P28  # noqa: E402
 from reference_p43 import SYNONYMS_P43 as _SYN_P43  # noqa: E402
-_PHASES = (27, 28, 29, 31, 33, 34, 35, 36, 37, 39, 41, 43, 44, 45, 46, 47, 48, 49, 50, 51,
+_PHASES = (27, 28, 29, 31, 33, 34, 35, 36, 37, 39, 41, 43, 44, 45, 46, 47, 48, 49, 50, 51, 102,
            53, 54, 56, 57, 58, 59, 60, 62, 63, 64, 65, 69, 95, 99, 100, 101)
 for _ph in _PHASES:
     GROUPS.update(getattr(importlib.import_module(f"reference_p{_ph}"), f"GROUPS_P{_ph}"))

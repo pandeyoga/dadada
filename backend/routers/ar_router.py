@@ -11,6 +11,7 @@ from org_scope import exists_in_org
 from idempotency import Conflict
 from core_utils import serialize_doc, parse_pagination
 from rbac import audit_log, require_permission
+import deposit_policy
 import evidence
 import finance_engine as fe
 from idempotency import Conflict, once
@@ -113,6 +114,7 @@ async def deposit_receive(deal_id: str, payload: DepositReceive,
         # Klik ganda / dua tab / retry jaringan = satu penerimaan (audit IN-01).
         async with once("ar.deposit_in", deal_id, payload.amount, user.get("email"),
                         client_ref=payload.client_ref, what="Penerimaan titipan yang sama"):
+            batal = await deposit_policy.gate(user.get("org_id", ORG_ID), deal_id, payload.note)   # kebijakan deal batal
             await evidence.validate_proof(user.get("org_id", ORG_ID), payload.proof_file_ids,
                                           actor=user.get("email"), deal_id=deal_id)  # IN-17
             if payload.cash_account_id:   # GL-17: rekening tujuan harus sah/aktif (galat jelas, bukan jatuh ke default)
@@ -122,6 +124,7 @@ async def deposit_receive(deal_id: str, payload: DepositReceive,
                                           user.get("email"), user.get("org_id", ORG_ID),
                                           cash_account_id=payload.cash_account_id,
                                           proof_file_ids=payload.proof_file_ids)
+            res["refund_task"] = await deposit_policy.follow_up(user.get("org_id", ORG_ID), batal, payload.amount, payload.note)
     except Conflict:
         raise
     except ValueError as e:

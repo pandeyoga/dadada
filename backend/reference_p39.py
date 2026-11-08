@@ -229,7 +229,8 @@ GROUPS_P39: dict = {
     "setting_origin": {
         "label": "Asal Nilai Setting", "strict": True, "options": [
             _o("default", "Bawaan sistem"), _o("org", "Diubah organisasi"),
-            _o("project", "Khusus proyek"),
+            _o("project", "Khusus proyek"), _o("cluster", "Khusus klaster"),
+            _o("contract", "Khusus kontrak"),
         ],
     },
     "setting_source": {

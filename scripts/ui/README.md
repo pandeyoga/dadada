@@ -11,13 +11,15 @@ tak berlaku tidak ditawarkan, layar menyegarkan diri sesudah galat, dan tidak ad
 | `ronde_bc_banner.js` | Banner tab Komponen Biaya + `GlReconcileBanner` (12 pemeriksaan + `indicator`) |
 | `ronde_d_void.js` | `ArDetailSheet`: void kuitansi + penolakan pada deal batal |
 | `ronde_f_batal_reservasi.js` | Batal reservasi satu-klik: pengakuan titipan/invoice biaya (butuh backend dengan `cost_holds`; dilewati bila belum ada) |
+| `w0_kebijakan.js` | Pusat Konfigurasi › Aturan Bisnis: kebijakan terkonfigurasi (kelompok Kebijakan, alasan wajib, pemilih tingkat proyek, opsi "belum tersedia" nonaktif) |
 | `ronde_e_aksi_409.js` | Setujui/tolak permintaan material, status izin, status komplain, batal PO `partially_received`, buka-blokir unit, setujui/tolak transfer kas |
 
 ## Menjalankan
 
 1. Backend hidup (mis. `uvicorn server:app --port 8073`) dengan akun demo (`SEED_DEMO_USERS=true`).
 2. Bangun frontend satu-origin: `cd frontend && DISABLE_ESLINT_PLUGIN=true BUILD_PATH=/tmp/ui_build yarn build`
-   (tanpa `REACT_APP_BACKEND_URL` — `apiClient` memakai origin halaman).
+   (`apiClient` memakai origin halaman bila `REACT_APP_BACKEND_URL` kosong. `frontend/.env` memasang nilai bawaan, jadi kosongkan EKSPLISIT:
+   `REACT_APP_BACKEND_URL= DISABLE_ESLINT_PLUGIN=true BUILD_PATH=/tmp/ui_build yarn build` — tanpa itu login peramban menembak `localhost:8001` dan menggantung).
 3. Sajikan: `node scripts/ui/serve.js /tmp/ui_build 3073 8073` (statis + proksi `/api`).
 4. Jalankan semuanya (menyemai data baru lewat API lalu semua skrip):
    ```

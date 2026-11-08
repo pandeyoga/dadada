@@ -52,25 +52,38 @@ export default function SettingsPanel() {
   const [confirm, setConfirm] = useState(null);
   const [reason, setReason] = useState("");
   const [history, setHistory] = useState(null);
+  // Tingkat penimpaan: kosong = organisasi; terisi = KHUSUS proyek ini (docs/audit/12 — sistem tidak kaku).
+  const [projects, setProjects] = useState([]);
+  const [projectId, setProjectId] = useState("");
+  const scope = projectId ? { scope: "project", scope_id: projectId } : { scope: "org" };
+
+  useEffect(() => {
+    api.get("/projects").then((r) => setProjects((r.data.data || []).map((p) => ({ id: p.id, name: p.name }))))
+      .catch(() => setProjects([]));
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
-      const res = await api.get("/settings", { params: { group: group || undefined, q: query.q || undefined } });
-      setRows(res.data.data || []);
+      const res = await api.get("/settings", {
+        params: { group: group || undefined, q: query.q || undefined, project_id: projectId || undefined } });
+      // Di tampilan proyek hanya aturan yang BENAR-BENAR membaca penimpaan proyek (levels memuat "project");
+      // aturan lama yang tidak mendeklarasikannya tidak ditawarkan supaya tidak ada pengaturan yang diam-diam tidak berpengaruh.
+      const all = res.data.data || [];
+      setRows(projectId ? all.filter((r) => (r.levels || []).includes("project")) : all);
       setGroups(res.data.groups || []);
       setDraft({});
     } catch (e) {
       setError(e?.response?.data?.detail || "Gagal memuat konfigurasi.");
     } finally { setLoading(false); }
-  }, [group, query.q]);
+  }, [group, query.q, projectId]);
 
   useEffect(() => { load(); }, [load]);
 
   const save = async (row, value, why) => {
     try {
-      await api.put(`/settings/${row.key}`, { value, reason: why || undefined });
-      toast.success(`"${row.label}" diperbarui.`);
+      await api.put(`/settings/${row.key}`, { value, reason: why || undefined, ...scope });
+      toast.success(projectId ? `"${row.label}" diperbarui untuk proyek ini.` : `"${row.label}" diperbarui.`);
       setConfirm(null); setReason("");
       load();
     } catch (e) {
@@ -86,8 +99,8 @@ export default function SettingsPanel() {
 
   const reset = async (row) => {
     try {
-      await api.post(`/settings/${row.key}/reset`);
-      toast.success(`"${row.label}" dikembalikan ke bawaan sistem.`);
+      await api.post(`/settings/${row.key}/reset`, null, { params: scope });
+      toast.success(projectId ? `"${row.label}" kembali mengikuti pengaturan organisasi.` : `"${row.label}" dikembalikan ke bawaan sistem.`);
       load();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Gagal mengembalikan nilai.");
@@ -121,9 +134,11 @@ export default function SettingsPanel() {
           </SelectTrigger>
           <SelectContent>
             {(row.options || []).map((o) => (
-              <SelectItem key={o} value={o} data-testid={`config-enum-option-${o}`}>
+              <SelectItem key={o} value={o} data-testid={`config-enum-option-${o}`}
+                disabled={!!row.unavailable?.[o]} title={row.unavailable?.[o] || undefined}>
                 {row.option_labels?.[o] || labelOf(row.ref_group, o)}
                 <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">{o}</span>
+                {row.unavailable?.[o] ? <span className="ml-1.5 text-[10px] text-amber-700">belum tersedia</span> : null}
               </SelectItem>
             ))}
           </SelectContent>
@@ -244,7 +259,8 @@ export default function SettingsPanel() {
             <History className="h-3.5 w-3.5" />
           </Button>
           <Button data-testid={CONFIG.ruleReset} size="sm" variant="ghost"
-            disabled={r.origin === "default"} onClick={() => reset(r)} title="Kembalikan bawaan">
+            disabled={r.origin !== (projectId ? "project" : "org")} onClick={() => reset(r)}
+            title={projectId ? "Ikuti pengaturan organisasi" : "Kembalikan bawaan"}>
             <RotateCcw className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -269,7 +285,16 @@ export default function SettingsPanel() {
         loading={loading} error={error} onRefresh={load}
         searchPlaceholder="Cari aturan (mis. booking, cicilan, pajak)…"
         exportName="aturan-bisnis" emptyTitle="Tidak ada aturan yang cocok"
-        filters={(
+        filters={(<>
+          <Select value={projectId || "__org__"} onValueChange={(v) => setProjectId(v === "__org__" ? "" : v)}>
+            <SelectTrigger data-testid={CONFIG.rulesProject} className="h-9 w-[220px]" aria-label="Tingkat pengaturan">
+              <SelectValue placeholder="Seluruh organisasi" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__org__">Seluruh organisasi</SelectItem>
+              {projects.map((p) => <SelectItem key={p.id} value={p.id}>Khusus proyek: {p.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
           <Select value={group || "__all__"}
             onValueChange={(v) => {
               const next = v === "__all__" ? "" : v;
@@ -292,7 +317,7 @@ export default function SettingsPanel() {
               ))}
             </SelectContent>
           </Select>
-        )}
+        </>)}
       />
 
       <Dialog open={!!confirm} onOpenChange={(o) => { if (!o) { setConfirm(null); setReason(""); } }}>
