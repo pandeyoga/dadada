@@ -95,7 +95,7 @@ export default function SchemeChangePanel({ dealId, onChanged }) {
       <div>
         <h4 className="font-heading text-sm font-semibold">Ganti skema ditahan — menunggu pemetaan alokasi</h4>
         <p className="text-xs text-muted-foreground">
-          Skema baru <b>{req.target_scheme_name}</b> belum berlaku karena sudah ada pembayaran {formatIDR(req.paid_total)}.
+          Skema baru <b>{req.target_scheme_label}</b> belum berlaku karena sudah ada pembayaran {formatIDR(req.paid_total)}.
           Mode: {MODE_LABEL[req.mode] || req.mode}. Jadwal dan kuitansi lama tetap berlaku sampai ini selesai; mengubah alokasi tidak mengubah kas atau jurnal.
         </p>
       </div>

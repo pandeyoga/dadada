@@ -329,3 +329,58 @@ def test_ganti_jenis_skema_kontrak_dengan_uang_nyata_ditahan(world):
     assert ok(call(OWNER, "GET", f"/contracts/{cid}"))["data"]["scheme"] == "cash_keras"
     assert ar(d["deal_id"])["data"]["items"][0]["paid_amount"] == 160_000_000
     assert _reconcile_ok()
+
+
+# ================================================================== logika murni (tanpa server): bank vs pembeli, tidak muat
+def _items():
+    return [{"label": "DP", "amount": 100, "payer": "buyer", "due_date": "2026-01-01"},
+            {"label": "Cicilan", "amount": 200, "payer": "buyer", "due_date": "2026-02-01"},
+            {"label": "Pencairan KPR", "amount": 700, "payer": "bank", "due_date": "2026-03-01"}]
+
+
+def _rc(i, applied, method="transfer"):
+    return {"id": f"r{i}", "receipt_no": f"KWT{i}", "applied": applied, "method": method, "created_at": f"2026-01-0{i}"}
+
+
+def test_logika_pemetaan_bank_dan_pembeli_dipisah():
+    import scheme_change_alloc as sca
+    items = _items()
+    rs = [_rc(1, 150), _rc(2, 300, "kpr")]
+    alloc = sca.distribute(rs, items, "urut_termin_tertua")
+    assert alloc["r1"] == [(0, 100), (1, 50)], "setoran pembeli mengisi DP lalu cicilan, tak menyentuh porsi bank"
+    assert alloc["r2"] == [(2, 300)], "pencairan KPR hanya ke porsi bank"
+    prop = sca.distribute(rs, items, "proporsional")
+    assert sum(a for lst in prop.values() for _, a in lst) == 450
+    pembeli = sum(a for j, a in prop["r1"])
+    assert pembeli == 150 and all(j in (0, 1) for j, _ in prop["r1"])
+    # setoran melebihi seluruh termin pembeli → tidak muat
+    with pytest.raises(ValueError, match="tidak muat"):
+        sca.distribute([_rc(1, 400)], items, "urut_termin_tertua")
+    with pytest.raises(ValueError):
+        sca.distribute([_rc(1, 400)], items, "proporsional")
+
+
+def test_logika_validasi_pemetaan_manual_menolak_salah_pihak():
+    import scheme_change_alloc as sca
+    items, rs = _items(), [_rc(1, 150), _rc(2, 300, "kpr")]
+    ok_map = [{"receipt_id": "r1", "allocations": [{"no": 1, "amount": 100}, {"no": 2, "amount": 50}]},
+              {"receipt_id": "r2", "allocations": [{"no": 3, "amount": 300}]}]
+    assert sca.normalize(ok_map, rs, items)["r2"] == [(2, 300)]
+    salah = [{"receipt_id": "r1", "allocations": [{"no": 3, "amount": 150}]}, ok_map[1]]       # setoran pembeli ke porsi bank
+    with pytest.raises(ValueError, match="porsi bank"):
+        sca.normalize(salah, rs, items)
+    salah = [ok_map[0], {"receipt_id": "r2", "allocations": [{"no": 1, "amount": 300}]}]      # pencairan KPR ke termin pembeli
+    with pytest.raises(ValueError, match="tidak boleh dialokasikan"):
+        sca.normalize(salah, rs, items)
+    with pytest.raises(ValueError, match="kelebihan"):                                          # kumulatif melebihi nilai termin
+        sca.normalize([{"receipt_id": "r1", "allocations": [{"no": 1, "amount": 150}]}, ok_map[1]], rs, items)
+
+
+def test_logika_denda_dibayar_dan_ar_tidak_sinkron_ditolak():
+    import scheme_change_alloc as sca
+    rs = [_rc(1, 100)]
+    with pytest.raises(ValueError, match="Denda"):
+        sca.check_old_ar({"paid": 100, "items": [{"label": "Denda", "is_penalty": True, "paid_amount": 10}]}, rs)
+    with pytest.raises(ValueError, match="Rekonsiliasi"):
+        sca.check_old_ar({"paid": 90, "items": []}, rs)
+    sca.check_old_ar({"paid": 100, "items": [{"label": "DP", "paid_amount": 100}]}, rs)

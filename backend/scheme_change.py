@@ -192,7 +192,7 @@ async def _open_request(org: str, *, deal: dict, contract: dict, op: str, params
             if ada["op"] == op and ada.get("target_scheme_id") == scheme["id"]:
                 raise Held(ada)
             raise ValueError(f"Sudah ada permintaan penggantian skema untuk deal ini yang menunggu Keuangan ({ada['id']}, ke "
-                             f"skema '{ada.get('target_scheme_name')}'). Selesaikan atau batalkan dulu sebelum mengajukan yang lain.")
+                             f"skema '{ada.get('target_scheme_label')}'). Selesaikan atau batalkan dulu sebelum mengajukan yang lain.")
         inv = await db.ar_invoices.find_one({"org_id": org, "deal_id": deal["id"]}, {"_id": 0})
         liab = await db.contract_liabilities.find_one({"org_id": org, "deal_id": deal["id"]}, {"_id": 0, "recognized": 1})
         if (liab or {}).get("recognized"):
@@ -208,10 +208,10 @@ async def _open_request(org: str, *, deal: dict, contract: dict, op: str, params
         doc = {
             "id": new_id(), "org_id": org, "deal_id": deal["id"], "contract_id": (contract or {}).get("id"),
             "unit_code": deal.get("unit_code"), "project_id": deal.get("project_id"),
-            "op": op, "params": params, "target_scheme_id": scheme["id"], "target_scheme_name": scheme.get("name"),
+            "op": op, "params": params, "target_scheme_id": scheme["id"], "target_scheme_label": scheme.get("name"),
             "mode": mode, "status": "menunggu_pemetaan" if mode == MANUAL else "menunggu_konfirmasi",
             "reason": (reason or "").strip() or None, "requested_by": actor, "requested_at": ts,
-            "old_scheme_id": inv.get("scheme_id"), "old_scheme_name": inv.get("scheme_name"), "paid_total": int(inv.get("paid") or 0),
+            "old_scheme_id": inv.get("scheme_id"), "old_scheme_label": inv.get("scheme_name"), "paid_total": int(inv.get("paid") or 0),
             "old_items": [{"id": i["id"], "label": i.get("label"), "amount": int(i.get("amount") or 0),
                            "paid_amount": int(i.get("paid_amount") or 0)} for i in inv.get("items") or []],
             "preview": sca.summarize(items), "schedule_hash": sca.schedule_hash(items),
