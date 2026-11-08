@@ -122,3 +122,30 @@ Tiap gelombang diselesaikan, diverifikasi, dan di-push sebelum gelombang berikut
   5 tes resolver memanggil modul yang tidak ada di kode lama), `scripts/ui/w0_kebijakan.js` (17 pemeriksaan peramban).
 - Belum: endpoint penimpaan tingkat kontrak (dikirim bersama kunci kontrak pertama, BPHTB, di W2); backend belum menolak penimpaan tingkat proyek untuk kunci LAMA yang tidak
   mendeklarasikan `levels` (UI sudah tidak menawarkannya).
+
+### W1 — Deal & pembatalan (selesai; tiga agen paralel A/B/C, digabung di cabang kerja)
+Kunci terdaftar (semua ber-`levels` org+proyek, sensitif = alasan wajib, tercatat di riwayat) — bawaan = jawaban pemilik; opsi `unavailable` = belum bisa dibangun dengan aman:
+
+| # | Kunci | Bawaan | Opsi tersedia | Belum tersedia (alasan) |
+|---|---|---|---|---|
+| 7 | `lead.won_trigger` (kunci lama; kini bisa per proyek) | `booking_fee_verified` (dulu `spr_signed`) | `booking_fee_verified` · `spr_signed` · `ppjb_signed` · `ajb_signed` | — |
+| 8 | `discount.approval_mode`, `discount.approval_tiers` | `bertingkat`, satu tingkat `{null, sales_manager}` (= perilaku lama) | `satu_level` · `bertingkat` | — |
+| 9 | `payment.scheme_change.allocation` | `manual_keuangan` | `manual_keuangan` · `urut_termin_tertua` · `proporsional` | — |
+| 10 | `deposit.on_cancelled_deal` | `bebas` | `bebas` · `wajib_alasan_dan_antrean_refund` · `tolak` | — |
+| 11 | `cancel.accrual_reversal.commission` / `.marketing_fee` | `manual_keuangan` | `manual_keuangan` · `balik_otomatis_yang_belum_dibayar` | `balik_otomatis_semua` (tak ada akun piutang ke penerima di Bagan Akun) |
+| 11 | `cancel.accrual_reversal.tax` | `manual_keuangan` | `manual_keuangan` | kedua opsi otomatis (akrual pajak baru dijurnal saat dilaporkan; membaliknya = pembetulan SPT) |
+| 12 | `cancel.cost_deposit.policy` (+ `forfeit_pct`, `requires_approval`) | `refund_dan_batalkan_invoice`, 0 %, wajib persetujuan | `refund_dan_batalkan_invoice` · `manual_dengan_pengakuan` · `hangus_sebagian` | — |
+| 13 | `reservation.expiry.paid_booking_fee` (+ `extend_days` 7, `max_extensions` 2) | `perpanjang` | `perpanjang` · `antrean_refund` · `hangus` | — |
+| 14 | `contract.scheme_change_to_kpr` | `tolak_buat_baru` | `tolak_buat_baru` · `hitung_ulang_dengan_persetujuan` · `izinkan_manual` | — |
+
+Perubahan perilaku BAWAAN yang terasa bagi organisasi yang belum menimpa kunci (rincian di 06 §8.W1-W1A/W1B/W1C):
+1. **Konversi lead→pembeli saat booking terverifikasi** (bukan saat SPR): tiap booking yang dikonfirmasi langsung membuat pembeli, kontrak draft, jadwal AR, pengajuan KPR (skema KPR), tugas KYC; lead `won`. Pengaman KT-21: deal yang skemanya hanya bawaan sistem tidak dikonversi otomatis (sales memilih skema).
+2. **Reservasi dengan booking fee terbayar tidak lagi dilepas diam-diam** — diperpanjang 7 hari maks. 2×, lalu unit tertahan + tugas tindak lanjut.
+3. **Batal dengan titipan/invoice biaya terbuka tidak lagi 400** — lolos, melahirkan permohonan refund yang menunggu persetujuan Keuangan (pemohon ≠ penyetuju).
+4. **Ganti skema pada deal berbayar-nyata ditahan (HTTP 202)** sampai Keuangan memetakan alokasi; ganti ke skema KPR pada kontrak yang sudah ada ditolak (400) — mengikuti jawaban pemilik.
+5. **Penawaran: pembuat tidak bisa menyetujui penawarannya sendiri** pada mode bertingkat bawaan (dulu tak ada pemeriksaan).
+
+Temuan sampingan: pemicu `spr_signed` dulu **tidak pernah jalan** (handler membaca `ev["payload"]`, sedangkan `emit()` menyimpan di `ev["data"]`); `ppjb_signed`/`ajb_signed` tak punya peristiwa pemicu — kini diperbaiki.
+
+⚖ Menunggu keputusan/konfirmasi pemilik: `hangus_sebagian` (uang titipan biaya = uang pihak ketiga, posting ke 4-1200; konfirmasi klausul SPR & perlakuan pajak ke konsultan pajak); `hangus` pada reservasi (mengubah uang pembeli menjadi pendapatan otomatis);
+urutan kewenangan peran tingkat persetujuan (`sales_manager < finance_manager < owner`; `finance_manager` pada jalur penawaran butuh izin `quotations:approve` bagi peran itu); owner tunggal yang membuat penawaran tidak bisa menyetujuinya sendiri di mode bertingkat (pakai `satu_level` atau owner/super_admin lain).
