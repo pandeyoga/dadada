@@ -71,3 +71,23 @@ tampil setelah login.
 
 Screenshot tersimpan di scratchpad sesi (di luar repo):
 `.../scratchpad/rn_shots/ios_01.png` … `ios_09.png`.
+
+## Kelengkapan screenshot (update 2026-11-24)
+
+Google Play juga sudah dicek: 8 screenshot-nya **identik** dengan set iOS
+(CCTV, Beranda, Welcome, Pembayaran Berhasil, Marketplace, Ningrat Pay, SOS,
+Gate System) — tidak ada layar baru, bahkan kurang layar "Pembayaran IPL" yang
+ada di iOS. Jadi tidak ada screenshot Play yang disimpan (duplikat).
+
+**Seluruh halaman yang DIPUBLIKASIKAN sudah ditangkap (9 layar unik):**
+1. Welcome (Buat Akun/Masuk) · 2. Beranda · 3. Live CCTV · 4. Gate System ·
+5. Ningrat Pay · 6. Pembayaran Berhasil · 7. Pembayaran IPL (iOS) ·
+8. SOS Panic Button · 9. Marketplace.
+
+**Halaman yang TIDAK dipublikasikan** (ada di grid/menu tapi terkunci di balik
+login warga; tidak bisa di-screenshot tanpa akun sah, dan tidak saya coba):
+Service Place, Hobbies/Hobby Community, Event Warga, Complaint Management,
+menu "Lainnya", detail Security On Duty, Notifikasi, tab Komunitas, tab Profil,
+detail/keranjang/checkout Marketplace, alur "Buat Akun", pemutar video CCTV,
+riwayat penuh Gate & Ningrat Pay. Ini batas yang tidak bisa dilewati tanpa
+menjadi penghuni terdaftar.
