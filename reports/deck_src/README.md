@@ -14,3 +14,8 @@ Isi data ada di `slides_known.js` (BTN + Rumah Ningrat), `slides_btn_history.js`
 (29 slide, khusus domain aplikasi). Selain aset dari `prep_assets.py`, deck ini memakai potongan screenshot dari
 `research_notes/Riset aplikasi pesaing dan pemenang BTN/screenshots/` dan `research_notes/Riset Rumah Ningrat dan aplikasinya/screenshots/web/`
 yang diskalakan ke tinggi 900 px dengan sudut membulat (nama berkas `ph_*`, `pre_*`, `win_*`, `rn_*` di folder assets).
+
+## Deck bedah pemenang BTN Housingpreneur
+`NODE_PATH=$PWD/node_modules node deck_bedah.js out.pptx` membangun `reports/Bedah pemenang BTN Housingpreneur.pptx` (34 slide).
+Gambar di `assets/bd/` dipotong dari `research_notes/Bedah pemenang BTN Housingpreneur/screenshots/` (lihat kotak potong di
+skrip persiapan aset dalam riwayat sesi) dan diskalakan maksimal 1100 px dengan sudut membulat.
