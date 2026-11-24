@@ -41,7 +41,7 @@ async function btnTracks(pres, C, sec) {
 
 async function btnCriteria(pres, C, sec) {
   const s = pres.addSlide({ masterName: 'CONTENT', sectionTitle: sec });
-  s.addText('ARENA · KRITERIA PENILAIAN', { placeholder: 'kicker' });
+  s.addText('BTN HOUSINGPRENEUR · KRITERIA', { placeholder: 'kicker' });
   s.addText('Housing Ecosystem paling cocok untuk platform developer', { placeholder: 'title' });
 
   const labels = ['Housing Tech (Developer)', 'Housing Ecosystem (Developer)', 'Housing Innovation (Umum)'];
@@ -104,7 +104,7 @@ async function rnProfile(pres, C, sec) {
 
 async function rnStack(pres, C, sec) {
   const s = pres.addSlide({ masterName: 'CONTENT', sectionTitle: sec });
-  s.addText('STUDI KASUS · EKOSISTEM DIGITAL', { placeholder: 'kicker' });
+  s.addText('RUMAH NINGRAT · PETA APLIKASI', { placeholder: 'kicker' });
   s.addText('Empat lapis digital, semuanya dibangun sendiri', { placeholder: 'title' });
   const nodes = [
     { stage: 'AKUISISI', icon: fa.FaGlobe, name: 'Booking mandiri', host: 'rumahningrat.com', pts: 'Pilih kavling per blok · booking Rp100 rb · diskon Rp3 jt untuk booking online · BI checking otomatis' },
@@ -136,7 +136,7 @@ async function rnStack(pres, C, sec) {
 
 async function rnApp(pres, C, sec) {
   const s = pres.addSlide({ masterName: 'CONTENT', sectionTitle: sec });
-  s.addText('STUDI KASUS · APLIKASI PENGHUNI', { placeholder: 'kicker' });
+  s.addText('RUMAH NINGRAT · APLIKASI PENGHUNI', { placeholder: 'kicker' });
   s.addText('Aplikasi penghuni: fitur lengkap, pengguna masih tipis', { placeholder: 'title' });
   const phones = [['app_02.png', 'Beranda warga'], ['app_04.png', 'Gate dengan cek lokasi GPS'], ['app_08.png', 'Bayar IPL via virtual account']];
   const ph = 4.55, pw = ph * 480 / 1039;
@@ -146,7 +146,7 @@ async function rnApp(pres, C, sec) {
     txt(s, cap, { x, y: 6.15, w: pw, h: 0.4, fontSize: 12, color: C.accent5, align: 'center' });
   });
   const px = 8.35, pw2 = 4.37;
-  const stats = [['1.000+', 'unduhan Android; iOS tak dipublikasikan'], ['0', 'rating dan ulasan di kedua toko'], ['±10–22%', 'perkiraan rumah tangga yang memasang (vs 10.000 unit)']];
+  const stats = [['1.000+', 'unduhan Android; angka iOS tidak dipublikasikan'], ['0', 'rating dan ulasan di kedua toko'], ['±10–22%', 'perkiraan rumah tangga yang memasang (vs 10.000 unit)']];
   stats.forEach(([n, l], i) => {
     const y = 1.55 + i * 1.02;
     card(s, C, px, y, pw2, 0.88, { fill: C.background2, name: 'app stat ' + i });
@@ -165,7 +165,7 @@ async function rnApp(pres, C, sec) {
 
 async function rnMitra(pres, C, sec) {
   const s = pres.addSlide({ masterName: 'CONTENT', sectionTitle: sec });
-  s.addText('STUDI KASUS · PORTAL MITRA', { placeholder: 'kicker' });
+  s.addText('RUMAH NINGRAT · PORTAL MITRA', { placeholder: 'kicker' });
   s.addText('Portal mitra menjadikan agen kanal distribusi', { placeholder: 'title' });
   s.addImage({ path: A('mitra_tools.png'), x: 0.6, y: 1.55, w: 6.15, h: 6.15 * 999 / 1400, objectName: 'mitra tools screenshot', altText: 'Bagian Tools portal Mitra Ningrat: landing page personal, website pribadi, Mitra Apps monitoring referral' });
   const sh = 4.85, sw = sh * 860 / 1640;
