@@ -1,0 +1,418 @@
+[
+  {
+    "id": "U1",
+    "path": "/app/demo",
+    "title": "Peluncur demo",
+    "surface": "demo",
+    "tier": "D"
+  },
+  {
+    "id": "U2",
+    "path": "/app/masuk",
+    "title": "Masuk",
+    "surface": "demo",
+    "tier": "D"
+  },
+  {
+    "id": "P1",
+    "path": "/app/pembeli",
+    "title": "Beranda pembeli",
+    "surface": "buyer",
+    "tier": "D"
+  },
+  {
+    "id": "P2",
+    "path": "/app/pembeli/progres",
+    "title": "Progres",
+    "surface": "buyer",
+    "tier": "D"
+  },
+  {
+    "id": "P3",
+    "path": "/app/pembeli/kavling",
+    "title": "Peta kavling",
+    "surface": "buyer",
+    "tier": "L"
+  },
+  {
+    "id": "P4",
+    "path": "/app/pembeli/bayar",
+    "title": "Bayar",
+    "surface": "buyer",
+    "tier": "D"
+  },
+  {
+    "id": "P5",
+    "path": "/app/pembeli/bayar/dp-3",
+    "title": "Bayar uang muka",
+    "surface": "buyer",
+    "tier": "D"
+  },
+  {
+    "id": "P6",
+    "path": "/app/pembeli/kpr",
+    "title": "Status KPR",
+    "surface": "buyer",
+    "tier": "L"
+  },
+  {
+    "id": "P7",
+    "path": "/app/pembeli/pembatalan",
+    "title": "Pembatalan & refund",
+    "surface": "buyer",
+    "tier": "L"
+  },
+  {
+    "id": "P8",
+    "path": "/app/pembeli/dokumen",
+    "title": "Dokumen",
+    "surface": "buyer",
+    "tier": "L"
+  },
+  {
+    "id": "P9",
+    "path": "/app/pembeli/akun",
+    "title": "Akun pembeli",
+    "surface": "buyer",
+    "tier": "L"
+  },
+  {
+    "id": "P10",
+    "path": "/app/ajak-teman",
+    "title": "Ajak teman",
+    "surface": "buyer",
+    "tier": "L",
+    "extraIds": [
+      "W29"
+    ]
+  },
+  {
+    "id": "P11",
+    "path": "/app/pembeli/promo/promo-1",
+    "title": "Promo & info developer",
+    "surface": "buyer",
+    "tier": "L"
+  },
+  {
+    "id": "T1",
+    "path": "/app/selamat-datang",
+    "title": "Selamat datang di rumah baru",
+    "surface": "transition",
+    "tier": "D"
+  },
+  {
+    "id": "W1",
+    "path": "/app/warga",
+    "title": "Beranda warga",
+    "surface": "resident",
+    "tier": "D"
+  },
+  {
+    "id": "W2",
+    "path": "/app/warga/keamanan",
+    "title": "Keamanan rumah",
+    "surface": "resident",
+    "tier": "D"
+  },
+  {
+    "id": "W3",
+    "path": "/app/warga/keamanan/kunci",
+    "title": "Kunci pintu",
+    "surface": "resident",
+    "tier": "D"
+  },
+  {
+    "id": "W4",
+    "path": "/app/warga/keamanan/cctv-rumah",
+    "title": "CCTV rumah",
+    "surface": "resident",
+    "tier": "D"
+  },
+  {
+    "id": "W5",
+    "path": "/app/warga/keamanan/kawasan",
+    "title": "Keamanan kawasan",
+    "surface": "resident",
+    "tier": "D"
+  },
+  {
+    "id": "W6",
+    "path": "/app/warga/keamanan/gerbang",
+    "title": "Gerbang pintar",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W7",
+    "path": "/app/warga/keamanan/tamu",
+    "title": "Undang tamu",
+    "surface": "resident",
+    "tier": "D"
+  },
+  {
+    "id": "W8",
+    "path": "/app/warga/sos",
+    "title": "SOS",
+    "surface": "resident",
+    "tier": "D"
+  },
+  {
+    "id": "W9",
+    "path": "/app/warga/sos/kontak",
+    "title": "Kontak darurat",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W10",
+    "path": "/app/warga/tagihan",
+    "title": "Tagihan",
+    "surface": "resident",
+    "tier": "D"
+  },
+  {
+    "id": "W11",
+    "path": "/app/warga/tagihan/riwayat",
+    "title": "Riwayat tagihan",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W12",
+    "path": "/app/warga/tagihan/kas",
+    "title": "Laporan kas kawasan",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W13",
+    "path": "/app/warga/isi-ulang",
+    "title": "Bayar & Isi Ulang",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W14",
+    "path": "/app/warga/komunitas",
+    "title": "Komunitas",
+    "surface": "resident",
+    "tier": "D"
+  },
+  {
+    "id": "W15",
+    "path": "/app/warga/komunitas/event/ev-1",
+    "title": "Event warga",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W16",
+    "path": "/app/warga/komunitas/hobi",
+    "title": "Kelompok hobi",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W17",
+    "path": "/app/warga/komunitas/polling",
+    "title": "Polling warga",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W18",
+    "path": "/app/warga/pasar",
+    "title": "Pasar warga",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W19",
+    "path": "/app/warga/jasa",
+    "title": "Jasa rumah",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W20",
+    "path": "/app/warga/layanan",
+    "title": "Semua layanan",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W21",
+    "path": "/app/warga/lapor",
+    "title": "Lapor kerusakan",
+    "surface": "resident",
+    "tier": "D"
+  },
+  {
+    "id": "W22",
+    "path": "/app/warga/garansi",
+    "title": "Klaim garansi",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W23",
+    "path": "/app/warga/dokumen",
+    "title": "Dokumen rumah",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W24",
+    "path": "/app/warga/renovasi",
+    "title": "Izin renovasi",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W25",
+    "path": "/app/warga/fasilitas",
+    "title": "Booking fasilitas",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W26",
+    "path": "/app/warga/energi",
+    "title": "Energi rumah",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W27",
+    "path": "/app/notifikasi",
+    "title": "Notifikasi",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "W28",
+    "path": "/app/warga/akun",
+    "title": "Akun warga",
+    "surface": "resident",
+    "tier": "L"
+  },
+  {
+    "id": "S1",
+    "path": "/app/satpam",
+    "title": "Beranda pos",
+    "surface": "satpam",
+    "tier": "D"
+  },
+  {
+    "id": "S2",
+    "path": "/app/satpam/sos",
+    "title": "Peringatan SOS",
+    "surface": "satpam",
+    "tier": "D"
+  },
+  {
+    "id": "S3",
+    "path": "/app/satpam/tamu",
+    "title": "Pindai QR tamu",
+    "surface": "satpam",
+    "tier": "D"
+  },
+  {
+    "id": "S4",
+    "path": "/app/satpam/cctv",
+    "title": "CCTV kawasan",
+    "surface": "satpam",
+    "tier": "L"
+  },
+  {
+    "id": "S5",
+    "path": "/app/satpam/patroli",
+    "title": "Log patroli",
+    "surface": "satpam",
+    "tier": "L"
+  },
+  {
+    "id": "K1",
+    "path": "/app/pengelola",
+    "title": "Ringkasan kawasan",
+    "surface": "manager",
+    "tier": "L"
+  },
+  {
+    "id": "K2",
+    "path": "/app/pengelola/ipl",
+    "title": "Tagihan IPL",
+    "surface": "manager",
+    "tier": "L"
+  },
+  {
+    "id": "K3",
+    "path": "/app/pengelola/tiket",
+    "title": "Tiket & keluhan",
+    "surface": "manager",
+    "tier": "L"
+  },
+  {
+    "id": "K4",
+    "path": "/app/pengelola/pengumuman",
+    "title": "Pengumuman & agenda",
+    "surface": "manager",
+    "tier": "L"
+  },
+  {
+    "id": "K5",
+    "path": "/app/pengelola/kas",
+    "title": "Laporan kas",
+    "surface": "manager",
+    "tier": "L"
+  },
+  {
+    "id": "K6",
+    "path": "/app/pengelola/keamanan",
+    "title": "Keamanan",
+    "surface": "manager",
+    "tier": "L"
+  },
+  {
+    "id": "K7",
+    "path": "/app/pengelola/mitra",
+    "title": "Mitra layanan & pasar",
+    "surface": "manager",
+    "tier": "L"
+  },
+  {
+    "id": "M1",
+    "path": "/app/mitra/daftar",
+    "title": "Daftar mitra",
+    "surface": "partner",
+    "tier": "L"
+  },
+  {
+    "id": "M2",
+    "path": "/app/mitra",
+    "title": "Beranda mitra",
+    "surface": "partner",
+    "tier": "L"
+  },
+  {
+    "id": "M3",
+    "path": "/app/mitra/katalog",
+    "title": "Katalog proyek",
+    "surface": "partner",
+    "tier": "L"
+  },
+  {
+    "id": "M4",
+    "path": "/app/mitra/rujukan",
+    "title": "Rujukan saya",
+    "surface": "partner",
+    "tier": "L"
+  },
+  {
+    "id": "M5",
+    "path": "/app/mitra/komisi",
+    "title": "Komisi & pencairan",
+    "surface": "partner",
+    "tier": "L"
+  }
+]

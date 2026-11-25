@@ -59,6 +59,7 @@ import MasterDataPage from "@/pages/MasterDataPage";
 import AuditLogsPage from "@/pages/AuditLogsPage";
 import DataManagementPage from "@/pages/DataManagementPage";
 import PortalApp from "@/pages/portal/PortalApp";
+const PrototypeApp = React.lazy(() => import("@/prototype/PrototypeApp"));
 import PublicShowroom from "@/pages/PublicShowroom";
 import LegalPublicPage from "@/pages/LegalPublicPage";
 import LegalAdminPage from "@/pages/LegalAdminPage";
@@ -136,6 +137,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginRoute />} />
           <Route path="/portal/*" element={<PortalApp />} />
+          <Route path="/app/*" element={<React.Suspense fallback={null}><PrototypeApp /></React.Suspense>} />
           {/* Fase 28b — halaman showroom PUBLIK: sengaja di luar RequireAuth (calon
               pembeli tidak punya akun) dan diakses lewat token acak per proyek. */}
           <Route path="/showroom/:token" element={<PublicShowroom />} />

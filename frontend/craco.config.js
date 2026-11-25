@@ -81,7 +81,13 @@ let webpackConfig = {
   },
   jest: {
     configure: {
-      moduleNameMapper: { '^@/(.*)$': '<rootDir>/src/$1' },
+      moduleNameMapper: {
+        '^@/(.*)$': '<rootDir>/src/$1',
+        // Jest 27 (CRA) tidak membaca "exports"; react-router v7 perlu dipetakan manual.
+        '^react-router-dom$': '<rootDir>/node_modules/react-router-dom/dist/index.js',
+        '^react-router/dom$': '<rootDir>/node_modules/react-router/dist/development/dom-export.js',
+        '^react-router$': '<rootDir>/node_modules/react-router/dist/development/index.js',
+      },
     },
   },
   webpack: {

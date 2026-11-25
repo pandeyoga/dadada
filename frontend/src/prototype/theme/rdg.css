@@ -1,0 +1,80 @@
+/* Semua gaya prototipe di-scope di bawah .rdg; tidak menyentuh :root/body. */
+.rdg {
+  --rdg-leaf: #49ae42; --rdg-green: #209f59; --rdg-tealgreen: #01916f; --rdg-teal: #007f83;
+  --rdg-deep: #006284; --rdg-ink: #00454d; --rdg-ink900: #00353b; --rdg-forest: #006747;
+  --rdg-mint: #e7ffef; --rdg-lime: #b5e26b; --rdg-sos: #e5484d;
+  --rdg-grad: linear-gradient(135deg, var(--rdg-leaf), var(--rdg-tealgreen) 55%, var(--rdg-deep));
+  --rdg-radius-card: 22px;
+  font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  color: var(--rdg-ink);
+  min-height: 100vh;
+  background: var(--rdg-mint);
+}
+.rdg *, .rdg *::before, .rdg *::after { box-sizing: border-box; }
+
+.rdg .rdg-page {
+  background: linear-gradient(160deg, var(--rdg-mint), #d6f3e6 55%, #c9e9ee);
+}
+.rdg .rdg-shell { background: var(--rdg-mint); }
+@media (min-width: 640px) {
+  .rdg .rdg-shell { box-shadow: 0 0 60px rgba(0, 53, 59, 0.18); }
+}
+
+/* Latar hero: ink -> forest -> green + gumpalan radial */
+.rdg .rdg-hero {
+  color: #fff;
+  background:
+    radial-gradient(circle at 85% 12%, rgba(181, 226, 107, 0.35), transparent 45%),
+    radial-gradient(circle at 10% 90%, rgba(1, 145, 111, 0.55), transparent 50%),
+    radial-gradient(circle at 70% 80%, rgba(0, 98, 132, 0.5), transparent 45%),
+    linear-gradient(160deg, var(--rdg-ink), var(--rdg-forest) 60%, var(--rdg-green));
+  border-radius: 0 0 28px 28px;
+}
+
+/* Glass: hanya di area hero gelap, menu bawah, tombol header */
+.rdg .rdg-glass {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border-radius: var(--rdg-radius-card);
+  color: #fff;
+}
+/* Frost: kartu konten putih buram dengan teks gelap */
+.rdg .rdg-frost {
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--rdg-radius-card);
+  color: var(--rdg-ink900);
+  box-shadow: 0 6px 20px rgba(0, 53, 59, 0.08);
+}
+
+.rdg .rdg-btn-primary {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 48px; padding: 0 22px; border: 0; border-radius: 999px;
+  font-weight: 700; color: #fff; cursor: pointer;
+  background: linear-gradient(90deg, var(--rdg-leaf), var(--rdg-tealgreen) 55%, var(--rdg-teal));
+  box-shadow: 0 6px 16px rgba(1, 145, 111, 0.35);
+}
+.rdg .rdg-btn-primary:focus-visible, .rdg .rdg-btn-sos:focus-visible {
+  outline: 3px solid var(--rdg-lime); outline-offset: 2px;
+}
+.rdg .rdg-btn-sos {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 56px; padding: 0 26px; border: 0; border-radius: 999px;
+  font-weight: 800; color: #fff; cursor: pointer; background: var(--rdg-sos);
+  box-shadow: 0 8px 20px rgba(229, 72, 77, 0.45);
+}
+
+/* Cadangan solid bila backdrop-filter tidak didukung */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .rdg .rdg-glass { background: rgba(0, 69, 77, 0.92); }
+  .rdg .rdg-frost { background: rgba(255, 255, 255, 0.96); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .rdg .rdg-glass { background: rgba(0, 69, 77, 0.92); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .rdg .rdg-frost { background: rgba(255, 255, 255, 0.96); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rdg * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

@@ -11,6 +11,7 @@ module.exports = {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         heading: ['Space Grotesk', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         mono: ['Roboto Mono', 'ui-monospace', 'Menlo', 'monospace'],
+        rdg: ['"Plus Jakarta Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       borderRadius: {
         lg: 'var(--radius)',
@@ -18,6 +19,11 @@ module.exports = {
         sm: 'calc(var(--radius) - 4px)'
       },
       colors: {
+        rdg: {
+          leaf: '#49AE42', green: '#209F59', tealgreen: '#01916F', teal: '#007F83',
+          deep: '#006284', ink: '#00454D', ink900: '#00353B', forest: '#006747',
+          mint: '#E7FFEF', lime: '#B5E26B', sos: '#E5484D'
+        },
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
         card: {
