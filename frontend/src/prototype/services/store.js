@@ -1,7 +1,7 @@
-import { buildInitialState } from "./initialState";
+import { buildInitialState, STATE_VERSION } from "./initialState";
 
 export const STORAGE_KEY = "rdg_proto_state";
-export const STATE_VERSION = 1;
+export { STATE_VERSION };
 
 let storage = null;
 let nowFn = () => Date.now();

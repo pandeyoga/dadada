@@ -1,0 +1,16 @@
+{
+  "name": "Rumah Dalam Genggaman · Estora",
+  "short_name": "Rumahku",
+  "description": "Prototipe aplikasi penghuni Estora: perjalanan rumah, keamanan, tagihan, dan komunitas warga (data contoh).",
+  "start_url": "/app",
+  "scope": "/app",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#00454D",
+  "background_color": "#E7FFEF",
+  "lang": "id",
+  "icons": [
+    { "src": "/rdg/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any maskable" },
+    { "src": "/rdg/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any maskable" }
+  ]
+}

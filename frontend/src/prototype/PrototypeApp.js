@@ -12,6 +12,7 @@ import "./theme/rdg-security.css";
 import screens from "./screens.json";
 import { isPrototypeHost } from "./lib/host";
 import { scrollToTop } from "./lib/scrollTop";
+import { usePwaManifest } from "./lib/usePwaManifest";
 import Placeholder from "./surfaces/Placeholder";
 import Launcher from "./surfaces/demo/Launcher";
 import Login from "./surfaces/demo/Login";
@@ -113,6 +114,8 @@ export default function PrototypeApp({ hostname = window.location.hostname }) {
   const { pathname } = useLocation();
   // Pindah layar → mulai dari atas.
   useEffect(() => { scrollToTop(); }, [pathname]);
+  // Manifest PWA & warna tema prototipe selama terpasang (dikembalikan saat dilepas).
+  usePwaManifest(allowed);
   // Tuas untuk presenter/uji; hanya dipasang bila host diizinkan.
   useEffect(() => {
     if (!allowed) return undefined;

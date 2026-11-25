@@ -5,11 +5,15 @@ import { buildCommunity } from "./fixtures/community";
 import { buildCare, buildManager, buildNotifications } from "./fixtures/ops";
 import { buildPartner } from "./fixtures/partner";
 
+// Naikkan setiap kali bentuk state/fixture berubah: state tersimpan dengan versi lain dibuang
+// dan diganti fixture baru (lihat store.parse).
+export const STATE_VERSION = 2;
+
 export function buildInitialState(now) {
   const world = buildWorld();
   const care = buildCare(now);
   return {
-    version: 1,
+    version: STATE_VERSION,
     session: { persona: "buyer", loggedIn: false, phone: "" },
     mode: "buyer",
     onboarding: { done: false },

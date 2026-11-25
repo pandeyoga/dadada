@@ -1,5 +1,5 @@
 import screens from "@/prototype/screens.json";
-import { getState, setState, subscribe, resetState, __initStoreForTest, STORAGE_KEY } from "@/prototype/services/store";
+import { getState, setState, subscribe, resetState, __initStoreForTest, STORAGE_KEY, STATE_VERSION } from "@/prototype/services/store";
 import { buildInitialState } from "@/prototype/services/initialState";
 import { setLatency, wait } from "@/prototype/services/latency";
 
@@ -48,13 +48,32 @@ test("setState memicu pelanggan dan menyimpan JSON", () => {
 
 test("storage rusak -> state awal tanpa melempar", () => {
   __initStoreForTest({ storage: memStorage({ [STORAGE_KEY]: "{rusak" }), now: () => NOW });
-  expect(getState().version).toBe(1);
+  expect(getState().version).toBe(STATE_VERSION);
 });
 
 test("versi lama diganti state awal", () => {
   __initStoreForTest({ storage: memStorage({ [STORAGE_KEY]: JSON.stringify({ version: 0, mode: "x" }) }), now: () => NOW });
-  expect(getState().version).toBe(1);
+  expect(getState().version).toBe(STATE_VERSION);
   expect(getState().mode).toBe("buyer");
+});
+
+test("state v1 tersimpan (bentuk lama) diganti fixture baru v2", () => {
+  expect(STATE_VERSION).toBe(2);
+  const v1 = { ...buildInitialState(NOW), version: 1, mode: "resident" };
+  v1.security = { ...v1.security, energy: { kwh: 142, lastKwh: 131 } };
+  __initStoreForTest({ storage: memStorage({ [STORAGE_KEY]: JSON.stringify(v1) }), now: () => NOW });
+  expect(getState().version).toBe(2);
+  expect(getState().mode).toBe("buyer");
+  expect(getState().security.energy.months.length).toBeGreaterThan(0);
+});
+
+test("state awal baru tersimpan dengan versi yang sama dan bertahan saat dimuat ulang", () => {
+  const storage = memStorage();
+  __initStoreForTest({ storage, now: () => NOW });
+  setState((s) => ({ ...s, mode: "resident" }));
+  expect(JSON.parse(storage.data[STORAGE_KEY]).version).toBe(STATE_VERSION);
+  __initStoreForTest({ storage, now: () => NOW });
+  expect(getState().mode).toBe("resident");
 });
 
 test("tanpa storage tetap jalan di memori", () => {
