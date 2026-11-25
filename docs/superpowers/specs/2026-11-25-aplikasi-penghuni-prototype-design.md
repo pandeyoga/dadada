@@ -267,3 +267,13 @@ Kolom **Tingkat**: **D** = bagian alur demo, harus paling halus; **L** = lengkap
 - **Performa blur di Android murah** → kaidah glass di bagian 6 dan cadangan solid.
 - **Klaim traksi di pitch deck** ("3 developer aktif, 578 unit, 10+ bulan") tidak terlihat dari data repo; siapkan buktinya terpisah dari prototipe.
 - **Kemiripan dengan Rumah Ningrat** → hanya fitur dan alur; merek, nama fitur, dan tata letak milik Estora.
+
+## 14. Keputusan tambahan setelah tinjauan builder (25 Nov 2026)
+
+Pemilik produk meminta pekerjaan dilanjutkan sampai selesai tanpa putaran tanya lagi; keputusan berikut diambil oleh Claude dan dicatat agar bisa diperiksa.
+
+1. **Jadwal.** Semua layar inventaris (60 entri, bukan ±45) dibangun dan bisa diklik. Layar tingkat **D** dikerjakan dan disempurnakan lebih dulu, lalu di-screenshot untuk halaman 5 proposal ("Konsep, Desain, atau Prototype"). Layar **L** menyusul dengan pola komponen yang sama. Bila waktu habis, yang dikorbankan adalah kedalaman layar L, bukan alur D.
+2. **Hosting dan keamanan produksi.** Deploy bukan bagian pekerjaan ini. Karena image frontend dipakai bersama semua instance (termasuk `hl5.estora.id` yang dipakai pembeli sungguhan), rute prototipe dijaga saat runtime: hanya aktif di `localhost`, `127.0.0.1`, dan hostname yang diawali `demo.` atau `trial.`; selain itu `/app/*` dialihkan ke `/`. Presentasi diasumsikan dari laptop (dua jendela berdampingan untuk warga + satpam). Peluncur demo tetap menuntun bila juri membuka sendiri.
+3. **Cerita pembayaran Rina.** Rumah **subsidi FLPP**, Estora Residence Blok C-12, tipe 36/72, harga Rp166.000.000. Urutan perjalanan: **Booking → Cek kredit → Bangun → Pengajuan KPR/SP3K → Akad → Serah terima** (FLPP mensyaratkan rumah siap sebelum akad). Saat "Bangun 72 %", yang dibayar lewat VA adalah **uang muka yang dicicil ke developer** (mis. DP Rp5.000.000 dalam 5 kali). Panel KPR menampilkan status pengajuan dan simulasi angsuran bulanan dengan keterangan "dibayar ke bank setelah akad". Nama bank tampil sebagai data contoh ("KPR Subsidi · Bank BTN"); tidak ada teks yang mengklaim integrasi dengan bank mana pun. Pilihan VA memuat beberapa bank umum.
+4. **Logo.** Diambil dari pitch deck (halaman logo) ke `assets/brand/`: `estora_logo_full.png` (logo + tagline, untuk latar terang), `estora_mark.png` (ikon saja, transparan), `estora_wordmark.png`, dan ikon aplikasi `rdg-icon-192.png`/`rdg-icon-512.png`. "Rumah Dalam Genggaman" ditulis sebagai teks (Plus Jakarta Sans) di samping ikon Estora; tidak ada logo terpisah. Di latar gelap, pakai ikon + teks putih (bukan wordmark PNG).
+5. **Menu bawah warga** mengikuti teks dokumen ini (Komunitas di menu; Akun lewat foto profil), bukan mockup v1.
