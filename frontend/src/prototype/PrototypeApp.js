@@ -8,6 +8,7 @@ import "@fontsource/plus-jakarta-sans/800.css";
 import "./theme/rdg.css";
 import "./theme/rdg-components.css";
 import "./theme/rdg-controls.css";
+import "./theme/rdg-security.css";
 import screens from "./screens.json";
 import { isPrototypeHost } from "./lib/host";
 import { scrollToTop } from "./lib/scrollTop";
@@ -27,7 +28,17 @@ import Referral from "./surfaces/buyer/Referral";
 import Promo from "./surfaces/buyer/Promo";
 import Welcome from "./surfaces/transition/Welcome";
 import ResidentHome from "./surfaces/resident/ResidentHome";
+import SecurityHome from "./surfaces/resident/security/SecurityHome";
+import DoorLock from "./surfaces/resident/security/DoorLock";
+import HomeCctv from "./surfaces/resident/security/HomeCctv";
+import AreaSecurity from "./surfaces/resident/security/AreaSecurity";
+import Gate from "./surfaces/resident/security/Gate";
+import Guests from "./surfaces/resident/security/Guests";
+import Sos from "./surfaces/resident/security/Sos";
+import SosContacts from "./surfaces/resident/security/SosContacts";
 import { getState, resetState } from "./services/store";
+import { createGuestPass } from "./services/api/security";
+import { sendSos, acceptSos, resolveSos } from "./services/api/sos";
 import { setPersona, simulateBast, setLocation, homePathFor } from "./services/api/session";
 
 // Satu tempat pemetaan id layar -> komponen. Task berikutnya mengganti Placeholder.
@@ -36,6 +47,7 @@ const COMPONENTS = {
   P1: BuyerHome, P2: Progress, P3: PlotMap, P4: Payments, P5: PayItem, P6: Kpr,
   P7: Cancellation, P8: Documents, P9: BuyerAccount, P10: Referral, P11: Promo,
   T1: Welcome, W1: ResidentHome,
+  W2: SecurityHome, W3: DoorLock, W4: HomeCctv, W5: AreaSecurity, W6: Gate, W7: Guests, W8: Sos, W9: SosContacts,
 };
 
 // Rute dinamis (menggantikan path statis contoh di screens.json).
@@ -61,7 +73,7 @@ export default function PrototypeApp({ hostname = window.location.hostname }) {
   // Tuas untuk presenter/uji; hanya dipasang bila host diizinkan.
   useEffect(() => {
     if (!allowed) return undefined;
-    const api = { reset: resetState, setPersona, simulateBast, setLocation };
+    const api = { reset: resetState, setPersona, simulateBast, setLocation, sendSos, createGuestPass, acceptSos, resolveSos };
     window.__rdgDemo = Object.assign(window.__rdgDemo || {}, api);
     return () => { delete window.__rdgDemo; };
   }, [allowed]);

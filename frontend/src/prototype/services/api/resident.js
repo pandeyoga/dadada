@@ -13,6 +13,11 @@ function onDuty(shift, hour) {
 
 const wibHour = (t) => (new Date(t).getUTCHours() + 7) % 24;
 
+/** Satpam yang sedang bertugas pada waktu `t`. */
+export function guardsOnDutyAt(world, t) {
+  return world.guards.filter((g) => onDuty(g.shift, wibHour(t)));
+}
+
 /** Data Beranda warga. */
 export async function getResidentHome() {
   await wait();

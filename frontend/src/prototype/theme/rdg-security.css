@@ -1,0 +1,30 @@
+/* Keamanan warga (Task 7): tab segmen, pilihan jenis SOS, denyut menunggu. Di bawah .rdg. */
+
+.rdg .rdg-seg {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; padding: 4px;
+  border-radius: 999px; background: rgba(255, 255, 255, 0.14); border: 1px solid rgba(255, 255, 255, 0.28);
+}
+.rdg .rdg-seg > button {
+  min-height: 40px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent;
+  color: #fff; font-size: 14.5px; font-weight: 700; cursor: pointer;
+}
+.rdg .rdg-seg > button.is-on { background: #fff; color: var(--rdg-forest); box-shadow: 0 2px 8px rgba(0, 53, 59, 0.2); }
+.rdg .rdg-seg--light { background: #fff; border-color: var(--rdg-line); }
+.rdg .rdg-seg--light > button { color: var(--rdg-ink); }
+.rdg .rdg-seg--light > button.is-on { background: var(--rdg-grad-btn); color: #fff; }
+
+.rdg .rdg-type-opt {
+  position: relative; display: flex; align-items: center; justify-content: center; min-height: 64px;
+  border-radius: 18px; border: 2px solid var(--rdg-line); background: #fff; color: var(--rdg-ink900);
+  font-size: 16px; font-weight: 700; cursor: pointer;
+}
+.rdg .rdg-type-opt input { position: absolute; inset: 0; opacity: 0; cursor: pointer; margin: 0; }
+.rdg .rdg-type-opt.is-on { border-color: var(--rdg-sos); background: #fde8e9; color: var(--rdg-sos-ink); }
+.rdg .rdg-type-opt:focus-within { outline: 3px solid var(--rdg-teal); outline-offset: 2px; }
+
+.rdg .rdg-sos-pulse { animation: rdg-sos-pulse 1.4s ease-in-out infinite; }
+@keyframes rdg-sos-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.45); }
+  50% { box-shadow: 0 0 0 12px rgba(255, 255, 255, 0); }
+}
+@media (prefers-reduced-motion: reduce) { .rdg .rdg-sos-pulse { animation: none; } }

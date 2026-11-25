@@ -87,7 +87,7 @@ test("masuk: nomor pendek ditolak, lalu OTP 6 angka masuk", async () => {
 
 test("window.__rdgDemo dipasang dan dilepas", () => {
   const { unmount } = mount("/app/demo");
-  expect(Object.keys(window.__rdgDemo).sort()).toEqual(["reset", "setLocation", "setPersona", "simulateBast"]);
+  expect(Object.keys(window.__rdgDemo).sort()).toEqual(["acceptSos", "createGuestPass", "reset", "resolveSos", "sendSos", "setLocation", "setPersona", "simulateBast"]);
   act(() => window.__rdgDemo.setPersona("mitra"));
   expect(getState().session.persona).toBe("mitra");
   unmount();
