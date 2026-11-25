@@ -6,7 +6,7 @@ import StatusChip from "../../components/StatusChip";
 import { askQuestion, listQuestions } from "../../services/api/buyer";
 import { useProto } from "../../services/useStore";
 import { tanggal } from "../../lib/format";
-import useLoad from "./useLoad";
+import useLoad from "../../lib/useLoad";
 import Page from "./Page";
 
 const FAMILY = [

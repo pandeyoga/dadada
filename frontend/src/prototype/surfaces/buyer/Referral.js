@@ -7,7 +7,7 @@ import EmptyState from "../../components/EmptyState";
 import CopyButton from "../../components/pay/CopyButton";
 import { getReferral, inviteFriend } from "../../services/api/buyer";
 import { useProto } from "../../services/useStore";
-import useLoad from "./useLoad";
+import useLoad from "../../lib/useLoad";
 import Page, { Loading } from "./Page";
 
 const input = "mt-1 block min-h-[46px] w-full rounded-xl border border-[color:var(--rdg-line)] bg-white px-3 text-[15px]";
@@ -17,7 +17,7 @@ export default function Referral() {
   const mode = useProto((s) => s.mode);
   const resident = mode === "resident";
   const fetcher = useCallback(() => getReferral(), []);
-  const { data } = useLoad(fetcher);
+  const { data, error } = useLoad(fetcher);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [msg, setMsg] = useState({ ok: false, text: "" });
@@ -38,7 +38,7 @@ export default function Referral() {
   const share = data ? `https://wa.me/?text=${encodeURIComponent(`Halo, ayo lihat rumah di Estora Residence. Pakai kode ${data.code} saat booking.`)}` : "#";
   return (
     <Page id="P10" title="Ajak teman" nav={resident ? "resident" : "buyer"} back={resident ? "/app/warga" : "/app/pembeli"}>
-      {!data && <Loading />}
+      {!data && <Loading error={error} />}
       {data && (
         <>
           <FrostCard>

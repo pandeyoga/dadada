@@ -12,13 +12,13 @@ import ReceiptCard from "../../components/pay/ReceiptCard";
 import EmptyState from "../../components/EmptyState";
 import { listInstallments } from "../../services/api/buyer";
 import { rupiah, tanggal } from "../../lib/format";
-import useLoad from "./useLoad";
+import useLoad from "../../lib/useLoad";
 import { Loading } from "./Page";
 
 export default function PayItem() {
   const { itemId } = useParams();
   const fetcher = useCallback(() => listInstallments(), []);
-  const { data } = useLoad(fetcher);
+  const { data, error } = useLoad(fetcher);
   const [open, setOpen] = useState(false);
   const item = data && data.find((i) => i.id === itemId);
   const paid = item && item.status === "paid";
@@ -44,7 +44,7 @@ export default function PayItem() {
           </GlassCard>
         </Hero>
         <div className="space-y-4 px-5 pt-5">
-          {!data && <Loading />}
+          {!data && <Loading error={error} />}
           {data && !item && (
             <EmptyState title="Tagihan tidak ditemukan" body="Cicilan ini tidak ada di jadwal Anda.">
               <Link to="/app/pembeli/bayar" className="rdg-btn-primary">Ke jadwal cicilan</Link>

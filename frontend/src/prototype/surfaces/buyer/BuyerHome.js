@@ -13,7 +13,7 @@ import { StageIllustration, PromoIllustration } from "../../components/Illustrat
 import { getBuyerHome } from "../../services/api/buyer";
 import { useProto } from "../../services/useStore";
 import { rupiah, tanggal } from "../../lib/format";
-import useLoad from "./useLoad";
+import useLoad from "../../lib/useLoad";
 
 const SERVICES = [
   { icon: MapIcon, label: "Peta kavling", to: "/app/pembeli/kavling" },

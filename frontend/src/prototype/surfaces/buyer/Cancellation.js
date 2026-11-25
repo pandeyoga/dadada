@@ -3,15 +3,15 @@ import { ShieldCheck } from "lucide-react";
 import { FrostCard } from "../../components/GlassCard";
 import EmptyState from "../../components/EmptyState";
 import { getCancellation } from "../../services/api/buyer";
-import useLoad from "./useLoad";
+import useLoad from "../../lib/useLoad";
 import Page, { Loading } from "./Page";
 
 export default function Cancellation() {
   const fetcher = useCallback(() => getCancellation(), []);
-  const { data } = useLoad(fetcher);
+  const { data, error } = useLoad(fetcher);
   return (
     <Page id="P7" title="Pembatalan & refund" back="/app/pembeli/akun">
-      {!data && <Loading />}
+      {!data && <Loading error={error} />}
       {data && (
         <>
           <FrostCard><EmptyState icon={ShieldCheck} title="Tidak ada pengajuan" body={data.message} /></FrostCard>

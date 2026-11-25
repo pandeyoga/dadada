@@ -5,7 +5,7 @@ import ListRow from "../../components/ListRow";
 import StatusChip from "../../components/StatusChip";
 import { listDocuments } from "../../services/api/buyer";
 import { rupiah, tanggal } from "../../lib/format";
-import useLoad from "./useLoad";
+import useLoad from "../../lib/useLoad";
 import Page, { Loading } from "./Page";
 
 const tone = (s) => (s === "terverifikasi" ? "ok" : s === "diperiksa" ? "warn" : "neutral");
@@ -22,10 +22,10 @@ function Group({ title, children }) {
 
 export default function Documents() {
   const fetcher = useCallback(() => listDocuments(), []);
-  const { data } = useLoad(fetcher);
+  const { data, error } = useLoad(fetcher);
   return (
     <Page id="P8" title="Dokumen">
-      {!data && <Loading />}
+      {!data && <Loading error={error} />}
       {data && (
         <>
           <Group title="Perjanjian">

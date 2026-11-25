@@ -1,16 +1,16 @@
 import React, { useCallback } from "react";
 import { FrostCard } from "../../components/GlassCard";
 import { getPlotMap } from "../../services/api/buyer";
-import useLoad from "./useLoad";
+import useLoad from "../../lib/useLoad";
 import Page, { Loading } from "./Page";
 
-const FILL = { tersedia: "#d8efe0", dipesan: "#f5d98a", terjual: "#9db3b3", "milik-anda": "#209f59" };
+const FILL = { tersedia: "#d8efe0", dipesan: "#f5d98a", terjual: "#9db3b3", "milik-anda": "#006747" };
 const LABEL = { tersedia: "Tersedia", dipesan: "Dipesan", terjual: "Terjual", "milik-anda": "Milik Anda" };
 const W = 46, H = 28, GAP = 5, PAD = 28, COLS = 6, RH = H + GAP;
 
 export default function PlotMap() {
   const fetcher = useCallback(() => getPlotMap(), []);
-  const { data } = useLoad(fetcher);
+  const { data, error } = useLoad(fetcher);
   const plots = data ? data.plots : [];
   const width = PAD + COLS * (W + GAP);
   const BLOCKS = ["A", "B", "C", "D", "E"];
@@ -19,7 +19,7 @@ export default function PlotMap() {
   return (
     <Page id="P3" title="Peta kavling">
       <p className="text-[14px] text-[color:var(--rdg-muted)]">Siteplan {data ? data.project : "Estora Residence"}. Rumah Anda di Blok {data ? data.unit : "C-12"}.</p>
-      {!data && <Loading />}
+      {!data && <Loading error={error} />}
       {data && (
         <FrostCard className="!p-3">
           <div>

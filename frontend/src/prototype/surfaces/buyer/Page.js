@@ -15,6 +15,4 @@ export default function Page({ id, title, back = "/app/pembeli", nav = "buyer", 
   );
 }
 
-export function Loading() {
-  return <p className="py-10 text-center text-[14px] text-[color:var(--rdg-muted)]" role="status">Memuat…</p>;
-}
+export { default as Loading } from "../../components/Loading";

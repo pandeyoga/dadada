@@ -10,14 +10,14 @@ import StatusChip from "../../components/StatusChip";
 import ListRow from "../../components/ListRow";
 import { listInstallments } from "../../services/api/buyer";
 import { rupiah, tanggal } from "../../lib/format";
-import useLoad from "./useLoad";
+import useLoad from "../../lib/useLoad";
 import { Loading } from "./Page";
 
 const CHIP = { paid: ["ok", "Lunas"], pending: ["warn", "Menunggu pembayaran"], unpaid: ["neutral", "Belum dibayar"] };
 
 export default function Payments() {
   const fetcher = useCallback(() => listInstallments(), []);
-  const { data } = useLoad(fetcher);
+  const { data, error } = useLoad(fetcher);
   const dps = data ? data.filter((i) => i.id.startsWith("dp-")) : [];
   const total = dps.reduce((a, i) => a + i.amount, 0);
   const paid = dps.filter((i) => i.status === "paid").reduce((a, i) => a + i.amount, 0);
@@ -46,7 +46,7 @@ export default function Payments() {
           </GlassCard>
         </Hero>
         <div className="space-y-5 px-5 pt-5">
-          {!data && <Loading />}
+          {!data && <Loading error={error} />}
           {data && (
             <>
               <section aria-labelledby="p4-jadwal">

@@ -8,12 +8,12 @@ import ScreenHeader from "../../components/ScreenHeader";
 import { StageIllustration } from "../../components/Illustrations";
 import { getProgress } from "../../services/api/buyer";
 import { tanggal } from "../../lib/format";
-import useLoad from "./useLoad";
+import useLoad from "../../lib/useLoad";
 import { Loading } from "./Page";
 
 export default function Progress() {
   const fetcher = useCallback(() => getProgress(), []);
-  const { data } = useLoad(fetcher);
+  const { data, error } = useLoad(fetcher);
   return (
     <MobileShell nav="buyer">
       <Screen id="P2">
@@ -34,7 +34,7 @@ export default function Progress() {
         </Hero>
         <div className="px-5 pt-5">
           <h2 className="mb-3 text-[17px] font-extrabold">Linimasa foto</h2>
-          {!data && <Loading />}
+          {!data && <Loading error={error} />}
           {data && (
             <ol className="relative space-y-4 border-l-2 border-[color:var(--rdg-line)] pl-5">
               {[...data.photos].reverse().map((p, i) => (

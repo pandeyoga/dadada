@@ -6,18 +6,18 @@ import EmptyState from "../../components/EmptyState";
 import { PromoIllustration } from "../../components/Illustrations";
 import { getBuyerHome } from "../../services/api/buyer";
 import { tanggal } from "../../lib/format";
-import useLoad from "./useLoad";
+import useLoad from "../../lib/useLoad";
 import Page, { Loading } from "./Page";
 
 export default function Promo() {
   const { id } = useParams();
   const fetcher = useCallback(() => getBuyerHome(), []);
-  const { data } = useLoad(fetcher);
+  const { data, error } = useLoad(fetcher);
   const key = String(id || "").replace(/^promo-/, "pr-");
   const promo = data && data.promos.find((p) => p.id === key);
   return (
     <Page id="P11" title="Promo & info">
-      {!data && <Loading />}
+      {!data && <Loading error={error} />}
       {data && !promo && (
         <EmptyState title="Promo tidak ditemukan" body="Promo ini sudah berakhir atau tidak tersedia.">
           <Link to="/app/pembeli" className="rdg-btn-primary">Ke beranda</Link>

@@ -4,16 +4,16 @@ import { FrostCard } from "../../components/GlassCard";
 import StatusChip from "../../components/StatusChip";
 import { getKpr } from "../../services/api/buyer";
 import { rupiah } from "../../lib/format";
-import useLoad from "./useLoad";
+import useLoad from "../../lib/useLoad";
 import Page, { Loading } from "./Page";
 
 export default function Kpr() {
   const fetcher = useCallback(() => getKpr(), []);
-  const { data: k } = useLoad(fetcher);
+  const { data: k, error } = useLoad(fetcher);
   const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
   return (
     <Page id="P6" title="Status KPR">
-      {!k && <Loading />}
+      {!k && <Loading error={error} />}
       {k && (
         <>
           <FrostCard>
