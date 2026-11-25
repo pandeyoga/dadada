@@ -62,16 +62,33 @@ const TYPES = {
   ".txt": "text/plain", ".map": "application/json", ".webmanifest": "application/manifest+json",
 };
 
+function send(res, status, file) {
+  res.writeHead(status, { "Content-Type": TYPES[path.extname(file)] || "application/octet-stream" });
+  fs.createReadStream(file).pipe(res);
+}
+
+function fail(res, status, text) {
+  res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
+  res.end(text);
+}
+
+/** Server statis: berkas yang ada → 200; rute tanpa ekstensi → index.html (SPA); aset hilang → 404; URL rusak → 400. */
 function createServer(root) {
   const index = path.join(root, "index.html");
   return http.createServer((req, res) => {
-    const urlPath = decodeURIComponent(new URL(req.url, "http://x").pathname);
-    let file = path.normalize(path.join(root, urlPath));
-    if (file !== root && !file.startsWith(root + path.sep)) file = index;
-    fs.stat(file, (err, st) => {
-      const target = !err && st.isFile() ? file : index; // fallback SPA
-      res.writeHead(200, { "Content-Type": TYPES[path.extname(target)] || "application/octet-stream" });
-      fs.createReadStream(target).pipe(res);
+    let urlPath;
+    try {
+      urlPath = decodeURIComponent(new URL(req.url, "http://x").pathname);
+    } catch (e) {
+      return fail(res, 400, "URL tidak valid");
+    }
+    const file = path.normalize(path.join(root, urlPath));
+    if (file !== root && !file.startsWith(root + path.sep)) return fail(res, 404, "Tidak ditemukan");
+    return fs.stat(file, (err, st) => {
+      if (!err && st.isFile()) return send(res, 200, file);
+      // Aset (punya ekstensi) yang hilang harus 404, bukan index.html, agar galat muat terlihat.
+      if (path.extname(urlPath)) return fail(res, 404, "Tidak ditemukan");
+      return send(res, 200, index); // fallback SPA untuk rute /app/...
     });
   });
 }
@@ -172,19 +189,8 @@ async function overflowAt360(page) {
 }
 
 // ---------------------------------------------------------------- utama
-async function main() {
-  const opts = parseArgs(process.argv.slice(2));
-  if (!fs.existsSync(path.join(BUILD, "index.html"))) {
-    console.error("frontend/build belum ada. Jalankan `yarn build` dulu.");
-    process.exit(2);
-  }
-  fs.mkdirSync(opts.out, { recursive: true });
-  const server = createServer(BUILD);
-  const port = await listen(server, opts.port);
-  const base = `http://127.0.0.1:${port}`;
-  const browser = await chromium.launch();
-
-  const blocked = new Set();
+/** Potret setiap entri; hasil luapan/galat/permintaan terblokir dikumpulkan ke larik/set yang diberikan. */
+async function capture({ browser, base, opts, entries, blocked, overflow, failures }) {
   const newPage = async (viewport, deviceScaleFactor) => {
     const context = await browser.newContext({
       viewport, deviceScaleFactor, serviceWorkers: "block", reducedMotion: "reduce",
@@ -207,9 +213,6 @@ async function main() {
     desktop: await newPage({ width: 1366, height: 900 }, 1),
   };
 
-  const entries = SCREENS.filter((s) => !opts.only || opts.only.has(s.id));
-  const overflow = [];
-  const failures = [];
   for (const entry of entries) {
     const desktop = entry.surface === "manager";
     const page = desktop ? pages.desktop : pages.mobile;
@@ -237,9 +240,31 @@ async function main() {
       console.log(`${entry.id.padEnd(4)} ${entry.path}  GAGAL: ${err.message.split("\n")[0]}`);
     }
   }
+}
 
-  await browser.close();
-  server.close();
+async function main() {
+  const opts = parseArgs(process.argv.slice(2));
+  if (!fs.existsSync(path.join(BUILD, "index.html"))) {
+    console.error("frontend/build belum ada. Jalankan `yarn build` dulu.");
+    process.exit(2);
+  }
+  fs.mkdirSync(opts.out, { recursive: true });
+  const server = createServer(BUILD);
+  const port = await listen(server, opts.port);
+  const base = `http://127.0.0.1:${port}`;
+  let browser = null;
+  const blocked = new Set();
+  const overflow = [];
+  const failures = [];
+  const entries = SCREENS.filter((s) => !opts.only || opts.only.has(s.id));
+  try {
+    browser = await chromium.launch();
+    await capture({ browser, base, opts, entries, blocked, overflow, failures });
+  } finally {
+    // Selalu tutup peramban dan server, juga bila ada galat di tengah jalan.
+    if (browser) await browser.close().catch(() => {});
+    server.close();
+  }
 
   if (blocked.size) {
     console.log("\nPermintaan ke luar yang diblokir:");
@@ -255,7 +280,11 @@ async function main() {
   process.exit(overflow.length || failures.length ? 1 : 0);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
+
+module.exports = { createServer, listen };
