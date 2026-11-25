@@ -1,3 +1,4 @@
+import screens from "@/prototype/screens.json";
 import { getState, setState, subscribe, resetState, __initStoreForTest, STORAGE_KEY } from "@/prototype/services/store";
 import { buildInitialState } from "@/prototype/services/initialState";
 import { setLatency, wait } from "@/prototype/services/latency";
@@ -80,4 +81,25 @@ test("resetState mengembalikan IPL belum dibayar", () => {
 
 test("wait selesai cepat saat latensi 0", async () => {
   await expect(wait()).resolves.toBeUndefined();
+});
+
+test("manager tidak menyimpan salinan tiket (dibaca dari care.tickets)", () => {
+  expect(buildInitialState(NOW).manager.tickets).toBeUndefined();
+});
+
+test("semua link fixture adalah rute di screens.json", () => {
+  const paths = new Set(screens.map((s) => s.path));
+  const links = [];
+  const walk = (v) => {
+    if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") {
+      Object.entries(v).forEach(([k, x]) => {
+        if ((k === "link" || k === "to") && typeof x === "string") links.push(x);
+        else walk(x);
+      });
+    }
+  };
+  walk(buildInitialState(Date.now()));
+  expect(links.length).toBeGreaterThan(0);
+  links.forEach((l) => expect(paths.has(l)).toBe(true));
 });

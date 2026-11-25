@@ -20,7 +20,7 @@ export function buildInitialState(now) {
     bills: buildBills(now),
     community: buildCommunity(now),
     care,
-    manager: buildManager(now, world, care),
+    manager: buildManager(now, world),
     partner: buildPartner(now),
     notifications: buildNotifications(now),
   };

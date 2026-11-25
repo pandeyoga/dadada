@@ -47,12 +47,11 @@ export function buildCare(now) {
   };
 }
 
-export function buildManager(now, world, care) {
+export function buildManager(now, world) {
   const units = [{ block: world.unit.block, owner: world.resident.name }, ...world.neighbors.slice(0, 19).map((n) => ({ block: n.block, owner: n.name }))];
   const status = (i) => (i === 0 ? "belum" : i % 5 === 0 ? "belum" : i % 7 === 0 ? "terlambat" : "lunas");
   return {
     units: units.map((u, i) => ({ ...u, ipl: status(i), amount: 150000, phone: i === 0 ? world.resident.phone : world.neighbors[i - 1].phone })),
-    tickets: care.tickets,
     announcements: [
       { id: "mgr-an-1", title: "Rapat warga akhir tahun", body: "Rapat evaluasi keamanan dan iuran, Sabtu 13 Des pukul 19.30 di balai warga.", at: iso(now - 2 * DAY) },
     ],
@@ -63,9 +62,9 @@ export function buildNotifications(now) {
   const mk = (id, tier, title, body, ago, read, link) => ({ id, tier, title, body, at: iso(now - ago), read, ...(link ? { link } : {}) });
   return [
     mk("nt-1", "darurat", "Peringatan banjir wilayah Setu", "Curah hujan tinggi. Waspada genangan di Jalan Blok C.", 2 * HOUR, false),
-    mk("nt-2", "keamanan", "Pintu depan terkunci otomatis", "Kunci pintu C-12 terkunci kembali setelah 30 detik.", 2 * HOUR, false, "/app/rumah/kunci"),
+    mk("nt-2", "keamanan", "Pintu depan terkunci otomatis", "Kunci pintu C-12 terkunci kembali setelah 30 detik.", 2 * HOUR, false, "/app/warga/keamanan/kunci"),
     mk("nt-3", "keamanan", "Tamu tiba di gerbang", "Kurir paket masuk melalui gerbang utama.", 3 * HOUR, true),
-    mk("nt-4", "info", "Tagihan IPL Desember", "Iuran Rp150.000 jatuh tempo 10 Des.", 1 * DAY, false, "/app/tagihan"),
+    mk("nt-4", "info", "Tagihan IPL Desember", "Iuran Rp150.000 jatuh tempo 10 Des.", 1 * DAY, false, "/app/warga/tagihan"),
     mk("nt-5", "info", "Foto progres pembangunan baru", "Tahap pintu, jendela, dan listrik telah diunggah.", 6 * DAY, true),
     mk("nt-6", "info", "Uang muka ke-3 jatuh tempo 10 Des", "Siapkan Rp1.000.000 untuk pembayaran uang muka.", 2 * DAY, false),
   ];
