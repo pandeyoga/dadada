@@ -9,6 +9,10 @@ const byNewest = (a, b) => Date.parse(b) - Date.parse(a);
 const patchCommunity = (fn) => setState((s) => ({ ...s, community: fn(s.community) }));
 const mapBy = (list, id, fn) => list.map((x) => (x.id === id ? fn(x) : x));
 
+// Produk/jasa milik mitra yang ditangguhkan pengelola tidak tampil bagi warga.
+const hiddenIds = (s) => new Set(((s.manager && s.manager.vendors) || []).filter((v) => v.status === "ditangguhkan").flatMap((v) => [...(v.itemIds || []), ...(v.serviceIds || [])]));
+const visible = (s, list) => { const h = hiddenIds(s); return list.filter((x) => !h.has(x.id)); };
+
 /** Disematkan dulu, lalu terbaru. */
 export async function listAnnouncements() {
   await wait();
@@ -83,14 +87,16 @@ export async function vote(pollId, optionId) {
 
 export async function listProducts() {
   await wait();
-  return [...getState().community.market];
+  const s = getState();
+  return visible(s, s.community.market);
 }
 
 /** Tambah ke keranjang; jumlah tidak boleh melebihi stok. */
 export async function addToCart(productId, qty = 1) {
   await wait();
-  const { market, cart } = getState().community;
-  const p = market.find((x) => x.id === productId);
+  const st = getState();
+  const { cart } = st.community;
+  const p = visible(st, st.community.market).find((x) => x.id === productId);
   if (!p) throw new Error("Produk tidak ditemukan");
   const n = Math.floor(Number(qty));
   if (!(n >= 1)) throw new Error("Jumlah tidak valid");
@@ -157,7 +163,8 @@ export async function completeOrder(orderId) {
 
 export async function listServices() {
   await wait();
-  return [...getState().community.services];
+  const s = getState();
+  return visible(s, s.community.services);
 }
 
 export async function listBookings() {
@@ -168,7 +175,8 @@ export async function listBookings() {
 /** Pesan jasa: wajib pilih jam kedatangan. */
 export async function bookService({ serviceId, date, slot, note = "" }) {
   await wait();
-  const sv = getState().community.services.find((x) => x.id === serviceId);
+  const st = getState();
+  const sv = visible(st, st.community.services).find((x) => x.id === serviceId);
   if (!sv) throw new Error("Jasa tidak ditemukan");
   if (!slot) throw new Error("Pilih jam kedatangan");
   if (!date) throw new Error("Pilih tanggal kunjungan");

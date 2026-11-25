@@ -1,3 +1,5 @@
+import { buildVendors } from "./vendors";
+
 const DAY = 86400000;
 const HOUR = 3600000;
 const iso = (t) => new Date(t).toISOString();
@@ -50,10 +52,18 @@ export function buildCare(now) {
 export function buildManager(now, world) {
   const units = [{ block: world.unit.block, owner: world.resident.name }, ...world.neighbors.slice(0, 19).map((n) => ({ block: n.block, owner: n.name }))];
   const status = (i) => (i === 0 ? "belum" : i % 5 === 0 ? "belum" : i % 7 === 0 ? "terlambat" : "lunas");
+  const full = units.map((u, i) => ({ ...u, ipl: status(i), amount: 150000, phone: i === 0 ? world.resident.phone : world.neighbors[i - 1].phone }));
   return {
-    units: units.map((u, i) => ({ ...u, ipl: status(i), amount: 150000, phone: i === 0 ? world.resident.phone : world.neighbors[i - 1].phone })),
+    units: full,
+    occupancy: { occupied: 18, total: 20 },
+    // Status unit per periode; status C-12 selalu dibaca dari bills.ipl (sumber tunggal).
+    iplPeriods: [
+      { period: "2026-12", label: "Desember 2026", issuedAt: iso(now - 14 * DAY), statuses: Object.fromEntries(full.slice(1).map((u) => [u.block, u.ipl])) },
+    ],
+    technicians: ["Tim Teknik Estora", "Pak Dedi (ledeng)", "Pak Slamet (bangunan)", "Pak Hendra (listrik dan AC)"],
+    vendors: buildVendors(),
     announcements: [
-      { id: "mgr-an-1", title: "Rapat warga akhir tahun", body: "Rapat evaluasi keamanan dan iuran, Sabtu 13 Des pukul 19.30 di balai warga.", at: iso(now - 2 * DAY) },
+      { id: "mgr-an-1", title: "Rapat warga akhir tahun", body: "Rapat evaluasi keamanan dan iuran, Sabtu 13 Des pukul 19.30 di balai warga.", tier: "info", at: iso(now - 2 * DAY) },
     ],
   };
 }

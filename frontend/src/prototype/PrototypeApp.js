@@ -60,6 +60,13 @@ import SosAlert from "./surfaces/satpam/SosAlert";
 import GuestScan from "./surfaces/satpam/GuestScan";
 import GuardCctv from "./surfaces/satpam/GuardCctv";
 import Patrol from "./surfaces/satpam/Patrol";
+import ManagerHome from "./surfaces/manager/ManagerHome";
+import IplAdmin from "./surfaces/manager/IplAdmin";
+import TicketsAdmin from "./surfaces/manager/TicketsAdmin";
+import AnnouncementsAdmin from "./surfaces/manager/AnnouncementsAdmin";
+import CashAdmin from "./surfaces/manager/CashAdmin";
+import SecurityAdmin from "./surfaces/manager/SecurityAdmin";
+import VendorsAdmin from "./surfaces/manager/VendorsAdmin";
 import { getState, resetState } from "./services/store";
 import { createGuestPass } from "./services/api/security";
 import { sendSos, acceptSos, resolveSos } from "./services/api/sos";
@@ -76,6 +83,7 @@ const COMPONENTS = {
   W14: Community, W15: EventDetail, W16: Groups, W17: Polls, W18: Market, W19: HomeServices,
   W20: AllServices, W21: ReportIssue, W22: Warranty, W23: HomeDocuments, W24: Renovation, W25: Facilities, W26: Energy,
   W27: Notifications, W28: ResidentAccount,
+  K1: ManagerHome, K2: IplAdmin, K3: TicketsAdmin, K4: AnnouncementsAdmin, K5: CashAdmin, K6: SecurityAdmin, K7: VendorsAdmin,
   S1: GuardHome, S2: SosAlert, S3: GuestScan, S4: GuardCctv, S5: Patrol,
 };
 
