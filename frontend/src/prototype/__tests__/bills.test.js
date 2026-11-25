@@ -95,6 +95,10 @@ test("W10: bayar IPL Desember (ada opsi WhatsApp) berujung Lunas + kuitansi", as
   fireEvent.click(within(dialog).getByRole("button", { name: /BRI/ }));
   fireEvent.click(await within(dialog).findByRole("button", { name: /Saya sudah bayar/ }));
   await within(dialog).findByText("Pembayaran berhasil");
+  // Tagihan di belakang sheet sudah lunas dan dimuat ulang; sheet harus tetap terbuka dengan kuitansinya.
+  await waitFor(() => expect(document.body.textContent).toContain("Semua tagihan lunas"));
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect(within(screen.getByRole("dialog")).getByText("No. kuitansi")).toBeTruthy();
   fireEvent.click(within(dialog).getByRole("button", { name: "Selesai" }));
   await waitFor(() => expect(screen.getByText("Semua tagihan lunas")).toBeTruthy());
   expect(screen.getAllByText("Lunas").length).toBeGreaterThan(0);
@@ -128,6 +132,8 @@ test("W13: isi token PLN, bayar, token tampil terkelompok", async () => {
   fireEvent.click(await within(dialog).findByRole("button", { name: /BRI/ }));
   fireEvent.click(await within(dialog).findByRole("button", { name: /Saya sudah bayar/ }));
   await within(dialog).findByText("Pembayaran berhasil");
+  await waitFor(() => expect(getState().bills.ppobTx[0].status).toBe("paid"));
+  expect(screen.getByRole("dialog")).toBeTruthy();
   fireEvent.click(within(dialog).getByRole("button", { name: "Selesai" }));
   const tok = await screen.findByTestId("pln-token");
   expect(tok.textContent).toMatch(/^(\d{4}-){4}\d{4}$/);
