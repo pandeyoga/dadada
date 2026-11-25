@@ -35,7 +35,7 @@ export default function ManagerHome() {
         </div>
       )}
       <section aria-label="Angka ringkasan" className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <Stat icon={ReceiptText} label="Tagihan IPL lunas" value={`${sum.iplPaidPct}%`} hint={`${ipl.paid} dari ${ipl.total} unit`} tone="bg-[#e7ffef] text-rdg-forest" />
+        <Stat icon={ReceiptText} label="Tagihan IPL lunas" value={`${sum.iplPaidPct}%`} hint={ipl.previous ? `${ipl.paid} dari ${ipl.total} unit · ${ipl.previous.label}: ${ipl.previous.paidPct}% lunas` : `${ipl.paid} dari ${ipl.total} unit`} tone="bg-[#e7ffef] text-rdg-forest" />
         <Stat icon={Wrench} label="Tiket terbuka" value={String(sum.openTickets)} hint="Belum selesai dikerjakan" tone="bg-[#e3f4fb] text-rdg-deep" />
         <Stat icon={Siren} label="SOS bulan ini" value={String(sum.sosThisMonth)} hint={sos ? "Ada yang masih aktif" : "Tidak ada yang aktif"} tone="bg-[#fdeaea] text-[color:var(--rdg-sos-ink)]" />
         <Stat icon={Home} label="Hunian" value={`${sum.occupancy}%`} hint={`${state.manager.occupancy ? state.manager.occupancy.occupied : ipl.total} dari ${ipl.total} unit berpenghuni`} tone="bg-[#eef8d8] text-rdg-forest" />

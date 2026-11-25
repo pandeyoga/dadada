@@ -17,19 +17,23 @@ export const periodLabel = (period) => {
   return m ? `${MONTHS[Number(m[2]) - 1]} ${m[1]}` : "";
 };
 
-/** Periode berjalan = terbaru. State lama tanpa iplPeriods dianggap Desember 2026. */
-function currentPeriod(m) {
+/** Semua periode (state lama tanpa iplPeriods dianggap hanya Desember 2026), terlama dulu. */
+function periodsOf(m) {
   const list = m.iplPeriods && m.iplPeriods.length ? m.iplPeriods : [{
     period: "2026-12", label: "Desember 2026",
     statuses: Object.fromEntries(m.units.map((u) => [u.block, u.ipl])),
   }];
-  return [...list].sort((a, b) => a.period.localeCompare(b.period))[list.length - 1];
+  return [...list].sort((a, b) => a.period.localeCompare(b.period));
+}
+const currentPeriod = (m) => { const l = periodsOf(m); return l[l.length - 1]; };
+
+/** Periode yang sudah terbit, terbaru dulu: [{period, label}]. */
+export function listIplPeriods(state = getState()) {
+  return periodsOf(state.manager).map((p) => ({ period: p.period, label: p.label || periodLabel(p.period) })).reverse();
 }
 
-/** Tagihan IPL periode berjalan per unit: {period, label, units[{block,owner,phone,amount,status}], paid, total, paidPct}. */
-export function iplOverview(state = getState()) {
+function overviewOf(state, p) {
   const { manager: m, bills, world } = state;
-  const p = currentPeriod(m);
   const bill = bills.ipl.find((b) => b.id === `ipl-${p.period}`);
   const units = m.units.map((u) => {
     const status = u.block === world.unit.block ? (bill && bill.status === "paid" ? "lunas" : "belum") : (p.statuses && p.statuses[u.block]) || "belum";
@@ -37,6 +41,16 @@ export function iplOverview(state = getState()) {
   });
   const paid = units.filter((u) => u.status === "lunas").length;
   return { period: p.period, label: p.label || periodLabel(p.period), units, paid, total: units.length, paidPct: units.length ? Math.round((paid / units.length) * 100) : 0 };
+}
+
+/** Tagihan IPL satu periode (bawaan: terbaru): {period, label, units, paid, total, paidPct, previous?}. Status C-12 dari bills.ipl. */
+export function iplOverview(state = getState(), period) {
+  const all = periodsOf(state.manager);
+  const p = all.find((x) => x.period === period) || all[all.length - 1];
+  const prev = all[all.indexOf(p) - 1];
+  const out = overviewOf(state, p);
+  if (prev) { const { period: pp, label, paidPct } = overviewOf(state, prev); out.previous = { period: pp, label, paidPct }; }
+  return out;
 }
 
 const wibMonth = (t) => iso(t + 7 * 3600000).slice(0, 7);
@@ -54,9 +68,9 @@ export function getManagerSummary(state = getState()) {
   };
 }
 
-export async function getIplOverview() {
+export async function getIplOverview(period) {
   await wait();
-  return iplOverview();
+  return iplOverview(getState(), period);
 }
 
 /** Terbitkan tagihan IPL satu periode ('2027-01') untuk semua unit; periode ganda ditolak. */
@@ -83,10 +97,10 @@ export async function issueIplBills(period) {
 }
 
 /** Kirim pengingat ke unit (blok) yang belum lunas; mengembalikan jumlah terkirim. */
-export async function sendIplReminders(unitIds) {
+export async function sendIplReminders(unitIds, period) {
   await wait();
   const state = getState();
-  const ov = iplOverview(state);
+  const ov = iplOverview(state, period);
   const targets = ov.units.filter((u) => (unitIds || []).includes(u.block) && u.status !== "lunas");
   if (targets.some((u) => u.block === state.world.unit.block)) {
     const note = notify("info", "Pengingat iuran IPL", `Iuran IPL ${ov.label} belum lunas. Bayar lewat aplikasi agar tercatat otomatis.`, "/app/warga/tagihan");

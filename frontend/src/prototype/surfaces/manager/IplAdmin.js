@@ -1,9 +1,10 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Send, FilePlus2 } from "lucide-react";
 import ManagerPage, { Panel, Table, Loading, FIELD, TH, TD, SMALL_BTN } from "./ManagerPage";
 import StatusChip from "../../components/StatusChip";
-import { getIplOverview, issueIplBills, sendIplReminders, periodLabel } from "../../services/api/manager";
+import { getIplOverview, issueIplBills, sendIplReminders, periodLabel, listIplPeriods } from "../../services/api/manager";
 import { rupiah } from "../../lib/format";
+import { useProto } from "../../services/useStore";
 import useLoad from "../../lib/useLoad";
 
 const TONE = { lunas: "ok", belum: "warn", terlambat: "danger" };
@@ -21,8 +22,11 @@ const periodOptions = (p) => {
 
 /** K2: tagihan IPL per unit, terbitkan periode baru, kirim pengingat. */
 export default function IplAdmin() {
-  const fetcher = useCallback(() => getIplOverview(), []);
+  const [view, setView] = useState(null); // periode yang dilihat; null = terbaru
+  const fetcher = useCallback(() => getIplOverview(view || undefined), [view]);
   const { data, error } = useLoad(fetcher, ["manager", "bills"]);
+  const manager = useProto((s) => s.manager);
+  const viewable = useMemo(() => listIplPeriods({ manager }), [manager]);
   const [period, setPeriod] = useState(null);
   const [picked, setPicked] = useState([]);
   const [msg, setMsg] = useState({ ok: "", err: "" });
@@ -39,7 +43,7 @@ export default function IplAdmin() {
     return `${created} tagihan periode ${periodLabel(value)} diterbitkan.`;
   });
   const remind = () => run(async () => {
-    const { sent } = await sendIplReminders(picked);
+    const { sent } = await sendIplReminders(picked, data.period);
     setPicked([]);
     return `Pengingat terkirim ke ${sent} unit.`;
   });
@@ -71,7 +75,13 @@ export default function IplAdmin() {
           <Panel
             title={`Status unit · ${data.label} (${data.paid} dari ${data.total} lunas)`}
             right={
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-2 text-[13px] font-semibold">
+                  Lihat periode
+                  <select value={data.period} onChange={(e) => { setView(e.target.value); setPicked([]); }} className={`${FIELD} !mt-0 !min-h-[36px] !w-[170px] !text-[13.5px]`}>
+                    {viewable.map((p) => <option key={p.period} value={p.period}>{p.label}</option>)}
+                  </select>
+                </label>
                 <button type="button" className={`rdg-btn-ghost ${SMALL_BTN}`} onClick={() => setPicked(data.units.filter((u) => u.status !== "lunas").map((u) => u.block))}>Pilih yang belum lunas</button>
                 <button type="button" className={`rdg-btn-primary ${SMALL_BTN}`} disabled={busy || picked.length === 0} onClick={remind}>
                   <Send size={15} aria-hidden="true" /> {`Kirim pengingat${picked.length ? ` (${picked.length})` : ""}`}

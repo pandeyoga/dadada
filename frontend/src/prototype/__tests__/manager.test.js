@@ -7,10 +7,10 @@ import { __initStoreForTest, getState, setState } from "@/prototype/services/sto
 import { setLatency } from "@/prototype/services/latency";
 import { startPayment, confirmPayment } from "@/prototype/services/api/payments";
 import { sendSos } from "@/prototype/services/api/sos";
-import { listAnnouncements, listProducts, listServices } from "@/prototype/services/api/community";
+import { listAnnouncements, listProducts, listServices, addToCart, cartLines, cartTotal, checkout } from "@/prototype/services/api/community";
 import { listTickets } from "@/prototype/services/api/care";
 import {
-  getManagerSummary, issueIplBills, sendIplReminders, assignTicket, postAnnouncement, listVendors, setVendorStatus,
+  getManagerSummary, iplOverview, listIplPeriods, issueIplBills, sendIplReminders, assignTicket, postAnnouncement, listVendors, setVendorStatus,
 } from "@/prototype/services/api/manager";
 
 jest.mock("@/prototype/lib/scrollTop", () => ({ scrollToTop: jest.fn() }));
@@ -65,6 +65,22 @@ describe("tagihan IPL", () => {
     const bill = getState().bills.ipl.find((b) => b.id === "ipl-2027-01");
     expect(bill).toMatchObject({ period: "Januari 2027", amount: 150000, dueDate: "2027-01-10", status: "unpaid" });
     expect(getState().notifications[0]).toMatchObject({ tier: "info", link: "/app/warga/tagihan" });
+  });
+
+  test("setelah Januari terbit, Desember tetap bisa dilihat dengan persentasenya", async () => {
+    await payDecember();
+    const dec = iplOverview(getState(), "2026-12").paidPct;
+    await issueIplBills("2027-01");
+    expect(listIplPeriods().map((p) => p.period)).toEqual(["2027-01", "2026-12"]);
+    expect(iplOverview(getState(), "2026-12").paidPct).toBe(dec);
+    expect(dec).toBeGreaterThan(0);
+    const jan = iplOverview(getState());
+    expect(jan).toMatchObject({ period: "2027-01", paidPct: 0 });
+    expect(jan.previous).toMatchObject({ period: "2026-12", paidPct: dec });
+    expect(getManagerSummary().iplPaidPct).toBe(0);
+    // C-12 tetap diturunkan dari bills.ipl per periode
+    expect(iplOverview(getState(), "2026-12").units.find((u) => u.block === "C-12").status).toBe("lunas");
+    expect(jan.units.find((u) => u.block === "C-12").status).toBe("belum");
   });
 
   test("periode yang sudah ada (Desember 2026) juga ditolak, periode tak valid ditolak", async () => {
@@ -127,6 +143,19 @@ describe("mitra", () => {
   });
 });
 
+test("menangguhkan mitra mengeluarkan produknya dari keranjang, total, dan checkout", async () => {
+  await addToCart("mk-10", 1);
+  await addToCart("mk-1", 1);
+  const price = (id) => getState().community.market.find((m) => m.id === id).price;
+  expect(cartTotal(getState())).toBe(price("mk-10") + price("mk-1"));
+  await setVendorStatus("vd-t1", "ditangguhkan");
+  expect(cartLines(getState()).map((l) => l.productId)).toEqual(["mk-1"]);
+  expect(cartTotal(getState())).toBe(price("mk-1"));
+  const target = await checkout();
+  expect(target.amount).toBe(price("mk-1"));
+  expect(getState().community.orders[0].items.map((i) => i.productId)).toEqual(["mk-1"]);
+});
+
 describe("layar K1–K7", () => {
   test("K1 menampilkan empat angka ringkasan", async () => {
     mount("/app/pengelola");
@@ -145,6 +174,16 @@ describe("layar K1–K7", () => {
     await act(async () => { await payDecember(); });
     await waitFor(() => expect(screen.getByLabelText("Tagihan IPL lunas")).toHaveTextContent(`${getManagerSummary().iplPaidPct}%`));
     expect(getManagerSummary().iplPaidPct).toBeGreaterThan(before);
+  });
+
+  test("K2: Lihat periode memperlihatkan Desember setelah Januari terbit", async () => {
+    mount("/app/pengelola/ipl");
+    fireEvent.change(await screen.findByLabelText("Periode tagihan"), { target: { value: "2027-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "Terbitkan tagihan" }));
+    await screen.findByText("20 tagihan periode Januari 2027 diterbitkan.");
+    expect(await screen.findByText(/Status unit · Januari 2027 \(0 dari 20 lunas\)/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Lihat periode"), { target: { value: "2026-12" } });
+    expect(await screen.findByText(/Status unit · Desember 2026 \(14 dari 20 lunas\)/)).toBeInTheDocument();
   });
 
   test("K2: Terbitkan tagihan lalu galat saat diulang", async () => {

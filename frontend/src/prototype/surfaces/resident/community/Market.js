@@ -21,7 +21,8 @@ const FILTERS = [["semua", "Semua"], ["warga", "Warga"], ["tenant", "Tenant"]];
 export default function Market() {
   const fetcher = useCallback(() => listProducts(), []);
   const community = useProto((s) => s.community); // keranjang selalu mengikuti state langsung
-  const { data, error } = useLoad(fetcher, ["community"]);
+  const manager = useProto((s) => s.manager); // status mitra memengaruhi isi keranjang
+  const { data, error } = useLoad(fetcher, ["community", "manager"]);
   const [open, setOpen] = useState(false);
   const [problem, setProblem] = useState("");
   const [pay, setPay] = useState(null); // dipertahankan agar kuitansi tetap tampil setelah lunas
@@ -32,7 +33,7 @@ export default function Market() {
     setProblem("");
     try { await fn(); } catch (e) { setProblem(e.message); }
   };
-  const lines = data ? cartLines({ community }) : [];
+  const lines = data ? cartLines({ community, manager }) : [];
   const count = lines.reduce((n, l) => n + l.qty, 0);
   const pending = async () => {
     const t = await checkout();
@@ -95,7 +96,7 @@ export default function Market() {
                 </li>
               ))}
             </ul>
-            <p className="mt-3 flex justify-between text-[16px] font-extrabold"><span>Total</span><span data-testid="cart-total">{rupiah(cartTotal({ community }))}</span></p>
+            <p className="mt-3 flex justify-between text-[16px] font-extrabold"><span>Total</span><span data-testid="cart-total">{rupiah(cartTotal({ community, manager }))}</span></p>
             <Msg error={open ? problem : ""} />
             <button type="button" className="rdg-btn-primary mt-3 w-full" onClick={() => run(pending)}>Bayar sekarang</button>
           </Sheet>

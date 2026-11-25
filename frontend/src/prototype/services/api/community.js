@@ -118,7 +118,8 @@ export async function removeFromCart(productId) {
 /** Baris keranjang bergabung dengan data produk. */
 export function cartLines(state) {
   const { cart, market } = state.community;
-  return cart.map((l) => ({ ...l, product: market.find((m) => m.id === l.productId) })).filter((l) => l.product);
+  const shown = visible(state, market); // produk mitra ditangguhkan keluar dari keranjang, total, dan checkout
+  return cart.map((l) => ({ ...l, product: shown.find((m) => m.id === l.productId) })).filter((l) => l.product);
 }
 
 export function cartTotal(state) {
