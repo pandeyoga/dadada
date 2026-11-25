@@ -8,6 +8,9 @@ import { doorStatus } from "@/prototype/services/api/security";
 import { getResidentHome, completeOnboarding } from "@/prototype/services/api/resident";
 import { homePathFor, simulateBast } from "@/prototype/services/api/session";
 import useLoad from "@/prototype/lib/useLoad";
+import { scrollToTop } from "@/prototype/lib/scrollTop";
+
+jest.mock("@/prototype/lib/scrollTop", () => ({ scrollToTop: jest.fn() }));
 
 const NOW = Date.parse("2026-11-25T03:00:00Z"); // 10.00 WIB
 
@@ -47,12 +50,15 @@ describe("layanan warga", () => {
     const before = getState().security.contacts.length;
     await completeOnboarding({
       connectDevices: true,
-      invites: [{ name: "Mas Dimas", phone: "0812-3456-7001" }],
+      invites: [{ name: "Mas Dimas", phone: "0812-3456-0000" }],
       contacts: [{ name: "Ibu Rina", phone: "0811-000-111" }],
     });
     expect(getState().onboarding.done).toBe(true);
     expect(getState().security.contacts).toHaveLength(before + 1);
-    expect(getState().world.family[0].name).toBe("Mas Dimas");
+    const fam = getState().care.family.find((f) => f.name === "Mas Dimas");
+    expect(fam).toMatchObject({ relation: "Keluarga", access: false, phone: "0812-3456-0000" });
+    expect(getState().world.family).toBeUndefined();
+    expect(getState().security.contacts.at(-1).phone).toBe("0811-0001-11");
     expect(homePathFor(getState())).toBe("/app/warga");
   });
 
@@ -64,9 +70,40 @@ describe("layanan warga", () => {
     expect(typeof h.energy.kwh).toBe("number");
   });
 
+  test("completeOnboarding menolak nomor pendek dan melewati duplikat nama/nomor", async () => {
+    await expect(completeOnboarding({ invites: [{ name: "Budi", phone: "0812" }] })).rejects.toThrow(/belum lengkap/);
+    await expect(completeOnboarding({ invites: [{ name: "  ", phone: "081234567890" }] })).rejects.toThrow(/Nama belum diisi/);
+    expect(getState().onboarding.done).toBe(false);
+    const n = getState().care.family.length;
+    await completeOnboarding({
+      invites: [
+        { name: "dimas pratama", phone: "081200000001" },
+        { name: "Orang Baru", phone: "0812-3456-7001" },
+        { name: "Tika", phone: "6281299990000" },
+        { name: "Tika", phone: "081211112222" },
+      ],
+    });
+    const fam = getState().care.family;
+    expect(fam).toHaveLength(n + 1);
+    expect(fam.at(-1)).toMatchObject({ name: "Tika", phone: "0812-9999-0000" });
+  });
+
   test("getResidentHome: IPL lunas → iplDue null", async () => {
     setState((s) => ({ ...s, bills: { ...s.bills, ipl: s.bills.ipl.map((b) => ({ ...b, status: "paid" })) } }));
     expect((await getResidentHome()).iplDue).toBeNull();
+  });
+});
+
+describe("reset scroll", () => {
+  test("pindah rute memanggil scrollToTop", async () => {
+    const spy = scrollToTop;
+    setState((st) => ({ ...st, mode: "resident", onboarding: { done: true } }));
+    mount("/app/warga");
+    await screen.findByText("Rumah aman");
+    spy.mockClear();
+    fireEvent.click(screen.getByRole("link", { name: "Akun saya" }));
+    await waitFor(() => expect(screen.getByTestId("where").textContent).toBe("/app/warga/akun"));
+    expect(spy).toHaveBeenCalled();
   });
 });
 
@@ -98,7 +135,7 @@ describe("T1 onboarding", () => {
 
     await screen.findByText("Undang keluarga");
     fireEvent.change(screen.getByLabelText("Nama"), { target: { value: "Mas Dimas" } });
-    fireEvent.change(screen.getByLabelText("Nomor WhatsApp"), { target: { value: "081234567001" } });
+    fireEvent.change(screen.getByLabelText("Nomor WhatsApp"), { target: { value: "081234560000" } });
     fireEvent.click(screen.getByRole("button", { name: "Tambah" }));
     await screen.findByText("Mas Dimas");
     fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
@@ -108,7 +145,7 @@ describe("T1 onboarding", () => {
 
     await waitFor(() => expect(screen.getByTestId("where").textContent).toBe("/app/warga"));
     expect(getState().onboarding.done).toBe(true);
-    expect(getState().world.family.map((f) => f.name)).toContain("Mas Dimas");
+    expect(getState().care.family.map((f) => f.name)).toContain("Mas Dimas");
     await screen.findByText("Rumah aman");
   });
 

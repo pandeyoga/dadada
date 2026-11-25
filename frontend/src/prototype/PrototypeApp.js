@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import "@fontsource/plus-jakarta-sans/400.css";
 import "@fontsource/plus-jakarta-sans/500.css";
 import "@fontsource/plus-jakarta-sans/600.css";
@@ -10,6 +10,7 @@ import "./theme/rdg-components.css";
 import "./theme/rdg-controls.css";
 import screens from "./screens.json";
 import { isPrototypeHost } from "./lib/host";
+import { scrollToTop } from "./lib/scrollTop";
 import Placeholder from "./surfaces/Placeholder";
 import Launcher from "./surfaces/demo/Launcher";
 import Login from "./surfaces/demo/Login";
@@ -54,6 +55,9 @@ function renderScreen(s) {
 
 export default function PrototypeApp({ hostname = window.location.hostname }) {
   const allowed = isPrototypeHost(hostname);
+  const { pathname } = useLocation();
+  // Pindah layar → mulai dari atas.
+  useEffect(() => { scrollToTop(); }, [pathname]);
   // Tuas untuk presenter/uji; hanya dipasang bila host diizinkan.
   useEffect(() => {
     if (!allowed) return undefined;

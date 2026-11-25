@@ -22,6 +22,7 @@ export default function Welcome() {
   const navigate = useNavigate();
   const world = useProto((s) => s.world);
   const contacts = useProto((s) => s.security.contacts);
+  const family = useProto((s) => s.care.family);
   const [step, setStep] = useState(0);
   const [started, setStarted] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -73,7 +74,7 @@ export default function Welcome() {
             </FrostCard>
           )}
           {step === 1 && <ConnectStep started={started} onDone={onDone} />}
-          {step === 2 && <PeopleStep idPrefix="fam" items={invites} onChange={setInvites} addLabel="Tambah" />}
+          {step === 2 && <PeopleStep idPrefix="fam" items={invites} existing={family} onChange={setInvites} addLabel="Tambah" />}
           {step === 3 && <PeopleStep idPrefix="ct" items={extra} existing={contacts} onChange={setExtra} addLabel="Tambah" />}
           {error && <p role="alert" className="text-[13px] font-semibold text-[color:var(--rdg-sos-ink)]">{error}</p>}
 

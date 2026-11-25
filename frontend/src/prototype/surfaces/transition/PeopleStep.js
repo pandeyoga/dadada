@@ -12,6 +12,9 @@ export default function PeopleStep({ idPrefix, items, existing = [], onChange, a
   const add = () => {
     if (!name.trim()) return setError("Nama belum diisi");
     if (phone.replace(/\D/g, "").length < 10) return setError("Nomor WhatsApp belum lengkap");
+    const d = phone.replace(/\D/g, "");
+    const taken = [...existing, ...items].some((x) => x.name.toLowerCase() === name.trim().toLowerCase() || (x.phone && x.phone.replace(/\D/g, "") === d));
+    if (taken) return setError("Nama atau nomor ini sudah ada di daftar");
     onChange([...items, { name: name.trim(), phone }]);
     setName(""); setPhone(""); setError("");
   };
@@ -20,7 +23,7 @@ export default function PeopleStep({ idPrefix, items, existing = [], onChange, a
       {(existing.length > 0 || items.length > 0) && (
         <ul className="divide-y divide-[color:var(--rdg-line)] rounded-2xl bg-white/80 px-3" aria-label="Daftar">
           {existing.map((p) => (
-            <li key={p.id}><ListRow icon={Phone} title={p.name} subtitle={`${p.role || "Kontak"} · ${p.phone}`} /></li>
+            <li key={p.id}><ListRow icon={Phone} title={p.name} subtitle={`${p.role || p.relation || "Kontak"} · ${p.phone}`} /></li>
           ))}
           {items.map((p, i) => (
             <li key={`${p.name}-${i}`}>

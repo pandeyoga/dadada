@@ -36,18 +36,44 @@ export async function getResidentHome() {
   };
 }
 
-const clean = (list) => (list || []).map((x) => ({ name: String(x.name || "").trim(), phone: String(x.phone || "").replace(/\D/g, "") })).filter((x) => x.name);
+const digitsOf = (v) => String(v == null ? "" : v).replace(/\D/g, "");
 
-/** Selesaikan onboarding: simpan undangan keluarga dan kontak darurat baru. */
+/** 0812-3456-7001 (gaya fixture); 62… → 0…. */
+export function formatPhone(v) {
+  let d = digitsOf(v);
+  if (d.startsWith("62")) d = `0${d.slice(2)}`;
+  return d.length > 8 ? `${d.slice(0, 4)}-${d.slice(4, 8)}-${d.slice(8)}` : d;
+}
+
+// Validasi (tolak seluruh panggilan bila ada entri tidak valid), lalu lewati duplikat nama/nomor.
+function prepare(list, existing) {
+  const seenName = new Set(existing.map((x) => x.name.trim().toLowerCase()));
+  const seenPhone = new Set(existing.map((x) => digitsOf(x.phone)).filter(Boolean));
+  const out = [];
+  (list || []).forEach((x) => {
+    const name = String((x && x.name) || "").trim();
+    if (!name) throw new Error("Nama belum diisi");
+    if (digitsOf(x.phone).length < 10) throw new Error(`Nomor WhatsApp ${name} belum lengkap`);
+    const phone = formatPhone(x.phone);
+    if (seenName.has(name.toLowerCase()) || seenPhone.has(digitsOf(phone))) return;
+    seenName.add(name.toLowerCase());
+    seenPhone.add(digitsOf(phone));
+    out.push({ name, phone });
+  });
+  return out;
+}
+
+/** Selesaikan onboarding: simpan undangan keluarga (care.family) dan kontak darurat baru. */
 export async function completeOnboarding({ connectDevices = true, invites = [], contacts = [] } = {}) {
   await wait();
   const t = now();
-  const fam = clean(invites).map((x, i) => ({ id: `fam-${t}-${i}`, ...x, status: "diundang" }));
-  const cts = clean(contacts).map((x, i) => ({ id: `ct-${t}-${i}`, ...x, role: "Keluarga" }));
+  const { care, security } = getState();
+  const fam = prepare(invites, care.family).map((x, i) => ({ id: `fm-${t}-${i}`, ...x, relation: "Keluarga", access: false }));
+  const cts = prepare(contacts, security.contacts).map((x, i) => ({ id: `ct-${t}-${i}`, ...x, role: "Keluarga" }));
   setState((s) => ({
     ...s,
     onboarding: { ...s.onboarding, done: true, connectDevices: !!connectDevices },
-    world: { ...s.world, family: [...(s.world.family || []), ...fam] },
+    care: { ...s.care, family: [...s.care.family, ...fam] },
     security: { ...s.security, contacts: [...s.security.contacts, ...cts] },
   }));
 }
