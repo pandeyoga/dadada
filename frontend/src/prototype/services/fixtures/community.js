@@ -45,6 +45,11 @@ export function buildCommunity(now) {
       { id: "sv-5", name: "Katering harian", provider: "Bu Dewi · A-07", price: "Rp18.000/porsi", phone: "0813-2037-4112", category: "Makanan", rating: 4.5 },
       { id: "sv-6", name: "Les privat matematika SD", provider: "Pak Bambang · D-13", price: "Rp50.000/sesi", phone: "0813-2555-4411", category: "Pendidikan", rating: 4.8 },
       { id: "sv-7", name: "Ojek antar sekolah", provider: "Pak Rudi · A-11", price: "Rp10.000/trip", phone: "0813-2222-4300", category: "Antar jemput", rating: 4.4 },
+      { id: "sv-8", name: "Tukang perbaikan rumah", provider: "Pak Slamet · E-01", price: "Rp120.000/hari", phone: "0813-2301-4500", category: "Perbaikan", rating: 4.7 },
+      { id: "sv-9", name: "Kebersihan rumah", provider: "Bu Sari · D-03", price: "Mulai Rp90.000", phone: "0813-2302-4511", category: "Rumah tangga", rating: 4.6 },
+      { id: "sv-10", name: "Isi ulang galon", provider: "Pak Anto · A-02", price: "Rp20.000/galon", phone: "0813-2303-4522", category: "Rumah tangga", rating: 4.8 },
+      { id: "sv-11", name: "Sedot WC", provider: "Pak Yanto · E-08", price: "Mulai Rp250.000", phone: "0813-2304-4533", category: "Perbaikan", rating: 4.5 },
+      { id: "sv-12", name: "Perawatan taman", provider: "Pak Eko · C-04", price: "Mulai Rp80.000", phone: "0813-2305-4544", category: "Taman", rating: 4.7 },
     ],
     facilities: [
       { id: "fc-1", name: "Lapangan serbaguna", about: "Futsal dan bulu tangkis, tersedia 06.00-21.00.", fee: "Rp50.000/jam", slots: ["16.00", "17.00", "19.00", "20.00"], img: "facility/lapangan" },
@@ -56,6 +61,7 @@ export function buildCommunity(now) {
       { id: "ch-1", groupId: "gr-1", from: "Bu Ratna", text: "Arisan bulan ini di rumah Bu Maya ya, Sabtu jam 4.", at: iso(now - 4 * HOUR) },
       { id: "ch-2", groupId: "gr-1", from: "Bu Maya", text: "Siap, saya siapkan kue.", at: iso(now - 3 * HOUR) },
     ],
+    bookings: [],
     cart: [],
     orders: [],
   };

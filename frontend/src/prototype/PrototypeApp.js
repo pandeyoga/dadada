@@ -40,6 +40,12 @@ import Bills from "./surfaces/resident/bills/Bills";
 import BillHistory from "./surfaces/resident/bills/BillHistory";
 import CashReport from "./surfaces/resident/bills/CashReport";
 import TopUp from "./surfaces/resident/bills/TopUp";
+import Community from "./surfaces/resident/community/Community";
+import EventDetail from "./surfaces/resident/community/EventDetail";
+import Groups from "./surfaces/resident/community/Groups";
+import Polls from "./surfaces/resident/community/Polls";
+import Market from "./surfaces/resident/community/Market";
+import HomeServices from "./surfaces/resident/community/HomeServices";
 import GuardHome from "./surfaces/satpam/GuardHome";
 import SosAlert from "./surfaces/satpam/SosAlert";
 import GuestScan from "./surfaces/satpam/GuestScan";
@@ -58,6 +64,7 @@ const COMPONENTS = {
   T1: Welcome, W1: ResidentHome,
   W2: SecurityHome, W3: DoorLock, W4: HomeCctv, W5: AreaSecurity, W6: Gate, W7: Guests, W8: Sos, W9: SosContacts,
   W10: Bills, W11: BillHistory, W12: CashReport, W13: TopUp,
+  W14: Community, W15: EventDetail, W16: Groups, W17: Polls, W18: Market, W19: HomeServices,
   S1: GuardHome, S2: SosAlert, S3: GuestScan, S4: GuardCctv, S5: Patrol,
 };
 
