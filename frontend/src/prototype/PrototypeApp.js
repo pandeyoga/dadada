@@ -13,11 +13,26 @@ import { isPrototypeHost } from "./lib/host";
 import Placeholder from "./surfaces/Placeholder";
 import Launcher from "./surfaces/demo/Launcher";
 import Login from "./surfaces/demo/Login";
+import BuyerHome from "./surfaces/buyer/BuyerHome";
+import Progress from "./surfaces/buyer/Progress";
+import PlotMap from "./surfaces/buyer/PlotMap";
+import Payments from "./surfaces/buyer/Payments";
+import PayItem from "./surfaces/buyer/PayItem";
+import Kpr from "./surfaces/buyer/Kpr";
+import Cancellation from "./surfaces/buyer/Cancellation";
+import Documents from "./surfaces/buyer/Documents";
+import BuyerAccount from "./surfaces/buyer/BuyerAccount";
+import Referral from "./surfaces/buyer/Referral";
+import Promo from "./surfaces/buyer/Promo";
 import { getState, resetState } from "./services/store";
 import { setPersona, simulateBast, setLocation, homePathFor } from "./services/api/session";
 
 // Satu tempat pemetaan id layar -> komponen. Task berikutnya mengganti Placeholder.
-const COMPONENTS = { U1: Launcher, U2: Login };
+const COMPONENTS = {
+  U1: Launcher, U2: Login,
+  P1: BuyerHome, P2: Progress, P3: PlotMap, P4: Payments, P5: PayItem, P6: Kpr,
+  P7: Cancellation, P8: Documents, P9: BuyerAccount, P10: Referral, P11: Promo,
+};
 
 // Rute dinamis (menggantikan path statis contoh di screens.json).
 const DYNAMIC = {
