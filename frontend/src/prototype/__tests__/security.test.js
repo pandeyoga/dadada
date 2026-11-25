@@ -207,6 +207,33 @@ describe("layar keamanan", () => {
     expect(await screen.findByText("Selesai", { selector: "h2" })).toBeInTheDocument();
   });
 
+  test("W8: kirim → batalkan → tahan lagi → sheet bersih (jenis bawaan, tombol aktif) → kirim berhasil", async () => {
+    mount("/app/warga/sos");
+    const hold = () => {
+      const btn = screen.getByRole("button", { name: /SOS/ });
+      jest.useFakeTimers();
+      try {
+        fireEvent.pointerDown(btn);
+        act(() => jest.advanceTimersByTime(3000));
+      } finally {
+        jest.useRealTimers();
+      }
+    };
+    hold();
+    fireEvent.click(screen.getByRole("radio", { name: /Kebakaran/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Kirim laporan" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Batalkan laporan" }));
+    await waitFor(() => expect(getState().security.sos[0].status).toBe("cancelled"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /SOS/ })).toBeInTheDocument());
+    hold();
+    expect(screen.getByRole("radio", { name: /Kemalingan/ })).toBeChecked();
+    const send = screen.getByRole("button", { name: "Kirim laporan" });
+    expect(send).toBeEnabled();
+    fireEvent.click(send);
+    expect(await screen.findByText("Menunggu satpam…")).toBeInTheDocument();
+    expect(getState().security.sos[0]).toMatchObject({ type: "kemalingan", status: "sent" });
+  });
+
   test("W9: tambah kontak lewat formulir", async () => {
     mount("/app/warga/sos/kontak");
     fireEvent.click(await screen.findByRole("button", { name: /Tambah kontak/ }));

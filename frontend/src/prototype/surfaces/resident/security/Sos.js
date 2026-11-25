@@ -140,7 +140,7 @@ export default function Sos() {
         <div className="space-y-4 px-5 pt-5">
           <Contacts contacts={contacts} />
         </div>
-        <TypeSheet open={sheet} onClose={() => setSheet(false)} onSend={send} />
+        {sheet && <TypeSheet open onClose={() => setSheet(false)} onSend={send} />}
       </Screen>
     </MobileShell>
   );
