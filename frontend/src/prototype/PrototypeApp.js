@@ -36,6 +36,10 @@ import Gate from "./surfaces/resident/security/Gate";
 import Guests from "./surfaces/resident/security/Guests";
 import Sos from "./surfaces/resident/security/Sos";
 import SosContacts from "./surfaces/resident/security/SosContacts";
+import Bills from "./surfaces/resident/bills/Bills";
+import BillHistory from "./surfaces/resident/bills/BillHistory";
+import CashReport from "./surfaces/resident/bills/CashReport";
+import TopUp from "./surfaces/resident/bills/TopUp";
 import GuardHome from "./surfaces/satpam/GuardHome";
 import SosAlert from "./surfaces/satpam/SosAlert";
 import GuestScan from "./surfaces/satpam/GuestScan";
@@ -53,6 +57,7 @@ const COMPONENTS = {
   P7: Cancellation, P8: Documents, P9: BuyerAccount, P10: Referral, P11: Promo,
   T1: Welcome, W1: ResidentHome,
   W2: SecurityHome, W3: DoorLock, W4: HomeCctv, W5: AreaSecurity, W6: Gate, W7: Guests, W8: Sos, W9: SosContacts,
+  W10: Bills, W11: BillHistory, W12: CashReport, W13: TopUp,
   S1: GuardHome, S2: SosAlert, S3: GuestScan, S4: GuardCctv, S5: Patrol,
 };
 

@@ -82,12 +82,13 @@ export function buildBills(now) {
       })),
     ],
     ppobTx: [],
+    cashOpening: 18500000, // saldo kas per akhir Mei 2026
     cashReport,
     ppobCatalog: [
-      { id: "pulsa", label: "Pulsa", options: [10000, 25000, 50000, 100000].map((v) => ({ id: `pulsa-${v}`, label: `Pulsa ${v / 1000}rb`, price: v + 1500 })) },
-      { id: "data", label: "Paket data", options: [{ id: "data-5", label: "Data 5 GB / 30 hari", price: 45000 }, { id: "data-12", label: "Data 12 GB / 30 hari", price: 75000 }] },
-      { id: "listrik", label: "Token listrik", options: [20000, 50000, 100000, 200000].map((v) => ({ id: `pln-${v}`, label: `Token PLN ${v / 1000}rb`, price: v + 2500 })) },
-      { id: "pdam", label: "Air PDAM", options: [{ id: "pdam-bulan", label: "Tagihan air bulan ini", price: 87500 }] },
+      { id: "pulsa", label: "Pulsa", options: [10000, 25000, 50000, 100000].map((v) => ({ id: `pulsa-${v}`, label: `Pulsa ${v / 1000}rb`, nominal: v, price: v + 1500 })) },
+      { id: "data", label: "Paket data", options: [{ id: "data-5", label: "Data 5 GB / 30 hari", nominal: 45000, price: 45000 }, { id: "data-12", label: "Data 12 GB / 30 hari", nominal: 75000, price: 75000 }] },
+      { id: "listrik", label: "Token listrik", options: [20000, 50000, 100000, 200000].map((v) => ({ id: `pln-${v}`, label: `Token PLN ${v / 1000}rb`, nominal: v, price: v + 2500 })) },
+      { id: "pdam", label: "Air PDAM", options: [{ id: "pdam-bulan", label: "Tagihan air bulan ini", nominal: 87500, price: 87500 }] },
       { id: "internet", label: "Internet rumah", options: [{ id: "net-20", label: "Paket 20 Mbps", price: 185000 }, { id: "net-50", label: "Paket 50 Mbps", price: 275000 }] },
     ],
   };
