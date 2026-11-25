@@ -3,6 +3,7 @@ import { ShoppingCart, Plus, Trash2, CircleCheck } from "lucide-react";
 import Page, { Loading } from "../../buyer/Page";
 import { HeaderButton } from "../../../components/ScreenHeader";
 import { FrostCard } from "../../../components/GlassCard";
+import StatusChip from "../../../components/StatusChip";
 import Sheet from "../../../components/Sheet";
 import PayFlow from "../../../components/PayFlow";
 import ReceiptCard from "../../../components/pay/ReceiptCard";
@@ -14,6 +15,8 @@ import { rupiah } from "../../../lib/format";
 import useLoad from "../../../lib/useLoad";
 
 
+const FILTERS = [["semua", "Semua"], ["warga", "Warga"], ["tenant", "Tenant"]];
+
 /** W18: pasar warga — grid produk, keranjang (Sheet), bayar lewat PayFlow. Simulasi; tanpa pengiriman nyata. */
 export default function Market() {
   const fetcher = useCallback(() => listProducts(), []);
@@ -23,6 +26,7 @@ export default function Market() {
   const [problem, setProblem] = useState("");
   const [pay, setPay] = useState(null); // dipertahankan agar kuitansi tetap tampil setelah lunas
   const [receipt, setReceipt] = useState(null);
+  const [kind, setKind] = useState("semua");
 
   const run = async (fn) => {
     setProblem("");
@@ -51,13 +55,20 @@ export default function Market() {
               <p className="text-[13px] text-[color:var(--rdg-muted)]">Pengambilan atau pengantaran diatur langsung dengan penjual.</p>
             </section>
           )}
-          <p className="text-[13.5px] text-[color:var(--rdg-muted)]">Dagangan tetangga di Estora Residence.</p>
+          <p className="text-[13.5px] text-[color:var(--rdg-muted)]">Dagangan tetangga dan tenant di Estora Residence.</p>
+          <div role="group" aria-label="Jenis penjual" className="grid grid-cols-3 gap-2">
+            {FILTERS.map(([id, label]) => (
+              <button key={id} type="button" aria-pressed={kind === id} onClick={() => setKind(id)}
+                className={`rdg-btn-ghost !min-h-[44px] ${kind === id ? "!border-rdg-forest !bg-[#e7ffef] font-extrabold" : ""}`}>{label}</button>
+            ))}
+          </div>
           <ul className="grid grid-cols-2 gap-3">
-            {data.map((p) => (
+            {data.filter((p) => kind === "semua" || p.sellerType === kind).map((p) => (
               <li key={p.id}>
                 <FrostCard className="flex h-full flex-col !p-2">
                   <MarketIllustration img={p.img} label={`Foto ${p.name}`} className="aspect-[16/11] w-full rounded-xl" />
-                  <p className="mt-2 text-[14.5px] font-bold leading-snug">{p.name}</p>
+                  <p className="mt-2"><StatusChip tone={p.sellerType === "tenant" ? "info" : "neutral"} icon={null}>{p.sellerType === "tenant" ? "Tenant" : "Warga"}</StatusChip></p>
+                  <p className="mt-1 text-[14.5px] font-bold leading-snug">{p.name}</p>
                   <p className="text-[12.5px] text-[color:var(--rdg-muted)]">{p.seller}</p>
                   <p className="mt-auto pt-1 text-[15px] font-extrabold">{rupiah(p.price)}</p>
                   <button type="button" className="rdg-btn-ghost mt-2 !min-h-[44px] w-full" aria-label={`Tambah ${p.name}`} onClick={() => run(() => addToCart(p.id))}>

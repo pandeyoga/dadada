@@ -169,3 +169,16 @@ test("menu bawah: Komunitas aktif di pasar/jasa, Tagihan aktif di isi ulang", as
   await waitFor(() => expect(screen.getByRole("link", { name: "Tagihan" }).className).toMatch(/is-active/));
   expect(screen.getByRole("link", { name: "Komunitas" }).className).not.toMatch(/is-active/);
 });
+
+test("W18: grid memuat produk warga dan tenant; filter bekerja", async () => {
+  mount("/app/warga/pasar");
+  await screen.findByText("Nasi kuning komplit");
+  expect(screen.getByText("Beras premium 5 kg")).toBeTruthy();
+  expect(screen.getAllByText("Tenant").length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole("button", { name: "Tenant" }));
+  expect(screen.queryByText("Nasi kuning komplit")).toBeNull();
+  expect(screen.getByText("Kopi susu gula aren")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Warga" }));
+  expect(screen.queryByText("Beras premium 5 kg")).toBeNull();
+  expect(screen.getByText("Nasi kuning komplit")).toBeTruthy();
+});

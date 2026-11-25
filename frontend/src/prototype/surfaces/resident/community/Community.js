@@ -22,12 +22,12 @@ export default function Community() {
   const [tab, setTab] = useState("Pengumuman");
   return (
     <Page id="W14" title="Komunitas" back="/app/warga" nav="resident">
-      <div role="tablist" aria-label="Isi komunitas" className="grid grid-cols-4 gap-1 rounded-2xl bg-white/80 p-1 shadow-sm">
+      <div role="tablist" aria-label="Isi komunitas" className="grid grid-cols-[1.45fr_1fr_0.8fr_1fr] gap-1 rounded-2xl bg-white/80 p-1 shadow-sm">
         {TABS.map((t) => (
           <button
             key={t} type="button" role="tab" id={`w14-tab-${t}`} aria-selected={tab === t} aria-controls="w14-panel"
             onClick={() => setTab(t)}
-            className={`min-h-[44px] rounded-xl px-0.5 text-[12.5px] font-bold ${tab === t ? "bg-rdg-forest text-white" : "text-rdg-ink900"}`}
+            className={`min-h-[44px] rounded-xl px-1 text-[12.5px] font-bold ${tab === t ? "bg-rdg-forest text-white" : "text-rdg-ink900"}`}
           >
             {t}
           </button>

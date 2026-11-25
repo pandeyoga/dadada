@@ -10,6 +10,8 @@ const ART = {
   pot: { bg: "#f6e4d4", art: <><path d="M48 50 H112 L102 94 H58Z" fill="#c97b5a" /><rect x="44" y="44" width="72" height="10" rx="4" fill="#a85f44" /><path d="M80 44 q-18 -22 -4 -30 q10 12 4 30Z M80 44 q18 -22 4 -30 q-10 12 -4 30Z" fill="#49ae42" /></> },
   sprei: { bg: "#e3ecf9", art: <><rect x="34" y="40" width="92" height="52" rx="6" fill="#3b6ea5" /><path d="M34 56 H126 M34 72 H126" stroke="#a9c7e8" strokeWidth="3" /><circle cx="60" cy="48" r="4" fill="#f6e7a3" /><circle cx="100" cy="64" r="4" fill="#f6e7a3" /></> },
   telur: { bg: "#f3ead9", art: <>{[48, 72, 96].map((x, i) => <ellipse key={x} cx={x + 8} cy={i === 1 ? 60 : 68} rx="14" ry="19" fill="#f4e3c3" stroke="#d7b98a" strokeWidth="2" />)}</> },
+  beras: { bg: "#f3ead9", art: <><path d="M48 40 H112 L118 92 H42Z" fill="#e9dcc0" stroke="#c9b88a" strokeWidth="2" /><rect x="58" y="54" width="44" height="22" rx="4" fill="#209f59" /><path d="M66 65 H94" stroke="#fff" strokeWidth="4" strokeLinecap="round" /></> },
+  laundry: { bg: "#e3f2f7", art: <><rect x="44" y="26" width="72" height="68" rx="8" fill="#fff" stroke="#7fb3b0" strokeWidth="3" /><circle cx="80" cy="62" r="22" fill="#a9d9de" stroke="#007f83" strokeWidth="4" /><path d="M66 62 q7 -8 14 0 t14 0" stroke="#fff" strokeWidth="3" fill="none" /><circle cx="58" cy="36" r="3" fill="#007f83" /></> },
   rajut: { bg: "#fde4ee", art: <><circle cx="80" cy="64" r="24" fill="#e6639b" /><path d="M62 54 q18 14 36 0 M60 66 q20 14 40 0 M66 78 q14 8 28 0" stroke="#fbb7d1" strokeWidth="3" fill="none" /><circle cx="80" cy="30" r="6" fill="none" stroke="#7a7a7a" strokeWidth="3" /></> },
 };
 
