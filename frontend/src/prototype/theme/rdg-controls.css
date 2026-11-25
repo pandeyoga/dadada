@@ -37,7 +37,7 @@
 /* ---------- Geser untuk konfirmasi ---------- */
 .rdg .rdg-slide {
   position: relative; height: 60px; padding: 4px; border-radius: 999px; overflow: hidden;
-  background: rgba(255, 255, 255, 0.14); border: 1px solid rgba(255, 255, 255, 0.32); color: #fff;
+  background: rgba(0, 53, 59, 0.22); border: 1px solid rgba(255, 255, 255, 0.32); color: #fff; /* kaca gelap: label ≥4,5:1 */
   user-select: none; -webkit-user-select: none;
 }
 .rdg .rdg-slide--light { background: #e6f4ee; border-color: rgba(0, 103, 71, 0.14); color: var(--rdg-forest); }
@@ -136,7 +136,10 @@
 /* Ubin kecil (grid 2 kolom): jam pindah ke kanan atas agar label tidak sesak. */
 .rdg .rdg-cam { container-type: inline-size; }
 @container (max-width: 250px) {
-  .rdg .rdg-cam-clock { top: 11px; bottom: auto; font-size: 11px; }
+  .rdg .rdg-cam-clock {
+    top: 8px; right: 8px; bottom: auto; padding: 3px 6px; border-radius: 6px; font-size: 11px;
+    background: rgba(0, 31, 36, 0.62); /* tetap terbaca di atas lampu/langit terang */
+  }
   .rdg .rdg-cam-label { right: 12px; left: 12px; font-size: 13.5px; }
   .rdg .rdg-cam-live, .rdg .rdg-cam-rec { top: 8px; left: 8px; padding: 3px 7px; font-size: 10px; }
 }

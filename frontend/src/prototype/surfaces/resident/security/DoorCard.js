@@ -2,12 +2,15 @@ import React, { useMemo } from "react";
 import { Lock, LockOpen, Timer } from "lucide-react";
 import { GlassCard } from "../../../components/GlassCard";
 import SlideToConfirm from "../../../components/SlideToConfirm";
-import { useProto } from "../../../services/useStore";
-import { Msg, byRecent, doorLogText, jam } from "./ui";
+import { useNow, useProto } from "../../../services/useStore";
+import { kapan } from "../../../lib/format";
+import { Msg, byRecent, doorLogText } from "./ui";
 
 /** Kartu kunci pintu di atas hero: status, geser untuk buka, hitung mundur kunci otomatis. */
 export default function DoorCard({ door }) {
   const log = useProto((s) => s.security.doorLog);
+  const block = useProto((s) => s.world.unit.block);
+  const t = useNow(60000);
   const open = door.status === "unlocked";
   const last = useMemo(() => byRecent(log)[0], [log]);
   return (
@@ -17,9 +20,9 @@ export default function DoorCard({ door }) {
           {open ? <LockOpen size={28} aria-hidden="true" /> : <Lock size={28} aria-hidden="true" />}
         </span>
         <div className="min-w-0">
-          <p className="text-[13px] text-white/90">Pintu depan C-12</p>
+          <p className="text-[13px] text-white/90">{`Pintu depan ${block}`}</p>
           <h2 className="text-[24px] font-extrabold leading-tight">{open ? "Terbuka" : "Terkunci"}</h2>
-          {last && <p className="truncate text-[13px] text-white/90">{doorLogText(last)} · {jam(last.at)}</p>}
+          {last && <p className="truncate text-[13px] text-white/90">{`${doorLogText(last)} · ${kapan(last.at, t)}`}</p>}
         </div>
       </div>
       <div className="mt-4">

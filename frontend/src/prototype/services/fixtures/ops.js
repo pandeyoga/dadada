@@ -38,7 +38,7 @@ export function buildCare(now) {
     bookings: [],
     family: [
       { id: "fm-1", name: "Dimas Pratama", relation: "Suami", role: "keluarga", phone: "0812-3456-7001", access: ["pintu", "cctv"] },
-      { id: "fm-2", name: "Alya Putri", relation: "Anak", role: "keluarga", phone: "", access: [] },
+      { id: "fm-2", name: "Alya Pratama", relation: "Anak", role: "keluarga", phone: "", access: [] },
     ],
     devices: [
       { id: "dv-1", kind: "kunci", name: "Kunci pintu depan", status: "online", battery: 82 },

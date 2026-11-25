@@ -19,7 +19,7 @@ export default function CashAdmin() {
       {!data && <Loading error={error} />}
       {data && last && (
         <>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             {[["Saldo kas terakhir", rupiah(last.balance)], ["Pemasukan bulan terakhir", rupiah(last.in)], ["Pengeluaran bulan terakhir", rupiah(last.out)]].map(([l, v]) => (
               <div key={l} className="rdg-frost !p-5"><p className="text-[13.5px] font-semibold text-[color:var(--rdg-muted)]">{l}</p><p className="mt-1 text-[24px] font-extrabold text-rdg-ink900">{v}</p></div>
             ))}

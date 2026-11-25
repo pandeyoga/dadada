@@ -57,7 +57,7 @@ export default function SosContacts() {
           {contacts.map((c) => (
             <li key={c.id}>
               <ListRow
-                icon={Phone} title={c.name} subtitle={`${c.role} · ${c.phone}`}
+                icon={Phone} title={c.name} subtitle={<>{`${c.role} · `}<span className="whitespace-nowrap">{c.phone}</span></>}
                 right={
                   <button type="button" aria-label={`Hapus ${c.name}`} className="rdg-icon-btn rdg-icon-btn--light" onClick={() => remove(c.id)}>
                     <Trash2 size={18} aria-hidden="true" />

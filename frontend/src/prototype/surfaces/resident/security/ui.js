@@ -45,5 +45,8 @@ export const wibDay = (t) => new Date(new Date(t).getTime() + 7 * 3600000).toISO
 
 export { jam };
 
+/** Jam undangan "09:00"–"12:00" ditulis gaya Indonesia: "09.00–12.00". */
+export const rentangJam = (p) => `${p.from}–${p.to}`.replace(/:/g, ".");
+
 /** Riwayat terbaru dulu (urut menurut waktu, bukan urutan simpan). */
 export const byRecent = (list) => [...list].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));

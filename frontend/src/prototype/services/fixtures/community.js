@@ -37,7 +37,7 @@ export function buildCommunity(now) {
       { id: "mk-8", name: "Telur ayam kampung (10 butir)", seller: "Pak Slamet · E-01", price: 32000, img: "market/telur", sellerType: "warga", category: "Makanan", stock: 18 },
       { id: "mk-9", name: "Gantungan kunci rajut", seller: "Bu Fitri · B-14", price: 10000, img: "market/rajut", sellerType: "warga", category: "Kerajinan", stock: 35 },
       { id: "mk-10", name: "Beras premium 5 kg", seller: "Minimarket Estora · Ruko R-01", price: 72000, img: "market/beras", sellerType: "tenant", category: "Sembako", stock: 30 },
-      { id: "mk-11", name: "Kopi susu gula aren", seller: "Kedai Kopi Senja · Ruko R-03", price: 18000, img: "market/kopi", sellerType: "tenant", category: "Minuman", stock: 50 },
+      { id: "mk-11", name: "Kopi susu gula aren", seller: "Kedai Kopi Senja · Ruko R-03", price: 18000, img: "market/kopi-aren", sellerType: "tenant", category: "Minuman", stock: 50 },
       { id: "mk-12", name: "Paket laundry 5 kg", seller: "Laundry Bersih · Ruko R-02", price: 35000, img: "market/laundry", sellerType: "tenant", category: "Jasa", stock: 20 },
     ],
     services: [

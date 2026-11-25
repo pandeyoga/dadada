@@ -36,7 +36,7 @@ export default function GuardHome() {
           <GlassCard className="flex items-center gap-3.5">
             <span className="grid h-14 w-14 flex-none place-items-center rounded-2xl bg-white/15 text-rdg-lime"><ShieldCheck size={28} aria-hidden="true" /></span>
             <div className="min-w-0">
-              <h2 className="text-[20px] font-extrabold leading-tight">Pak Joko</h2>
+              <h2 className="text-[20px] font-extrabold leading-tight">{me.name}</h2>
               <p className="text-[13px] text-white/90">{me.post || "Pos gerbang utama"}</p>
               <p className="mt-1.5"><StatusChip tone="ok" icon={null}>Bertugas</StatusChip></p>
             </div>

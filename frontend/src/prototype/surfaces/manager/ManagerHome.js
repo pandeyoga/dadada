@@ -40,7 +40,7 @@ export default function ManagerHome() {
         <Stat icon={Siren} label="SOS bulan ini" value={String(sum.sosThisMonth)} hint={sos ? "Ada yang masih aktif" : "Tidak ada yang aktif"} tone="bg-[#fdeaea] text-[color:var(--rdg-sos-ink)]" />
         <Stat icon={Home} label="Hunian" value={`${sum.occupancy}%`} hint={`${state.manager.occupancy ? state.manager.occupancy.occupied : ipl.total} dari ${ipl.total} unit berpenghuni`} tone="bg-[#eef8d8] text-rdg-forest" />
       </section>
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <Panel title="Perlu ditindaklanjuti" right={<Link to="/app/pengelola/tiket" className="text-[13.5px] font-bold text-rdg-forest">Semua tiket</Link>}>
           {open.length === 0 && <p className="text-[14px] text-[color:var(--rdg-muted)]">Tidak ada tiket terbuka.</p>}
           <ul className="divide-y divide-[color:var(--rdg-line)]">

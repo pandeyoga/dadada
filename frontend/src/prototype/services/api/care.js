@@ -97,8 +97,9 @@ export async function claimWarranty({ itemId, description }) {
 /** Dokumen rumah; status mengikuti perjalanan serah terima dan kuitansi. */
 export async function listHomeDocuments() {
   await wait();
-  const { buyer, bills, care } = getState();
-  const handed = buyer.journey.current >= 5;
+  const { buyer, bills, care, mode } = getState();
+  // Mode warga berarti BAST sudah terjadi (persona warga dipilih langsung tanpa simulasi BAST).
+  const handed = buyer.journey.current >= 5 || mode === "resident";
   const receipts = bills.receipts.length;
   return [
     { id: "hd-bast", kind: "bast", title: "Berita acara serah terima (BAST)", status: handed ? "Tersedia" : "Menunggu serah terima", tone: handed ? "ok" : "warn", note: "Tanda terima rumah dari pengembang." },

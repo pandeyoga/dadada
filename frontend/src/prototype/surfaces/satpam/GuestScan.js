@@ -6,11 +6,12 @@ import { checkInGuest, GUEST_REASONS } from "../../services/api/guard";
 import { guestPassStatus } from "../../services/api/security";
 import { useNow, useProto } from "../../services/useStore";
 import Page from "../buyer/Page";
-import { FIELD, Field, wibDay } from "../resident/security/ui";
+import { FIELD, Field, rentangJam, wibDay } from "../resident/security/ui";
 import SosBanner from "./SosBanner";
 
 function Result({ result }) {
   const ok = result.ok;
+  const block = useProto((s) => s.world.unit.block);
   return (
     <FrostCard role="status" aria-live="polite" className={`border-2 ${ok ? "border-[color:var(--rdg-green)]" : "border-[color:var(--rdg-sos)]"}`}>
       <div className="flex items-start gap-3">
@@ -18,7 +19,7 @@ function Result({ result }) {
         <div>
           <h2 className="text-[20px] font-extrabold">{ok ? "Tamu valid" : "Tamu tidak valid"}</h2>
           {ok ? (
-            <p className="mt-0.5 text-[14.5px]">{`${result.pass.guestName} · tujuan Blok C-12. Silakan izinkan masuk.`}</p>
+            <p className="mt-0.5 text-[14.5px]">{`${result.pass.guestName} · tujuan Blok ${block}. Silakan izinkan masuk.`}</p>
           ) : (
             <p className="mt-0.5 text-[14.5px] text-[color:var(--rdg-sos-ink)]">{GUEST_REASONS[result.reason]}</p>
           )}
@@ -55,7 +56,7 @@ export default function GuestScan() {
             ) : (
               <ul className="divide-y divide-[color:var(--rdg-line)]">
                 {today.map((p) => (
-                  <li key={p.id}><ListRow icon={QrCode} title={p.guestName} subtitle={`${p.from}–${p.to} WIB · ${p.code}`} onClick={() => check(p.code)} /></li>
+                  <li key={p.id}><ListRow icon={QrCode} title={p.guestName} subtitle={`${rentangJam(p)} WIB · ${p.code}`} onClick={() => check(p.code)} /></li>
                 ))}
               </ul>
             )}

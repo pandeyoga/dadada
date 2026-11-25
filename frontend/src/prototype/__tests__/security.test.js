@@ -6,6 +6,7 @@ import PrototypeApp from "@/prototype/PrototypeApp";
 import { __initStoreForTest, getState } from "@/prototype/services/store";
 import { setLatency } from "@/prototype/services/latency";
 import { setLocation } from "@/prototype/services/api/session";
+import { kapan } from "@/prototype/lib/format";
 import {
   doorStatus, unlockDoor, lockDoor, createAccessCode, revokeAccessCode,
   createGuestPass, revokeGuestPass, openGate,
@@ -147,6 +148,22 @@ describe("kontak darurat", () => {
 });
 
 describe("layar keamanan", () => {
+  test("kapan: hari ini jam saja, kemarin diberi label, lebih lama diberi tanggal", () => {
+    expect(kapan(NOW - 2 * 3600000, NOW)).toBe("08.00");
+    expect(kapan(NOW - 26 * 3600000, NOW)).toBe("Kemarin · 08.00");
+    expect(kapan(NOW - 50 * 3600000, NOW)).toBe("23 Nov · 08.00");
+    // 23.30 WIB tanggal 24 dilihat pukul 00.10 WIB tanggal 25 → kemarin (batas hari WIB, bukan UTC).
+    expect(kapan(Date.parse("2026-11-24T16:30:00Z"), Date.parse("2026-11-24T17:10:00Z"))).toBe("Kemarin · 23.30");
+  });
+
+  test("W3: riwayat akses membedakan entri kemarin", async () => {
+    mount("/app/warga/keamanan/kunci");
+    // Dua entri Bu Siti kemarin 08.00 diberi label; entri hari ini cukup jam.
+    expect(await screen.findAllByText("Kemarin · 08.00")).toHaveLength(2);
+    expect(screen.getByText("07.55")).toBeInTheDocument();
+    expect(screen.getByText("Otomatis terkunci · 08.00")).toBeInTheDocument();
+  });
+
   test("W2: geser buka → terbuka + hitung mundur", async () => {
     mount("/app/warga/keamanan");
     const slider = await screen.findByRole("slider", { name: "Geser untuk buka" });
@@ -242,6 +259,7 @@ describe("layar keamanan", () => {
     fireEvent.change(screen.getByLabelText("Hubungan"), { target: { value: "Tetangga" } });
     fireEvent.click(screen.getByRole("button", { name: "Simpan kontak" }));
     await waitFor(() => expect(screen.getByText("Bu Lastri")).toBeInTheDocument());
-    expect(within(document.body).getByText(/Tetangga · 0813-5555-0123/)).toBeInTheDocument();
+    // Nomor dibungkus span nowrap agar tidak patah di tanda hubung → periksa teks baris utuh.
+    expect(screen.getByText("Bu Lastri").closest(".rdg-row").textContent).toContain("Tetangga · 0813-5555-0123");
   });
 });

@@ -40,7 +40,7 @@ export function Panel({ title, right, children, className = "", ...rest }) {
 }
 
 export const Table = ({ label, children }) => (
-  <div className="overflow-x-auto">
+  <div className="relative overflow-x-auto">
     <table aria-label={label} className="w-full border-collapse">{children}</table>
   </div>
 );

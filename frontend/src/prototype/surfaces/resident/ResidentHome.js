@@ -42,7 +42,7 @@ function greeting(t) {
 
 function Tile({ icon: Icon, label, value, warn }) {
   return (
-    <div className="rounded-2xl bg-white/12 p-3 ring-1 ring-white/15">
+    <div className="rounded-2xl bg-white/12 p-2.5 ring-1 ring-white/15">
       <Icon size={19} aria-hidden="true" className={warn ? "text-rdg-lime" : "text-white/90"} />
       <p className="mt-2 text-[12.5px] text-white/90">{label}</p>
       <p className="text-[14.5px] font-extrabold leading-tight">{value}</p>

@@ -8,9 +8,11 @@ import EmptyState from "../../components/EmptyState";
 import { acceptSos, resolveSos, GUARD_NAME } from "../../services/api/guard";
 import { sosLabel } from "../../services/api/sos";
 import { jam } from "../../lib/format";
+import { useProto } from "../../services/useStore";
 import useActiveSos from "./useActiveSos";
 
 function Alert({ event }) {
+  const resident = useProto((s) => s.world.resident.name);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -25,7 +27,7 @@ function Alert({ event }) {
       <p className="flex items-center gap-2 text-[15px] font-extrabold tracking-wide"><Siren size={20} aria-hidden="true" /> DARURAT</p>
       <h1 className="mt-3 text-[40px] font-extrabold leading-none">{sosLabel(event.type)}</h1>
       <p className="mt-3 text-[24px] font-bold">{`Blok ${event.unit}`}</p>
-      <p className="text-[16px]">{`Rina Ayu · masuk pukul ${jam(event.createdAt)} WIB`}</p>
+      <p className="text-[16px]">{`${resident} · masuk pukul ${jam(event.createdAt)} WIB`}</p>
       <p className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-1.5 text-[14.5px] font-bold text-[color:var(--rdg-sos-ink)]">
         {accepted ? <CircleCheck size={16} aria-hidden="true" /> : <Navigation size={16} aria-hidden="true" />}
         {accepted ? `Diterima Pak ${event.acceptedBy} · ${jam(event.acceptedAt)}` : "Menunggu diterima"}

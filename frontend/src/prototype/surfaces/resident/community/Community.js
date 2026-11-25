@@ -1,6 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { Link } from "react-router-dom";
-import { Megaphone, Pin, CalendarDays, MapPin, Store, Wrench } from "lucide-react";
+import { Megaphone, Pin, CalendarDays, MapPin, Store, Wrench, Heart, Vote } from "lucide-react";
 import Page, { Loading } from "../../buyer/Page";
 import { FrostCard } from "../../../components/GlassCard";
 import ListRow from "../../../components/ListRow";
@@ -62,11 +61,9 @@ export default function Community() {
       <FrostCard className="divide-y divide-[color:var(--rdg-line)] !p-1">
         <ListRow icon={Store} title="Pasar warga" subtitle="Jual beli antar tetangga" to="/app/warga/pasar" />
         <ListRow icon={Wrench} title="Jasa rumah" subtitle="Tukang, kebersihan, galon, dan lainnya" to="/app/warga/jasa" />
+        <ListRow icon={Heart} title="Lihat semua grup hobi" subtitle="Gabung kelompok tetangga" to="/app/warga/komunitas/hobi" />
+        <ListRow icon={Vote} title="Lihat semua polling" subtitle="Beri suara dan lihat hasilnya" to="/app/warga/komunitas/polling" />
       </FrostCard>
-      <p className="flex justify-center gap-4 text-[14px] font-bold text-rdg-forest">
-        <Link to="/app/warga/komunitas/hobi">Halaman grup hobi</Link>
-        <Link to="/app/warga/komunitas/polling">Halaman polling</Link>
-      </p>
     </Page>
   );
 }

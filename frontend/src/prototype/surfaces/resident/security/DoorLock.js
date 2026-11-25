@@ -22,7 +22,7 @@ const DURATIONS = [
   { id: "30h", label: "30 hari", ms: 30 * 86400000 },
 ];
 
-const waLink = (c) => `https://wa.me/?text=${encodeURIComponent(`Kode akses pintu rumah C-12 untuk ${c.label}: ${c.pin}. Berlaku hingga ${tanggal(c.validUntil)}.`)}`;
+const waLink = (c, block) => `https://wa.me/?text=${encodeURIComponent(`Kode akses pintu rumah ${block} untuk ${c.label}: ${c.pin}. Berlaku hingga ${tanggal(c.validUntil)}.`)}`;
 
 function CodeForm({ t }) {
   const [label, setLabel] = useState("");
@@ -65,6 +65,7 @@ export default function DoorLock() {
   const door = useDoor();
   const codes = useProto((s) => s.security.accessCodes);
   const log = useProto((s) => s.security.doorLog);
+  const block = useProto((s) => s.world.unit.block);
   const t = useNow(30000);
   const recent = useMemo(() => byRecent(log).slice(0, 8), [log]);
   const [err, setErr] = useState("");
@@ -97,7 +98,7 @@ export default function DoorLock() {
                     />
                     {word === "Aktif" && (
                       <div className="flex flex-wrap gap-2 pb-3 pl-[60px]">
-                        <a href={waLink(c)} target="_blank" rel="noopener noreferrer" className="rdg-btn-ghost !min-h-[40px] !px-4 !text-[13.5px]"><Share2 size={15} aria-hidden="true" /> WhatsApp</a>
+                        <a href={waLink(c, block)} target="_blank" rel="noopener noreferrer" className="rdg-btn-ghost !min-h-[40px] !px-4 !text-[13.5px]"><Share2 size={15} aria-hidden="true" /> WhatsApp</a>
                         <button type="button" className="rdg-btn-ghost !min-h-[40px] !px-4 !text-[13.5px]" onClick={() => revoke(c.id)} aria-label={`Cabut kode ${c.label}`}><Trash2 size={15} aria-hidden="true" /> Cabut</button>
                       </div>
                     )}

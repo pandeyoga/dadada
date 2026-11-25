@@ -42,6 +42,8 @@
 @media (prefers-reduced-motion: reduce) { .rdg .rdg-sos-card.is-new { animation: none; } }
 .rdg .rdg-sos-card:focus-visible { outline: 3px solid var(--rdg-ink900); outline-offset: 3px; }
 .rdg .rdg-sos-screen { min-height: 100vh; padding: calc(env(safe-area-inset-top) + 16px) 20px 120px; color: #fff; background: var(--rdg-grad-sos); }
+/* Layar merah sudah memberi ruang menu bawah sendiri: batalkan padding [data-screen] agar merah penuh sampai bawah. */
+.rdg .rdg-shell[data-nav] .rdg-sos-screen { margin-bottom: calc(-116px - env(safe-area-inset-bottom)); }
 .rdg .rdg-btn-light {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 56px; padding: 0 22px;
   border: 0; border-radius: 999px; background: #fff; color: var(--rdg-sos-ink); font-size: 17px; font-weight: 800; cursor: pointer;

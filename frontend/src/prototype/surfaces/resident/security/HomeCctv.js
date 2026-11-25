@@ -42,7 +42,7 @@ export default function HomeCctv() {
             <div className="flex items-center justify-between gap-2 px-2 pb-1 pt-3">
               <div className="min-w-0">
                 <h2 className="text-[17px] font-extrabold leading-tight">{cam.label}</h2>
-                <p className="text-[13px] text-white/90">{live ? "Siaran langsung (simulasi)" : `Rekaman ${two(hour)}.00–${two((hour + 1) % 24)}.00`}</p>
+                <p className="text-[13px] text-white">{live ? "Siaran langsung (simulasi)" : `Rekaman ${two(hour)}.00–${two((hour + 1) % 24)}.00`}</p>
               </div>
               {!live && (
                 <button type="button" className="rdg-btn-ghost !min-h-[40px] !px-3.5 !text-[13.5px]" onClick={() => setHour(null)}>

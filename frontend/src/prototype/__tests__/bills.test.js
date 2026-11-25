@@ -108,8 +108,8 @@ test("W10: bayar IPL Desember (ada opsi WhatsApp) berujung Lunas + kuitansi", as
 
 test("W12: enam bulan dengan saldo bulan terakhir terhitung", async () => {
   mount("/app/warga/tagihan/kas");
-  const { months } = await getCashReport();
   await screen.findByText("November 2026");
+  const { months } = await getCashReport();
   expect(document.querySelectorAll("[data-month]")).toHaveLength(6);
   const last = rupiah(months[5].balance);
   expect(document.body.textContent).toContain(last);

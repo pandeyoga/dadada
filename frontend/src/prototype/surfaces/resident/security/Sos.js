@@ -31,7 +31,7 @@ function Contacts({ contacts }) {
         {contacts.map((c) => (
           <li key={c.id}>
             <ListRow
-              icon={Phone} title={c.name} subtitle={`${c.role} · ${c.phone}`}
+              icon={Phone} title={c.name} subtitle={<>{`${c.role} · `}<span className="whitespace-nowrap">{c.phone}</span></>}
               right={<a href={`tel:${c.phone.replace(/\D/g, "")}`} className="rdg-btn-ghost !min-h-[40px] !px-4 !text-[13.5px]" aria-label={`Telepon ${c.name}`}>Telepon</a>}
             />
           </li>

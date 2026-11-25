@@ -23,8 +23,11 @@ function Card({ t, unit, technicians, onAdvance, onAssign }) {
     <article className="rounded-2xl border border-[color:var(--rdg-line)] bg-white p-3.5 shadow-sm" data-ticket={t.id}>
       <div className="flex flex-wrap items-center gap-1.5">
         <StatusChip tone="neutral" icon={null}>{t.kind === "tanya" ? "Pertanyaan" : t.kind === "garansi" ? "Garansi" : "Kerusakan"}</StatusChip>
-        {t.status === "dikonfirmasi" && <StatusChip tone="ok">{`Dikonfirmasi · ${t.rating} dari 5`}</StatusChip>}
-        {t.rating && t.status === "dikonfirmasi" && <Star size={14} className="text-[#b9741a]" aria-hidden="true" />}
+        {t.status === "dikonfirmasi" && (
+          t.rating
+            ? <StatusChip tone="ok" icon={Star}>{`Dikonfirmasi · ${t.rating} dari 5`}</StatusChip>
+            : <StatusChip tone="ok">Dikonfirmasi</StatusChip>
+        )}
       </div>
       <h3 className="mt-2 text-[15px] font-extrabold">{t.category}</h3>
       <p className="mt-0.5 text-[13.5px] leading-snug">{t.description}</p>

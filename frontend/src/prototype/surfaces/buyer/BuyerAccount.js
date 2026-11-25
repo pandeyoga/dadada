@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { UserRound, Users, Gift, FileX2, MessageCircleQuestion, Send } from "lucide-react";
+import { Map as MapIcon, Users, Gift, FileX2, MessageCircleQuestion, Send } from "lucide-react";
 import { FrostCard } from "../../components/GlassCard";
 import ListRow from "../../components/ListRow";
 import StatusChip from "../../components/StatusChip";
@@ -104,7 +104,7 @@ export default function BuyerAccount() {
       <FrostCard className="divide-y divide-[color:var(--rdg-line)] !p-1">
         <ListRow icon={Gift} title="Ajak teman" subtitle="Kode dan hadiah rujukan" to="/app/ajak-teman" />
         <ListRow icon={FileX2} title="Pembatalan & refund" subtitle="Aturan dan status" to="/app/pembeli/pembatalan" />
-        <ListRow icon={UserRound} title="Peta kavling" subtitle="Lokasi rumah Anda" to="/app/pembeli/kavling" />
+        <ListRow icon={MapIcon} title="Peta kavling" subtitle="Lokasi rumah Anda" to="/app/pembeli/kavling" />
       </FrostCard>
     </Page>
   );

@@ -5,13 +5,15 @@ import StatusChip from "../../../components/StatusChip";
 import ListRow from "../../../components/ListRow";
 import { openGate } from "../../../services/api/security";
 import { setLocation } from "../../../services/api/session";
-import { useProto } from "../../../services/useStore";
+import { useNow, useProto } from "../../../services/useStore";
+import { kapan } from "../../../lib/format";
 import Page from "../../buyer/Page";
-import { Msg, jam } from "./ui";
+import { Msg } from "./ui";
 
 export default function Gate() {
   const location = useProto((s) => s.location);
   const log = useProto((s) => s.security.gateLog);
+  const t = useNow(60000);
   const [msg, setMsg] = useState({});
   const [busy, setBusy] = useState(false);
   const inside = location !== "outside";
@@ -30,13 +32,15 @@ export default function Gate() {
   return (
     <Page id="W6" title="Gerbang pintar" back="/app/warga/keamanan" nav="resident">
       <FrostCard>
-        <div className="flex items-center gap-3">
+        <div className="flex items-start gap-3">
           <span className="rdg-row-icon">{inside ? <MapPin size={20} aria-hidden="true" /> : <MapPinOff size={20} aria-hidden="true" />}</span>
           <div className="min-w-0 flex-1">
-            <h2 className="text-[16px] font-extrabold">Cek lokasi</h2>
-            <p className="text-[13.5px] text-[color:var(--rdg-muted)]">{inside ? "Anda berada di dalam radius gerbang (100 m)." : "Anda berada di luar radius gerbang (100 m)."}</p>
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+              <h2 className="text-[16px] font-extrabold">Cek lokasi</h2>
+              <StatusChip tone={inside ? "ok" : "danger"}>{inside ? "Di dalam area" : "Di luar area"}</StatusChip>
+            </div>
+            <p className="mt-0.5 text-[13.5px] text-[color:var(--rdg-muted)]">{inside ? "Anda berada di dalam radius gerbang (100 m)." : "Anda berada di luar radius gerbang (100 m)."}</p>
           </div>
-          <StatusChip tone={inside ? "ok" : "danger"}>{inside ? "Di dalam area" : "Di luar area"}</StatusChip>
         </div>
         <div role="group" aria-label="Simulasi lokasi" className="mt-3 rounded-2xl bg-[#eef6f3] p-3">
           <p className="mb-2 text-[12.5px] font-bold uppercase tracking-wide text-[color:var(--rdg-muted)]">Simulasi lokasi (untuk demo)</p>
@@ -62,7 +66,7 @@ export default function Gate() {
               <ListRow
                 icon={e.direction === "masuk" ? ArrowDownToLine : ArrowUpFromLine}
                 title={`${e.name} · ${e.direction}`}
-                subtitle={`${e.purpose} · ${e.plate} · ${jam(e.at)}`}
+                subtitle={`${e.purpose} · ${e.plate} · ${kapan(e.at, t)}`}
               />
             </li>
           ))}

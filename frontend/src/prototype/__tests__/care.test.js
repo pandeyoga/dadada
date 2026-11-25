@@ -1,4 +1,4 @@
-import React from "react";
+import React, { act } from "react";
 import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import PrototypeApp from "@/prototype/PrototypeApp";
@@ -89,6 +89,13 @@ describe("dokumen & renovasi", () => {
     const titles = docs.map((d) => d.title).join("|");
     ["BAST", "Sertifikat", "Garansi", "Denah", "Jalur instalasi"].forEach((k) => expect(titles).toContain(k));
     expect(docs.every((d) => d.status && d.kind)).toBe(true);
+  });
+
+  test("BAST tersedia untuk warga meski persona warga dipilih tanpa simulasi BAST", async () => {
+    const bast = async () => (await listHomeDocuments()).find((d) => d.kind === "bast");
+    expect((await bast()).status).toBe("Menunggu serah terima");
+    setState((s) => ({ ...s, mode: "resident" }));
+    expect(await bast()).toMatchObject({ status: "Tersedia", tone: "ok" });
   });
 
   test("submitRenovation memvalidasi dan menyimpan", async () => {
@@ -184,7 +191,7 @@ describe("layar", () => {
     expect(mine.status).toBe("dibuat");
     const card = (await screen.findByText("Stopkontak dapur mati sejak kemarin")).closest("[data-ticket]");
     expect(within(card).getByRole("listitem", { current: "step" }).textContent).toContain("Dibuat");
-    for (let i = 0; i < 3; i += 1) { await advanceTicket(mine.id); }
+    for (let i = 0; i < 3; i += 1) { await act(() => advanceTicket(mine.id)); }
     fireEvent.click(await within(card).findByRole("button", { name: "Konfirmasi selesai + beri nilai" }));
     const rate = await screen.findByRole("dialog");
     fireEvent.click(within(rate).getByRole("button", { name: "4 bintang" }));
@@ -216,7 +223,7 @@ describe("layar", () => {
     mount("/app/warga");
     const bell = await screen.findByRole("link", { name: "Notifikasi" });
     expect(bell.hasAttribute("data-badge")).toBe(true);
-    await markAllRead();
+    await act(() => markAllRead());
     await waitFor(() => expect(screen.getByRole("link", { name: "Notifikasi" }).hasAttribute("data-badge")).toBe(false));
   });
 

@@ -10,12 +10,12 @@ import { now } from "../../../services/store";
 import { useNow, useProto } from "../../../services/useStore";
 import { tanggal } from "../../../lib/format";
 import Page from "../../buyer/Page";
-import { FIELD, Field, Msg, wibDay } from "./ui";
+import { FIELD, Field, Msg, rentangJam, wibDay } from "./ui";
 
 const TONE = { active: ["ok", "Aktif"], used: ["info", "Sudah dipakai"], expired: ["neutral", "Kedaluwarsa"], revoked: ["neutral", "Dicabut"] };
 
-const waLink = (p) => `https://wa.me/?text=${encodeURIComponent(
-  `Halo ${p.guestName}, Anda diundang ke Estora Residence Blok C-12 pada ${tanggal(p.date)} pukul ${p.from}–${p.to} WIB. Tunjukkan kode ${p.code} ke satpam.`
+const waLink = (p, world) => `https://wa.me/?text=${encodeURIComponent(
+  `Halo ${p.guestName}, Anda diundang ke ${world.project.name} Blok ${world.unit.block} pada ${tanggal(p.date)} pukul ${rentangJam(p)} WIB. Tunjukkan kode ${p.code} ke satpam.`
 )}`;
 
 const hh = (h) => `${String(h).padStart(2, "0")}:00`;
@@ -28,6 +28,7 @@ function defaultWindow(t) {
 }
 
 function PassCard({ pass, status }) {
+  const world = useProto((s) => s.world);
   return (
     <FrostCard className="text-center">
       <p className="text-[13px] font-semibold text-[color:var(--rdg-muted)]">Undangan untuk {pass.guestName}</p>
@@ -35,9 +36,9 @@ function PassCard({ pass, status }) {
         <QrPattern value={pass.code} label={`QR undangan ${pass.guestName}`} size={192} />
       </div>
       <p className="mt-3 text-[30px] font-extrabold tracking-[0.12em]">{pass.code}</p>
-      <p className="text-[13.5px] text-[color:var(--rdg-muted)]">{tanggal(pass.date)} · {pass.from}–{pass.to} WIB · sekali pakai</p>
+      <p className="text-[13.5px] text-[color:var(--rdg-muted)]">{`${tanggal(pass.date)} · ${rentangJam(pass)} WIB · sekali pakai`}</p>
       {status === "active" ? (
-        <a href={waLink(pass)} target="_blank" rel="noopener noreferrer" className="rdg-btn-primary mt-3 w-full"><Share2 size={17} aria-hidden="true" /> Kirim lewat WhatsApp</a>
+        <a href={waLink(pass, world)} target="_blank" rel="noopener noreferrer" className="rdg-btn-primary mt-3 w-full"><Share2 size={17} aria-hidden="true" /> Kirim lewat WhatsApp</a>
       ) : (
         <p className="mt-3"><StatusChip tone={TONE[status][0]} icon={null}>{TONE[status][1]}</StatusChip></p>
       )}
@@ -110,7 +111,7 @@ export default function Guests() {
               return (
                 <li key={p.id}>
                   <ListRow
-                    icon={QrCode} title={p.guestName} subtitle={`${tanggal(p.date)} · ${p.from}–${p.to} · ${p.code}`}
+                    icon={QrCode} title={p.guestName} subtitle={`${tanggal(p.date)} · ${rentangJam(p)} · ${p.code}`}
                     right={<StatusChip tone={TONE[st][0]} icon={null}>{TONE[st][1]}</StatusChip>}
                   />
                   <div className="flex flex-wrap gap-2 pb-3 pl-[60px]">

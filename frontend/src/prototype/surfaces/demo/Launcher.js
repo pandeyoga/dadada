@@ -19,7 +19,7 @@ const PERSONAS = [
   { id: "resident", name: "Rina · Warga", note: "Sudah tinggal di Blok C-12", icon: KeyRound },
   { id: "satpam", name: "Pak Joko · Satpam", note: "Pos gerbang utama", icon: ShieldCheck },
   { id: "pengelola", name: "Pengelola kawasan", note: "Dasbor operasional", icon: Building2 },
-  { id: "mitra", name: "Dimas · Mitra", note: "Teknisi dan penyedia jasa", icon: Handshake },
+  { id: "mitra", name: "Dimas · Mitra", note: "Agen rujukan: katalog, tautan, komisi", icon: Handshake },
 ];
 
 const GROUPS = [

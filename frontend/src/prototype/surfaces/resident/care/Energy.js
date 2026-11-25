@@ -8,8 +8,12 @@ import useLoad from "../../../lib/useLoad";
 const fetchEnergy = () => getEnergy();
 const fmt = (n) => String(n).replace(".", ",");
 
+// Skala min–maks (bukan dari nol) agar kenaikan antarbulan terlihat; setiap batang tetap berlabel angka.
 function Bars({ months, field, unit, label }) {
-  const max = Math.max(...months.map((m) => m[field]));
+  const vals = months.map((m) => m[field]);
+  const lo = Math.min(...vals);
+  const hi = Math.max(...vals);
+  const height = (v) => (hi === lo ? 100 : 22 + ((v - lo) / (hi - lo)) * 78);
   return (
     <figure aria-label={label}>
       <div className="flex h-36 items-end gap-2" role="list">
@@ -18,7 +22,7 @@ function Bars({ months, field, unit, label }) {
           return (
             <div key={m.month} role="listitem" aria-label={`${m.month}: ${fmt(m[field])} ${unit}`} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
               <span className="text-[11.5px] font-bold text-rdg-ink900">{fmt(m[field])}</span>
-              <span className="w-full rounded-t-lg" style={{ height: `${Math.max(8, (m[field] / max) * 100)}%`, background: last ? "linear-gradient(180deg, #209f59, #01916f)" : "#b9d8d3" }} />
+              <span className="w-full rounded-t-lg" style={{ height: `${height(m[field])}%`, background: last ? "linear-gradient(180deg, #209f59, #01916f)" : "#b9d8d3" }} />
             </div>
           );
         })}
@@ -26,6 +30,7 @@ function Bars({ months, field, unit, label }) {
       <div className="mt-1 flex gap-2" aria-hidden="true">
         {months.map((m) => <span key={m.month} className="flex-1 text-center text-[12px] font-semibold text-[color:var(--rdg-muted)]">{m.month}</span>)}
       </div>
+      <figcaption className="mt-1.5 text-[12px] text-[color:var(--rdg-muted)]">{`Tinggi batang dari ${fmt(lo)} sampai ${fmt(hi)} ${unit} agar selisih terlihat.`}</figcaption>
     </figure>
   );
 }
