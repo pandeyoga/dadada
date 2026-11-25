@@ -708,3 +708,6 @@ Dipakai ulang (`.../pemenang_paktukang/`): `paktukang_home_viewport.png`, `paktu
 - autoconz.com (verifikasi bot) dan plustik.id (koneksi tunnel gagal) tidak bisa ditangkap. Domain ERIA (alpha.rkcmpd-eria.org) tidak bisa di-resolve dari lingkungan ini dan perlu diizinkan di pengaturan jaringan sesi bila ingin diverifikasi.
 - Tidak ada layar produk "manajemen IPL" CIROES × Paktukang yang bisa ditangkap karena tidak ditemukan secara publik.
 - Video pitch/YouTube BTN Housingpreneur 2024 untuk pemenang ini tidak ditemukan (pencarian YouTube hanya memunculkan video roadshow 2025–2026).
+
+## Koreksi (25 Nov 2026)
+Konfirmasi dari pengguna: **PT Harmony Land Group (juara Eco House Design 2024) adalah developer yang berbeda** dari developer pengguna Estora (PT Harmony Cahaya Land, proyek Harmony Land 5). Kemiripan nama saja. Harmony Land Group tetap relevan sebagai contoh sinergi BTN di luar KPR (kawasan NPL) dan calon developer pilot.

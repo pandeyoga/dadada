@@ -22,7 +22,7 @@ async function opening(pres, C, sec) {
       [fa.FaFlask, 'Kenapa menang', 'Juara Established punya wujud nyata, bukti pihak ketiga (uji Sucofindo, sertifikat BGH, uji meja getar), dan satu angka dampak yang mudah diingat.'],
       [fa.FaLayerGroup, 'Peran digital', 'Digital selalu menjadi lapisan di atas layanan atau perangkat fisik: penjemputan sampah, tukang, pelatihan, panel surya, IoT listrik.'],
       [fa.FaBuildingColumns, 'Sinergi BTN', 'Sinergi setelah menang selalu berbentuk KPR unit, pasokan program BTN, atau kawasan NPL. Dua juara digital 2024 tidak tercatat mendapat kerja sama dengan BTN.'],
-      [fa.FaStar, 'Temuan khusus', 'PT Harmony Land Group adalah juara Eco House Design 2024 dan tercatat punya sinergi BTN (kawasan NPL). Perlu dicek hubungannya dengan Estora.'],
+      [fa.FaStar, 'Paling relevan', 'Ontoown (sewa jadi DP KPR) sebagai ide modul; MGK Serang dan Harmony Land Group (alumni dengan sinergi BTN) sebagai calon developer pilot.'],
     ];
     for (let i = 0; i < rows.length; i++) {
       const [ic, lead, body] = rows[i];
@@ -197,7 +197,7 @@ function batch1(pres, C, sec) {
   });
   dissect(pres, C, sec, {
     kicker: 'BATCH 1 · 2024 · ECO HOUSE DESIGN', title: 'Harmony Land Group: juara desain dengan sinergi BTN',
-    meta: 'Pemenang Eco House Design (Established) · PT Harmony Land Group · Muhammad Ridlo Aditya', relevance: 'Tinggi',
+    meta: 'Pemenang Eco House Design (Established) · PT Harmony Land Group · Muhammad Ridlo Aditya', relevance: 'Sedang',
     rows: [[I('b1_harmony_foto', 702, 490, 'Foto liputan Metro TV')], [I('b1_harmony_card', 387, 170, 'Kartu sinergi BTN: Compact Harmony Living House'), I('b1_harmony_infra', 590, 212, 'Kolaborasi Harmonyland × TANAREKA')]],
     caption: 'Kartu "Sinergi dengan BTN" dan kolaborasi resmi di Kilas Balik',
     blocks: [
@@ -205,9 +205,9 @@ function batch1(pres, C, sec) {
       ['Sinergi BTN', '"Pengembangan kawasan NPL dengan Compact Harmony Living House" (kartu resmi Kilas Balik).'],
       ['Kolaborasi', 'PT Harmonyland × TANAREKA: berbagi perencanaan masterplan infrastruktur dan proyek.'],
       ['Status', 'Detail proyek NPL dan tanggalnya tidak dipublikasikan.'],
-      ['Kaitan Estora', 'Repo Estora mencatat PT Harmony Cahaya Land (proyek Harmony Land 5). Hubungan kedua entitas belum terverifikasi.'],
+      ['Catatan', 'Developer berbeda dari pengguna Estora (PT Harmony Cahaya Land); hanya kemiripan nama.'],
     ],
-    lesson: 'jika satu grup, ceritanya kuat: alumni juara yang membangun sistem operasinya sendiri dan menjalankannya di proyek sinergi BTN.',
+    lesson: 'contoh sinergi BTN di luar KPR. Kawasan NPL butuh data unit, pembeli, dan pembayaran yang rapi; developer ini calon pilot Estora.',
     source: 'Sumber: btnhousingpreneur.com/kilas-balik (Sinergi dengan BTN; Kolaborasi), Metro TV (19 Feb 2025), Sumsel Pos; diakses 24 Nov 2026.',
   });
 }
@@ -531,7 +531,7 @@ async function forEstora(pres, C, sec) {
     s.addText('UNTUK ESTORA · MITRA DARI ALUMNI', { placeholder: 'kicker' });
     s.addText('Alumni BTN Housingpreneur bisa jadi pilot dan mitra Estora', { placeholder: 'title' });
     const groups = [
-      ['Calon pilot developer', HEX.accent1, [['MGK Serang (Infiniti)', 'Juara Affordable 2025; jual via medsos, ada Tenant Relation'], ['Habitatland, Prosya, Kreasi Prima, Sembilan Bintang', 'Juara developer 2024'], ['PT Harmony Land Group', 'Juara desain 2024; sinergi kawasan NPL']]],
+      ['Calon pilot developer', HEX.accent1, [['MGK Serang (Infiniti)', 'Juara Affordable 2025; jual via medsos, ada Tenant Relation'], ['Habitatland, Prosya, Kreasi Prima, Sembilan Bintang', 'Juara developer 2024'], ['PT Harmony Land Group', 'Juara desain 2024; sinergi BTN kawasan NPL']]],
       ['Mitra modul Estora', HEX.accent2, [['Paktukang', 'Perbaikan & renovasi pascahuni'], ['GoodKills', 'Anti rayap pra-konstruksi dalam garansi'], ['TRAIN-O', 'Tukang bersertifikat untuk QC'], ['CIROES', 'Layanan sampah dalam tagihan IPL'], ['GridSolr', 'Paket PLTS untuk rumah baru']]],
     ];
     groups.forEach(([g, col, items], gi) => {
@@ -545,8 +545,6 @@ async function forEstora(pres, C, sec) {
         txt(s, d, { x: x + 0.2, y: y + (gi ? 0.35 : 0.58), w: w - 0.4, h: gi ? 0.32 : 0.55, fontSize: 12, color: C.accent5 });
       });
     });
-    card(s, C, 0.6, 6.06, 5.94, 0.36, { fill: 'FFF6E3', name: 'harmony question' });
-    txt(s, 'Perlu dicek: Harmony Land Group dan Harmony Cahaya Land satu grup?', { x: 0.75, y: 6.06, w: 5.7, h: 0.36, fontSize: 11, bold: true, color: C.text1, valign: 'middle' });
     source(s, C, 'Kolaborasi antar-finalis adalah pola yang disorot BTN di Kilas Balik (mis. CIROES × Paktukang, Autoconz × Rebricks). Kecocokan mitra adalah inferensi tim riset.');
   }
   // Method
