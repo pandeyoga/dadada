@@ -24,6 +24,8 @@ import Documents from "./surfaces/buyer/Documents";
 import BuyerAccount from "./surfaces/buyer/BuyerAccount";
 import Referral from "./surfaces/buyer/Referral";
 import Promo from "./surfaces/buyer/Promo";
+import Welcome from "./surfaces/transition/Welcome";
+import ResidentHome from "./surfaces/resident/ResidentHome";
 import { getState, resetState } from "./services/store";
 import { setPersona, simulateBast, setLocation, homePathFor } from "./services/api/session";
 
@@ -32,6 +34,7 @@ const COMPONENTS = {
   U1: Launcher, U2: Login,
   P1: BuyerHome, P2: Progress, P3: PlotMap, P4: Payments, P5: PayItem, P6: Kpr,
   P7: Cancellation, P8: Documents, P9: BuyerAccount, P10: Referral, P11: Promo,
+  T1: Welcome, W1: ResidentHome,
 };
 
 // Rute dinamis (menggantikan path statis contoh di screens.json).

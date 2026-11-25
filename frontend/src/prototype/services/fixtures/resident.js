@@ -5,6 +5,7 @@ const iso = (t) => new Date(t).toISOString();
 
 export function buildSecurity(now) {
   return {
+    energy: { kwh: 142, lastKwh: 131, deltaPct: 8 },
     door: { state: "locked", changedAt: iso(now - 2 * HOUR) },
     cameras: {
       home: 2,
