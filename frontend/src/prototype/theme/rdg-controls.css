@@ -1,0 +1,214 @@
+/* Kontrol interaktif (Task 3): tahan, geser, sheet, kamera, alur bayar. Di bawah .rdg. */
+
+/* ---------- Tahan untuk konfirmasi (SOS) ---------- */
+.rdg .rdg-hold {
+  position: relative; display: grid; place-items: center;
+  width: 236px; height: 236px; margin: 0 auto; border-radius: 999px;
+  background: radial-gradient(circle, rgba(229, 72, 77, 0.16) 52%, rgba(229, 72, 77, 0.07) 53%, rgba(229, 72, 77, 0.07) 70%, transparent 71%);
+}
+.rdg .rdg-hold-btn {
+  position: relative; display: grid; place-items: center; width: 196px; height: 196px; padding: 0;
+  border: 0; border-radius: 999px; background: transparent; color: #fff; cursor: pointer;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.rdg .rdg-hold-btn:focus-visible { outline: 3px solid var(--rdg-lime); outline-offset: 6px; }
+.rdg .rdg-hold-btn:disabled { cursor: default; opacity: 0.6; }
+.rdg .rdg-hold-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.rdg .rdg-hold-ring circle { fill: none; stroke-width: 7; }
+.rdg .rdg-hold-ring .track { stroke: rgba(255, 255, 255, 0.18); }
+.rdg .rdg-hold-ring .bar { stroke: #fff; stroke-linecap: round; transition: stroke-dashoffset 0.25s ease-out; }
+.rdg .rdg-hold-btn.is-holding .rdg-hold-ring .bar { transition: stroke-dashoffset 0.1s linear; }
+.rdg .rdg-hold-core {
+  position: absolute; inset: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; border-radius: 999px;
+  background: radial-gradient(circle at 50% 26%, #f4787c, #d63c42 58%, #bc2e34);
+  box-shadow: 0 16px 36px rgba(229, 72, 77, 0.45), inset 0 2px 0 rgba(255, 255, 255, 0.25);
+  transition: transform 0.2s var(--rdg-ease);
+}
+.rdg .rdg-hold-btn.is-holding .rdg-hold-core { transform: scale(0.96); }
+.rdg .rdg-hold-label { font-size: 40px; font-weight: 800; letter-spacing: 0.02em; line-height: 1.05; }
+.rdg .rdg-hold-hint { font-size: 14px; font-weight: 600; color: #fff; }
+.rdg .rdg-hold.is-holding::before {
+  content: ""; position: absolute; inset: 8px; border-radius: 999px;
+  border: 2px solid rgba(229, 72, 77, 0.5); animation: rdg-hold-wave 1.2s ease-out infinite;
+}
+@keyframes rdg-hold-wave { from { transform: scale(0.85); opacity: 1; } to { transform: scale(1.12); opacity: 0; } }
+
+/* ---------- Geser untuk konfirmasi ---------- */
+.rdg .rdg-slide {
+  position: relative; height: 60px; padding: 4px; border-radius: 999px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.14); border: 1px solid rgba(255, 255, 255, 0.32); color: #fff;
+  user-select: none; -webkit-user-select: none;
+}
+.rdg .rdg-slide--light { background: #e6f4ee; border-color: rgba(0, 103, 71, 0.14); color: var(--rdg-forest); }
+.rdg .rdg-slide-fill {
+  position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px;
+  background: linear-gradient(90deg, rgba(181, 226, 107, 0.15), rgba(181, 226, 107, 0.45));
+}
+.rdg .rdg-slide--light .rdg-slide-fill { background: linear-gradient(90deg, rgba(73, 174, 66, 0.12), rgba(73, 174, 66, 0.32)); }
+.rdg .rdg-slide-label {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  padding-left: 52px; font-size: 15px; font-weight: 700; pointer-events: none;
+}
+.rdg .rdg-slide-label::after {
+  content: "›››"; margin-left: 8px; letter-spacing: 1px; opacity: 0.75;
+  animation: rdg-slide-hint 1.8s ease-in-out infinite;
+}
+@keyframes rdg-slide-hint { 0%, 100% { transform: translateX(0); opacity: 0.4; } 50% { transform: translateX(5px); opacity: 0.9; } }
+.rdg .rdg-slide-knob {
+  position: relative; z-index: 1; display: grid; place-items: center; width: 52px; height: 52px;
+  border-radius: 999px; background: #fff; color: var(--rdg-forest); cursor: grab; touch-action: none;
+  box-shadow: 0 6px 16px rgba(0, 31, 36, 0.28);
+  transition: transform 0.3s var(--rdg-ease);
+}
+.rdg .rdg-slide--light .rdg-slide-knob { background: var(--rdg-grad-btn); color: #fff; }
+.rdg .rdg-slide.is-dragging .rdg-slide-knob { transition: none; cursor: grabbing; }
+.rdg .rdg-slide-knob:focus-visible { outline: 3px solid var(--rdg-lime); outline-offset: 3px; }
+
+/* ---------- Bottom sheet (tanpa portal) ---------- */
+.rdg .rdg-sheet-root { position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-end; justify-content: center; }
+.rdg .rdg-sheet-backdrop {
+  position: absolute; inset: 0; background: rgba(0, 31, 36, 0.5); touch-action: none;
+  animation: rdg-fade-in 0.2s ease-out both;
+}
+.rdg .rdg-sheet {
+  position: relative; width: 100%; max-width: 430px; max-height: 90vh; max-height: 90dvh;
+  display: flex; flex-direction: column; border-radius: 28px 28px 0 0; outline: none;
+  background: linear-gradient(180deg, #fff, #f6fffa); color: var(--rdg-ink900);
+  box-shadow: 0 -12px 40px rgba(0, 31, 36, 0.25);
+  animation: rdg-sheet-up 0.32s var(--rdg-ease) both;
+}
+.rdg .rdg-sheet-grabber { width: 40px; height: 5px; margin: 10px auto 0; border-radius: 999px; background: #cfdcdb; }
+.rdg .rdg-sheet-head { display: flex; align-items: center; gap: 12px; padding: 10px 16px 10px 22px; }
+.rdg .rdg-sheet-head h2 { flex: 1; margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.01em; }
+.rdg .rdg-sheet-close {
+  display: grid; place-items: center; width: 40px; height: 40px; border-radius: 14px; border: 0;
+  background: #edf3f2; color: var(--rdg-ink); cursor: pointer;
+}
+.rdg .rdg-sheet-body {
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: 4px 20px calc(20px + env(safe-area-inset-bottom));
+}
+.rdg .rdg-sheet-footer {
+  position: sticky; bottom: calc(-20px - env(safe-area-inset-bottom)); margin: 16px -20px calc(-20px - env(safe-area-inset-bottom));
+  padding: 14px 20px calc(16px + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, rgba(246, 255, 250, 0.85), #f6fffa 30%);
+  display: grid; gap: 8px;
+}
+@keyframes rdg-sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes rdg-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ---------- Kamera ---------- */
+.rdg .rdg-cam {
+  position: relative; margin: 0; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 20px;
+  background: #4d6b64; color: #fff; isolation: isolate;
+}
+.rdg .rdg-cam-scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.rdg .rdg-cam::before {
+  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse at center, transparent 55%, rgba(0, 20, 22, 0.35));
+}
+.rdg .rdg-cam::after {
+  content: ""; position: absolute; inset: auto 0 0 0; height: 48%; z-index: 1; pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(0, 25, 28, 0.72));
+}
+.rdg .rdg-cam-scan {
+  position: absolute; left: 0; right: 0; top: -30%; height: 30%; z-index: 1; pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(220, 255, 235, 0.08), transparent);
+  animation: rdg-cam-scan 6s linear infinite;
+}
+@keyframes rdg-cam-scan { to { transform: translateY(440%); } }
+.rdg .rdg-cam-live, .rdg .rdg-cam-rec {
+  position: absolute; top: 10px; left: 10px; z-index: 2; display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px; border-radius: 8px; font-size: 11px; font-weight: 800; letter-spacing: 0.06em;
+}
+.rdg .rdg-cam-live { background: var(--rdg-sos-ink); }
+.rdg .rdg-cam-rec { background: rgba(0, 31, 36, 0.7); }
+.rdg .rdg-cam-dot { width: 7px; height: 7px; border-radius: 999px; background: #fff; animation: rdg-blink 1.4s ease-in-out infinite; }
+@keyframes rdg-blink { 50% { opacity: 0.25; } }
+.rdg .rdg-cam-label, .rdg .rdg-cam-clock {
+  position: absolute; bottom: 10px; z-index: 2; margin: 0; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.rdg .rdg-cam-label { left: 14px; right: 96px; font-size: 15px; font-weight: 700; line-height: 1.2; }
+.rdg .rdg-cam-clock { right: 12px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* Ubin kecil (grid 2 kolom): jam pindah ke kanan atas agar label tidak sesak. */
+.rdg .rdg-cam { container-type: inline-size; }
+@container (max-width: 250px) {
+  .rdg .rdg-cam-clock { top: 11px; bottom: auto; font-size: 11px; }
+  .rdg .rdg-cam-label { right: 12px; left: 12px; font-size: 13.5px; }
+  .rdg .rdg-cam-live, .rdg .rdg-cam-rec { top: 8px; left: 8px; padding: 3px 7px; font-size: 10px; }
+}
+.rdg .rdg-cam-drift { animation: rdg-cam-drift 14s ease-in-out infinite alternate; }
+@keyframes rdg-cam-drift { to { transform: translateX(26px); } }
+
+/* ---------- Alur bayar ---------- */
+.rdg .rdg-pay-summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 16px; border-radius: 20px; color: #fff;
+  background: linear-gradient(140deg, var(--rdg-ink), #00574f 60%, var(--rdg-forest));
+}
+.rdg .rdg-pay-group { margin: 18px 2px 8px; font-size: 13px; font-weight: 700; color: var(--rdg-muted); }
+.rdg .rdg-pay-method {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 10px 12px;
+  border-radius: 18px; border: 1px solid var(--rdg-line); background: #fff; color: var(--rdg-ink900);
+  text-align: left; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.rdg .rdg-pay-method + .rdg-pay-method { margin-top: 8px; }
+.rdg .rdg-pay-method:hover { border-color: rgba(0, 103, 71, 0.35); }
+.rdg .rdg-pay-method:disabled { cursor: default; opacity: 0.55; }
+.rdg .rdg-pay-method[aria-busy="true"] { opacity: 1; border-color: var(--rdg-green); box-shadow: 0 0 0 3px rgba(32, 159, 89, 0.15); }
+.rdg .rdg-pay-badge {
+  flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.02em; color: var(--rdg-ink); background: #eef5f3;
+}
+.rdg .rdg-pay-badge--long { font-size: 9.5px; letter-spacing: 0; }
+.rdg .rdg-pay-code-card {
+  margin-top: 14px; padding: 18px 16px; border-radius: 22px; text-align: center;
+  background: #fff; border: 1px solid var(--rdg-line); box-shadow: var(--rdg-shadow-card);
+}
+.rdg .rdg-pay-code {
+  margin: 4px 0 0; font-size: 24px; font-weight: 800; letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums; color: var(--rdg-ink900); word-break: break-all;
+}
+.rdg .rdg-pay-link {
+  margin-top: 10px; padding: 10px 12px; border-radius: 14px; background: #f1f6f5;
+  font-size: 12px; line-height: 1.45; color: var(--rdg-muted); text-align: left; word-break: break-all;
+}
+.rdg .rdg-copy {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 7px 14px;
+  border-radius: 999px; border: 0; background: #e7f6ee; color: var(--rdg-forest);
+  font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.rdg .rdg-pay-steps { margin: 16px 0 0; padding: 0; list-style: none; counter-reset: paystep; }
+.rdg .rdg-pay-steps li {
+  position: relative; padding: 0 0 10px 34px; font-size: 13.5px; line-height: 1.45; color: var(--rdg-ink900);
+  counter-increment: paystep;
+}
+.rdg .rdg-pay-steps li::before {
+  content: counter(paystep); position: absolute; left: 0; top: -1px; display: grid; place-items: center;
+  width: 22px; height: 22px; border-radius: 999px; font-size: 11.5px; font-weight: 800;
+  color: var(--rdg-forest); background: #e2f6d3;
+}
+.rdg .rdg-pay-error {
+  margin-top: 12px; padding: 10px 12px; border-radius: 14px; font-size: 13.5px; font-weight: 600;
+  color: #b02a30; background: #fde8e9;
+}
+.rdg .rdg-success {
+  display: grid; place-items: center; width: 76px; height: 76px; margin: 6px auto 0; border-radius: 999px;
+  color: #fff; background: linear-gradient(150deg, var(--rdg-leaf), var(--rdg-tealgreen));
+  box-shadow: 0 0 0 10px rgba(73, 174, 66, 0.14), 0 14px 28px rgba(1, 145, 111, 0.35);
+  animation: rdg-pop 0.45s var(--rdg-ease) both;
+}
+@keyframes rdg-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.rdg .rdg-receipt {
+  margin-top: 18px; padding: 6px 16px; border-radius: 20px; background: #fff;
+  border: 1px solid var(--rdg-line); text-align: left;
+}
+.rdg .rdg-receipt > div {
+  display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; font-size: 13.5px;
+}
+.rdg .rdg-receipt > div + div { border-top: 1px dashed rgba(0, 69, 77, 0.16); }
+.rdg .rdg-receipt dt { color: var(--rdg-muted); }
+.rdg .rdg-receipt dd { margin: 0; font-weight: 700; text-align: right; }

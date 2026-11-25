@@ -6,6 +6,8 @@ import "@fontsource/plus-jakarta-sans/600.css";
 import "@fontsource/plus-jakarta-sans/700.css";
 import "@fontsource/plus-jakarta-sans/800.css";
 import "./theme/rdg.css";
+import "./theme/rdg-components.css";
+import "./theme/rdg-controls.css";
 import screens from "./screens.json";
 import { isPrototypeHost } from "./lib/host";
 import Placeholder from "./surfaces/Placeholder";
