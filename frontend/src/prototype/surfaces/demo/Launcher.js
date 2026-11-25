@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  Building2, ChevronRight, Handshake, Home, KeyRound, MapPin, RotateCcw, ShieldCheck, UserRound, Wand2,
+  Building2, CalendarDays, ChevronRight, Handshake, Home, KeyRound, MapPin, RotateCcw, ShieldCheck, UserRound, Wand2,
 } from "lucide-react";
 import Screen from "../../components/Screen";
 import MobileShell from "../../components/MobileShell";
@@ -9,8 +9,9 @@ import Hero from "../../components/Hero";
 import BrandMark from "../../components/BrandMark";
 import StatusChip from "../../components/StatusChip";
 import { FrostCard } from "../../components/GlassCard";
-import { useProto } from "../../services/useStore";
-import { getState, resetState } from "../../services/store";
+import { useNow, useProto } from "../../services/useStore";
+import { getState, now, resetState, setDemoClock } from "../../services/store";
+import { hariTanggal } from "../../lib/format";
 import { setPersona, simulateBast, setLocation, homePathFor } from "../../services/api/session";
 import screens from "../../screens.json";
 
@@ -26,6 +27,36 @@ const GROUPS = [
   ["demo", "Demo"], ["buyer", "Pembeli"], ["transition", "Transisi"], ["resident", "Warga"],
   ["satpam", "Satpam"], ["manager", "Pengelola"], ["partner", "Mitra"],
 ];
+
+/** Tanggal demo (25 Nov 2026, jam berjalan) atau tanggal hari ini; mengganti mode mengulang data contoh. */
+function DemoDate() {
+  const real = useProto((s) => s.session.demoClock) === "real";
+  useNow(60000);
+  const t = now();
+  return (
+    <div role="group" aria-labelledby="l-tanggal">
+      <h2 id="l-tanggal" className="m-0 mb-1 flex items-center gap-1.5 text-[15px] font-bold">
+        <CalendarDays size={17} aria-hidden="true" /> Tanggal
+      </h2>
+      <p className="m-0 text-[14px] font-semibold text-rdg-ink900">{`${real ? "Tanggal hari ini" : "Tanggal demo"}: ${hariTanggal(t)}`}</p>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={real}
+        onClick={() => setDemoClock(real ? "anchored" : "real")}
+        className="mt-1 flex min-h-[44px] w-full cursor-pointer items-center justify-between gap-3 border-0 bg-transparent p-0 text-left text-[14px] font-bold text-rdg-ink900"
+      >
+        <span>Pakai tanggal hari ini</span>
+        <span aria-hidden="true" className="relative h-7 w-12 flex-none rounded-full" style={{ background: real ? "var(--rdg-forest)" : "#5f7f83" }}>
+          <span className="absolute top-1 h-5 w-5 rounded-full bg-white shadow" style={{ left: real ? 24 : 4 }} />
+        </span>
+      </button>
+      <p className="m-0 text-[13px]" style={{ color: "var(--rdg-muted)" }}>
+        Data contoh disusun untuk Rabu, 25 Nov 2026. Mengganti tanggal mengulang data contoh.
+      </p>
+    </div>
+  );
+}
 
 export default function Launcher() {
   const navigate = useNavigate();
@@ -127,6 +158,7 @@ export default function Launcher() {
                 Lokasi: {location === "inside" ? "di dalam" : "di luar"} kawasan
               </p>
             </div>
+            <DemoDate />
             <button
               type="button"
               className="rdg-btn-ghost w-full"

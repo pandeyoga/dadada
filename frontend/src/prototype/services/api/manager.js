@@ -10,7 +10,10 @@ const OPEN_TICKET = ["dibuat", "diverifikasi", "dikerjakan"];
 const iso = (t) => new Date(t).toISOString();
 const text = (v) => String(v == null ? "" : v).trim();
 const patchManager = (fn) => setState((s) => ({ ...s, manager: fn(s.manager) }));
-const notify = (tier, title, body, link) => ({ id: newId("nt-mgr", now()), tier, title, body, at: iso(now()), read: false, link });
+// Notifikasi dari pengelola selalu untuk warga (Mode Warga).
+const notify = (tier, title, body, link, about) => ({
+  id: newId("nt-mgr", now()), audience: "resident", tier, title, body, at: iso(now()), read: false, link, ...(about ? { about } : {}),
+});
 
 export const periodLabel = (period) => {
   const m = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(period || "");
@@ -86,7 +89,7 @@ export async function issueIplBills(period) {
   const amount = state.manager.units[0] ? state.manager.units[0].amount : 150000;
   const bill = { id: `ipl-${period}`, kind: "ipl", period: label, amount, dueDate: `${period}-10`, status: "unpaid" };
   const rec = { period, label, issuedAt: iso(t), statuses: Object.fromEntries(state.manager.units.map((u) => [u.block, "belum"])) };
-  const note = notify("info", `Tagihan IPL ${label}`, `Iuran Rp${String(amount).replace(/\B(?=(\d{3})+(?!\d))/g, ".")} jatuh tempo 10 ${MONTHS[Number(period.slice(5)) - 1].slice(0, 3)}.`, "/app/warga/tagihan");
+  const note = notify("info", `Tagihan IPL ${label}`, `Iuran Rp${String(amount).replace(/\B(?=(\d{3})+(?!\d))/g, ".")} jatuh tempo 10 ${MONTHS[Number(period.slice(5)) - 1].slice(0, 3)}.`, "/app/warga/tagihan", bill.id);
   setState((s) => ({
     ...s,
     bills: { ...s.bills, ipl: [bill, ...s.bills.ipl] },

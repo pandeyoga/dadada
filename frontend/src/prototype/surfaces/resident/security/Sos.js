@@ -17,10 +17,13 @@ import { Msg, jam } from "./ui";
 
 const SHOWN_AFTER_DONE_MS = 5 * 60000;
 const STEPS = ["Terkirim", "Diterima", "Selesai"];
-const STEP_OF = { sent: 0, accepted: 1, resolved: 2 };
+// Selesai = semua tahap tuntas (centang), bukan tahap ketiga yang sedang berjalan.
+const STEP_OF = { sent: 0, accepted: 1, resolved: 3 };
 const guardName = (n) => String(n || "satpam").replace(/^pak\s+/i, "");
 
+// Prototipe tidak menelepon sungguhan: nomor contoh bisa saja milik orang lain.
 function Contacts({ contacts }) {
+  const [called, setCalled] = useState(null);
   return (
     <FrostCard>
       <div className="flex items-center justify-between">
@@ -32,11 +35,12 @@ function Contacts({ contacts }) {
           <li key={c.id}>
             <ListRow
               icon={Phone} title={c.name} subtitle={<>{`${c.role} · `}<span className="whitespace-nowrap">{c.phone}</span></>}
-              right={<a href={`tel:${c.phone.replace(/\D/g, "")}`} className="rdg-btn-ghost !min-h-[40px] !px-4 !text-[13.5px]" aria-label={`Telepon ${c.name}`}>Telepon</a>}
+              right={<button type="button" className="rdg-btn-ghost !min-h-[40px] !px-4 !text-[13.5px]" aria-label={`Telepon ${c.name}`} onClick={() => setCalled(c.name)}>Telepon</button>}
             />
           </li>
         ))}
       </ul>
+      <p role="status" className="text-[13px] font-semibold text-[color:var(--rdg-muted)] empty:hidden">{called ? `Panggilan ke ${called} disimulasikan di prototipe.` : ""}</p>
     </FrostCard>
   );
 }

@@ -70,6 +70,21 @@ test("reset mengembalikan data contoh", async () => {
   expect(getState().mode).toBe("buyer");
 });
 
+test("peluncur: tanggal demo Rabu, 25 Nov 2026; sakelar 'Pakai tanggal hari ini' mengganti jam dan mengulang data", () => {
+  mount("/app/demo");
+  act(() => setPersona("resident"));
+  expect(screen.getByText("Tanggal demo: Rabu, 25 Nov 2026")).toBeTruthy();
+  const toggle = screen.getByRole("switch", { name: "Pakai tanggal hari ini" });
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+  click(toggle);
+  expect(getState().session).toMatchObject({ demoClock: "real", loggedIn: false });
+  expect(screen.getByRole("switch", { name: "Pakai tanggal hari ini" }).getAttribute("aria-checked")).toBe("true");
+  expect(screen.getByText(/^Tanggal hari ini: /)).toBeTruthy();
+  click(screen.getByRole("switch", { name: "Pakai tanggal hari ini" }));
+  expect(getState().session.demoClock).toBe("anchored");
+  expect(screen.getByText("Tanggal demo: Rabu, 25 Nov 2026")).toBeTruthy();
+});
+
 test("masuk: nomor pendek ditolak, lalu OTP 6 angka masuk", async () => {
   mount("/app/masuk");
   const input = screen.getByLabelText("Nomor WhatsApp");

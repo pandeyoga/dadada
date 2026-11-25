@@ -6,9 +6,13 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 /**
  * Bottom sheet modal TANPA portal: dirender di tempat (di dalam `.rdg`) agar
  * gaya ber-scope tetap berlaku. Tutup dengan Esc, klik latar, atau tombol ×.
+ * Klik latar hanya menutup bila pointerdown-nya juga di latar: di layar sentuh,
+ * sheet yang terbuka saat jari masih menahan tombol (SOS) menerima klik susulan
+ * ketika jari diangkat, dan klik itu tidak boleh menutupnya.
  */
 export default function Sheet({ open, onClose, title, children }) {
   const panel = useRef(null);
+  const downOnBackdrop = useRef(false);
   const closeRef = useRef(onClose);
   const titleId = useId();
   closeRef.current = onClose;
@@ -29,6 +33,12 @@ export default function Sheet({ open, onClose, title, children }) {
 
   if (!open) return null;
 
+  const onBackdropClick = () => {
+    const started = downOnBackdrop.current;
+    downOnBackdrop.current = false;
+    if (started) onClose?.();
+  };
+
   // Jaga fokus Tab tetap di dalam sheet.
   const trap = (e) => {
     if (e.key !== "Tab") return;
@@ -46,8 +56,8 @@ export default function Sheet({ open, onClose, title, children }) {
   };
 
   return (
-    <div className="rdg-sheet-root">
-      <div className="rdg-sheet-backdrop" data-sheet-backdrop="" aria-hidden="true" onClick={() => onClose?.()} />
+    <div className="rdg-sheet-root" onPointerDownCapture={(e) => { downOnBackdrop.current = e.target.hasAttribute("data-sheet-backdrop"); }}>
+      <div className="rdg-sheet-backdrop" data-sheet-backdrop="" aria-hidden="true" onClick={onBackdropClick} />
       <div
         ref={panel}
         role="dialog"

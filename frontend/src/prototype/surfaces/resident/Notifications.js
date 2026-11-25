@@ -20,7 +20,7 @@ const TIERS = [
 /** W27: notifikasi berjenjang darurat › keamanan › info; ketuk untuk membuka tautan. Dipakai pembeli dan warga. */
 export default function Notifications() {
   const fetcher = useCallback(fetchAll, []);
-  const { data, error } = useLoad(fetcher, ["notifications"]);
+  const { data, error } = useLoad(fetcher, ["notifications", "mode"]);
   const mode = useProto((s) => s.mode);
   const navigate = useNavigate();
   const resident = mode === "resident";

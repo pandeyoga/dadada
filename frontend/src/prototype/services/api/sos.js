@@ -29,7 +29,7 @@ export async function sendSos(type) {
   const t = now();
   const event = { id: newId("sos", t), type, unit: getState().world.unit.block, status: "sent", createdAt: iso(t) };
   const note = {
-    id: newId("nt-sos", t), tier: "darurat", title: `SOS ${sosLabel(type).toLowerCase()} terkirim`,
+    id: newId("nt-sos", t), audience: "resident", tier: "darurat", title: `SOS ${sosLabel(type).toLowerCase()} terkirim`,
     body: `Laporan dari ${event.unit} sudah diteruskan ke satpam. Tetap tenang dan tunggu bantuan.`,
     at: iso(t), read: false, link: "/app/warga/sos",
   };
@@ -59,7 +59,7 @@ export async function acceptSos(id, guardName = "Joko") {
   const t = now();
   const name = String(guardName || "").trim() || "Joko";
   const note = {
-    id: newId("nt-sosok", t), tier: "keamanan", title: `Pak ${name.replace(/^pak\s+/i, "")} menuju rumah Anda`,
+    id: newId("nt-sosok", t), audience: "resident", tier: "keamanan", title: `Pak ${name.replace(/^pak\s+/i, "")} menuju rumah Anda`,
     body: "Satpam sudah menerima laporan darurat Anda. Tetap di tempat yang aman.",
     at: iso(t), read: false, link: "/app/warga/sos",
   };

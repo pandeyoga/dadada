@@ -222,6 +222,31 @@ describe("layar keamanan", () => {
     expect(await screen.findByText("Pak Sutrisno menuju rumah Anda")).toBeInTheDocument();
     await act(async () => { await resolveSos(getState().security.sos[0].id); });
     expect(await screen.findByText("Selesai", { selector: "h2" })).toBeInTheDocument();
+    // Tahap terakhir tampil sebagai selesai (centang), bukan angka "3" sebagai tahap berjalan.
+    const steps = screen.getByRole("list", { name: "Tahapan" }).querySelectorAll("li");
+    expect([...steps].every((li) => li.classList.contains("is-done"))).toBe(true);
+    expect(screen.queryByRole("listitem", { current: "step" })).toBeNull();
+  });
+
+  test("W8 sentuh: klik susulan saat jari diangkat jatuh di latar sheet → sheet tetap terbuka → kirim", async () => {
+    mount("/app/warga/sos");
+    const btn = screen.getByRole("button", { name: /SOS/ });
+    jest.useFakeTimers();
+    try {
+      fireEvent.pointerDown(btn, { pointerType: "touch" });
+      act(() => jest.advanceTimersByTime(3200));
+    } finally {
+      jest.useRealTimers();
+    }
+    expect(screen.getByRole("dialog", { name: "Pilih jenis darurat" })).toBeInTheDocument();
+    // Jari diangkat: pointerup di tombol tahan, lalu peramban mengirim klik ke elemen di bawah jari (latar).
+    fireEvent.pointerUp(btn, { pointerType: "touch" });
+    fireEvent.click(document.querySelector("[data-sheet-backdrop]"));
+    expect(screen.getByRole("dialog", { name: "Pilih jenis darurat" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /Medis/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Kirim laporan" }));
+    expect(await screen.findByText("Menunggu satpam…")).toBeInTheDocument();
+    expect(getState().security.sos[0]).toMatchObject({ type: "medis", status: "sent" });
   });
 
   test("W8: kirim → batalkan → tahan lagi → sheet bersih (jenis bawaan, tombol aktif) → kirim berhasil", async () => {
@@ -249,6 +274,28 @@ describe("layar keamanan", () => {
     fireEvent.click(send);
     expect(await screen.findByText("Menunggu satpam…")).toBeInTheDocument();
     expect(getState().security.sos[0]).toMatchObject({ type: "kemalingan", status: "sent" });
+  });
+
+  test("W8: Telepon hanya simulasi (tanpa tautan tel:), menampilkan catatan", async () => {
+    mount("/app/warga/sos");
+    const call = await screen.findByRole("button", { name: "Telepon Satpam Estora (pos)" });
+    expect(document.querySelector('a[href^="tel:"]')).toBeNull();
+    fireEvent.click(call);
+    expect(screen.getByText("Panggilan ke Satpam Estora (pos) disimulasikan di prototipe.")).toBeInTheDocument();
+  });
+
+  test("tidak ada tautan tel: di kode prototipe", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const root = path.resolve(__dirname, "..");
+    const files = [];
+    const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).forEach((d) => {
+      const p = path.join(dir, d.name);
+      if (d.isDirectory()) { if (d.name !== "__tests__") walk(p); } else if (p.endsWith(".js")) files.push(p);
+    });
+    walk(root);
+    expect(files.length).toBeGreaterThan(50);
+    files.forEach((f) => expect(`${path.relative(root, f)}: ${/tel:/.test(fs.readFileSync(f, "utf8"))}`).toBe(`${path.relative(root, f)}: false`));
   });
 
   test("W9: tambah kontak lewat formulir", async () => {

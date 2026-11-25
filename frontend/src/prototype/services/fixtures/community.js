@@ -10,10 +10,10 @@ export function buildCommunity(now) {
       { id: "an-3", title: "Iuran IPL Desember", body: "Iuran IPL Rp150.000 jatuh tempo 10 Des. Bayar lewat aplikasi agar tercatat otomatis.", author: "Bendahara RT", at: iso(now - 5 * DAY), pinned: false },
     ],
     events: [
-      { id: "ev-1", title: "Kerja bakti Minggu, 7 Des", date: "2026-12-07", time: "07.00", place: "Lapangan serbaguna", body: "Bersih-bersih saluran air dan taman. Bawa sapu dan sarung tangan.", going: 14, rsvp: false },
-      { id: "ev-2", title: "Senam pagi bersama", date: "2026-11-30", time: "06.00", place: "Taman bermain", body: "Senam sehat setiap Minggu pagi, terbuka untuk semua usia.", going: 22, rsvp: false },
+      { id: "ev-1", title: "Kerja bakti Minggu, 6 Des", date: "2026-12-06", time: "07.00", place: "Lapangan serbaguna", body: "Bersih-bersih saluran air dan taman. Bawa sapu dan sarung tangan.", going: 14, rsvp: false },
+      { id: "ev-2", title: "Senam pagi bersama", date: "2026-11-29", time: "06.00", place: "Taman bermain", body: "Senam sehat setiap Minggu pagi, terbuka untuk semua usia.", going: 22, rsvp: false },
       { id: "ev-3", title: "Pengajian bulanan", date: "2026-12-14", time: "19.30", place: "Musala Al-Ikhlas", body: "Pengajian rutin dengan Ustaz Rahmat, dilanjutkan makan bersama.", going: 31, rsvp: false },
-      { id: "ev-4", title: "Bazar UMKM warga", date: "2026-12-21", time: "09.00", place: "Lapangan serbaguna", body: "Warga menjual makanan dan kerajinan. Daftar lewat pengelola.", going: 9, rsvp: false },
+      { id: "ev-4", title: "Bazar UMKM warga", date: "2026-12-20", time: "09.00", place: "Lapangan serbaguna", body: "Warga menjual makanan dan kerajinan. Daftar lewat pengelola.", going: 9, rsvp: false },
     ],
     groups: [
       { id: "gr-1", name: "Ibu-ibu Estora", members: 48, about: "Arisan, resep, dan info belanja." },

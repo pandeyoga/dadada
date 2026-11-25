@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Home, Link2, Users, PhoneCall } from "lucide-react";
 import MobileShell from "../../components/MobileShell";
@@ -31,14 +31,19 @@ export default function Welcome() {
   const [extra, setExtra] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const people = useRef(null);
   const onDone = useCallback(() => setConnected(true), []);
   const s = STEPS[step];
   const Icon = s.icon;
 
+  // Isian yang diketik tapi belum ditambahkan ikut disimpan (atau ditahan dengan pesan bila tidak lengkap).
+  const flush = (fallback) => (people.current ? people.current.flush() : fallback);
   const finish = async () => {
+    const contacts = flush(extra);
+    if (!contacts) return;
     setBusy(true);
     try {
-      await completeOnboarding({ connectDevices: connected && !skipped, invites, contacts: extra });
+      await completeOnboarding({ connectDevices: connected && !skipped, invites, contacts });
       navigate("/app/warga", { replace: true });
     } catch (e) {
       setError(e.message || "Gagal menyimpan");
@@ -74,8 +79,8 @@ export default function Welcome() {
             </FrostCard>
           )}
           {step === 1 && <ConnectStep started={started} onDone={onDone} />}
-          {step === 2 && <PeopleStep idPrefix="fam" items={invites} existing={family} onChange={setInvites} addLabel="Tambah" />}
-          {step === 3 && <PeopleStep idPrefix="ct" items={extra} existing={contacts} onChange={setExtra} addLabel="Tambah" />}
+          {step === 2 && <PeopleStep ref={people} idPrefix="fam" items={invites} existing={family} onChange={setInvites} addLabel="Tambah" />}
+          {step === 3 && <PeopleStep ref={people} idPrefix="ct" items={extra} existing={contacts} onChange={setExtra} addLabel="Tambah" />}
           {error && <p role="alert" className="text-[13px] font-semibold text-[color:var(--rdg-sos-ink)]">{error}</p>}
 
           <div className="space-y-2.5 pt-2">
@@ -87,7 +92,7 @@ export default function Welcome() {
               </>
             )}
             {step === 1 && started && <button type="button" className="rdg-btn-primary w-full" disabled={!connected} onClick={next}>Lanjut</button>}
-            {step === 2 && <button type="button" className="rdg-btn-primary w-full" onClick={next}>Lanjut</button>}
+            {step === 2 && <button type="button" className="rdg-btn-primary w-full" onClick={() => { if (flush(invites)) next(); }}>Lanjut</button>}
             {step === 3 && <button type="button" className="rdg-btn-primary w-full" disabled={busy} onClick={finish}>Selesai</button>}
             {step > 0 && <button type="button" className="rdg-btn-ghost w-full" onClick={() => setStep((n) => n - 1)}>Kembali</button>}
           </div>

@@ -4,11 +4,11 @@ import Page, { Loading } from "../../buyer/Page";
 import { FrostCard } from "../../../components/GlassCard";
 import { listPolls, vote } from "../../../services/api/community";
 import { Msg } from "../security/ui";
-import { tanggal } from "../../../lib/format";
+import { tanggal, persenBulat } from "../../../lib/format";
 import useLoad from "../../../lib/useLoad";
 
 function PollCard({ poll, onVote }) {
-  const total = poll.options.reduce((n, o) => n + o.votes, 0) || 1;
+  const pcts = persenBulat(poll.options.map((o) => o.votes));
   const hid = `poll-${poll.id}`;
   return (
     <FrostCard as="section" aria-labelledby={hid} className="space-y-2">
@@ -16,8 +16,8 @@ function PollCard({ poll, onVote }) {
       <p className="text-[12.5px] font-semibold text-[color:var(--rdg-muted)]">{`Ditutup ${tanggal(poll.closesAt)}`}</p>
       {poll.voted ? (
         <>
-          {poll.options.map((o) => {
-            const pct = Math.round((o.votes / total) * 100);
+          {poll.options.map((o, i) => {
+            const pct = pcts[i];
             const mine = poll.voted === o.id;
             return (
               <div key={o.id}>

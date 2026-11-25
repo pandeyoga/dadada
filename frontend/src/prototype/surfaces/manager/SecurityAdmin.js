@@ -12,6 +12,13 @@ const SOS_STATUS = {
 };
 const monthOf = (t) => new Date(t + 7 * 3600000).toISOString().slice(0, 7);
 const stamp = (at) => `${tanggal(at)} · ${jam(at)}`;
+const bare = (n) => String(n || "").trim().replace(/^pak\s+/i, "").toLowerCase();
+/** Nama satpam seperti di W8/S2 ("Pak Joko"): dari data satpam bila ada, selain itu "Pak {nama}". */
+const guardLabel = (guards, name) => {
+  if (!bare(name)) return "satpam";
+  const g = guards.find((x) => bare(x.name) === bare(name));
+  return g ? g.name : `Pak ${String(name).trim().replace(/^pak\s+/i, "")}`;
+};
 
 /** K6: SOS bulan ini (hidup), satpam bertugas, log gerbang dan patroli. */
 export default function SecurityAdmin() {
@@ -28,7 +35,7 @@ export default function SecurityAdmin() {
           <Siren size={32} aria-hidden="true" />
           <div>
             <p className="text-[19px] font-extrabold">{`SOS ${sosLabel(active.type).toLowerCase()} dari ${active.unit}`}</p>
-            <p className="text-[14.5px] text-white/95">{active.status === "sent" ? `Dikirim ${jam(Date.parse(active.createdAt))}. Belum diterima satpam.` : `Diterima ${active.acceptedBy || "satpam"}. Sedang ditangani.`}</p>
+            <p className="text-[14.5px] text-white/95">{active.status === "sent" ? `Dikirim ${jam(Date.parse(active.createdAt))}. Belum diterima satpam.` : `Diterima ${guardLabel(world.guards, active.acceptedBy)}. Sedang ditangani.`}</p>
           </div>
         </div>
       ) : (

@@ -63,19 +63,23 @@ export function buildManager(now, world) {
     technicians: ["Tim Teknik Estora", "Pak Dedi (ledeng)", "Pak Slamet (bangunan)", "Pak Hendra (listrik dan AC)"],
     vendors: buildVendors(),
     announcements: [
-      { id: "mgr-an-1", title: "Rapat warga akhir tahun", body: "Rapat evaluasi keamanan dan iuran, Sabtu 13 Des pukul 19.30 di balai warga.", tier: "info", at: iso(now - 2 * DAY) },
+      { id: "mgr-an-1", title: "Rapat warga akhir tahun", body: "Rapat evaluasi keamanan dan iuran, Sabtu 12 Des pukul 19.30 di balai warga.", tier: "info", at: iso(now - 2 * DAY) },
     ],
   };
 }
 
+// `audience`: 'buyer' (Mode Pembeli) atau 'resident' (Mode Warga); W27 dan titik bel hanya membaca mode aktif.
+// `about`: id tagihan/cicilan terkait; notifikasi ditandai dibaca saat tagihan itu lunas (payments.confirmPayment).
 export function buildNotifications(now) {
-  const mk = (id, tier, title, body, ago, read, link) => ({ id, tier, title, body, at: iso(now - ago), read, ...(link ? { link } : {}) });
+  const mk = (audience, id, tier, title, body, ago, read, link, about) => ({
+    id, audience, tier, title, body, at: iso(now - ago), read, ...(link ? { link } : {}), ...(about ? { about } : {}),
+  });
   return [
-    mk("nt-1", "darurat", "Peringatan banjir wilayah Setu", "Curah hujan tinggi. Waspada genangan di Jalan Blok C.", 2 * HOUR, false),
-    mk("nt-2", "keamanan", "Pintu depan terkunci otomatis", "Kunci pintu C-12 terkunci kembali setelah 30 detik.", 2 * HOUR, false, "/app/warga/keamanan/kunci"),
-    mk("nt-3", "keamanan", "Tamu tiba di gerbang", "Kurir paket masuk melalui gerbang utama.", 3 * HOUR, true),
-    mk("nt-4", "info", "Tagihan IPL Desember", "Iuran Rp150.000 jatuh tempo 10 Des.", 1 * DAY, false, "/app/warga/tagihan"),
-    mk("nt-5", "info", "Foto progres pembangunan baru", "Tahap pintu, jendela, dan listrik telah diunggah.", 6 * DAY, true),
-    mk("nt-6", "info", "Uang muka ke-3 jatuh tempo 10 Des", "Siapkan Rp1.000.000 untuk pembayaran uang muka.", 2 * DAY, false),
+    mk("resident", "nt-1", "darurat", "Peringatan banjir wilayah Setu", "Curah hujan tinggi. Waspada genangan di Jalan Blok C.", 2 * HOUR, false),
+    mk("resident", "nt-2", "keamanan", "Pintu depan terkunci otomatis", "Kunci pintu C-12 terkunci kembali setelah 30 detik.", 2 * HOUR, false, "/app/warga/keamanan/kunci"),
+    mk("resident", "nt-3", "keamanan", "Tamu tiba di gerbang", "Kurir paket masuk melalui gerbang utama.", 3 * HOUR, true),
+    mk("resident", "nt-4", "info", "Tagihan IPL Desember", "Iuran Rp150.000 jatuh tempo 10 Des.", 1 * DAY, false, "/app/warga/tagihan", "ipl-2026-12"),
+    mk("buyer", "nt-5", "info", "Foto progres pembangunan baru", "Tahap pintu, jendela, dan listrik telah diunggah.", 6 * DAY, true, "/app/pembeli/progres"),
+    mk("buyer", "nt-6", "info", "Uang muka ke-3 jatuh tempo 10 Des", "Siapkan Rp1.000.000 untuk pembayaran uang muka.", 2 * DAY, false, "/app/pembeli/bayar/dp-3", "dp-3"),
   ];
 }

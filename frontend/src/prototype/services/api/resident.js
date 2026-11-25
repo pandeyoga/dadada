@@ -38,7 +38,8 @@ export async function getResidentHome() {
       guardsOnDuty,
       safe: door === "locked" && guardsOnDuty > 0,
     },
-    iplDue: state.bills.ipl.find((b) => b.status !== "paid") || null,
+    // Tagihan belum lunas dengan jatuh tempo terlama (Desember ditagih sebelum Januari yang baru terbit).
+    iplDue: state.bills.ipl.filter((b) => b.status !== "paid").sort((a, b) => Date.parse(a.dueDate) - Date.parse(b.dueDate))[0] || null,
     announcement: anns[0] || null,
     energy: { kwh, deltaPct },
   };

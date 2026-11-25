@@ -62,3 +62,12 @@ test("P9: kirim pertanyaan menambah item daftar", async () => {
   await screen.findByText("Kapan serah terima?");
   expect(screen.getByText("Data contoh")).toBeTruthy();
 });
+
+test("P9: anggota keluarga dibaca dari care.family (hubungan Suami), bukan daftar tetap", async () => {
+  setState((s) => ({ ...s, care: { ...s.care, family: [...s.care.family, { id: "fm-x", name: "Bu Ratna", relation: "Penyewa", role: "penyewa", phone: "", access: [] }] } }));
+  mount("/app/pembeli/akun");
+  const keluarga = screen.getByRole("region", { name: "Anggota keluarga" });
+  expect((await within(keluarga).findByText("Dimas Pratama")).closest(".rdg-row").textContent).toContain("Suami");
+  expect(within(keluarga).getByText("Bu Ratna")).toBeTruthy();
+  expect(keluarga.textContent).not.toMatch(/Pasangan/);
+});

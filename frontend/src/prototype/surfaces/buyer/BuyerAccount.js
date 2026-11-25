@@ -4,15 +4,13 @@ import { FrostCard } from "../../components/GlassCard";
 import ListRow from "../../components/ListRow";
 import StatusChip from "../../components/StatusChip";
 import { askQuestion, listQuestions } from "../../services/api/buyer";
+import { listFamily } from "../../services/api/account";
 import { useProto } from "../../services/useStore";
 import { tanggal } from "../../lib/format";
 import useLoad from "../../lib/useLoad";
 import Page from "./Page";
 
-const FAMILY = [
-  { name: "Dimas Pratama", role: "Pasangan" },
-  { name: "Alya Pratama", role: "Anak" },
-];
+const fetchFamily = () => listFamily();
 const CATEGORIES = ["Administrasi", "Pembangunan", "KPR", "Pembayaran", "Lainnya"];
 const TONE = { dibuat: "warn", diverifikasi: "info", dikerjakan: "info", selesai: "ok", dikonfirmasi: "ok" };
 
@@ -56,6 +54,7 @@ export default function BuyerAccount() {
   const world = useProto((s) => s.world);
   const fetcher = useCallback(() => listQuestions(), []);
   const { data: questions } = useLoad(fetcher);
+  const { data: family } = useLoad(fetchFamily, ["care"]);
   return (
     <Page id="P9" title="Akun" back="/app/pembeli" right={<StatusChip tone="info" icon={null}>Data contoh</StatusChip>}>
       <FrostCard>
@@ -76,7 +75,7 @@ export default function BuyerAccount() {
       <section aria-labelledby="p9-kel">
         <h2 id="p9-kel" className="mb-2 text-[17px] font-extrabold">Anggota keluarga</h2>
         <FrostCard className="divide-y divide-[color:var(--rdg-line)] !p-1">
-          {FAMILY.map((f) => <ListRow key={f.name} icon={Users} title={f.name} subtitle={f.role} />)}
+          {(family || []).map((f) => <ListRow key={f.id} icon={Users} title={f.name} subtitle={f.relation} />)}
         </FrostCard>
       </section>
 

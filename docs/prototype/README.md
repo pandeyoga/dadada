@@ -49,7 +49,21 @@ dialihkan ke `/`. Untuk demo dari laptop, pakai `localhost`.
 | Dimas · Mitra | `/app/mitra` | Agen rujukan: katalog unit, tautan beratribusi, rujukan, komisi |
 
 Tombol lain di peluncur: **Simulasikan BAST** (pembeli → warga baru), pilihan **Lokasi** (di dalam/luar
-kawasan, untuk gerbang pintar), **Reset data contoh**, dan daftar **Semua layar (59)** untuk membuka layar mana pun.
+kawasan, untuk gerbang pintar), sakelar **Pakai tanggal hari ini** (lihat *Tanggal demo*), **Reset data contoh**,
+dan daftar **Semua layar (59)** untuk membuka layar mana pun.
+
+### Tanggal demo
+
+Data contoh disusun untuk **Rabu, 25 Nov 2026**: kerja bakti Minggu, 6 Des; senam pagi Minggu, 29 Nov; rapat warga
+Sabtu, 12 Des; uang muka ke-3 dan IPL Desember jatuh tempo 10 Des. Agar jadwal itu tetap masuk akal kapan pun demo
+dijalankan (mis. saat pitch pertengahan Desember), prototipe memakai **tanggal demo**: tanggal selalu 25 Nov 2026,
+sedangkan jamnya mengikuti jam sungguhan (WIB), jadi hitung mundur kunci pintu dan jam laporan SOS tetap berjalan.
+Peluncur menampilkan "Tanggal demo: Rabu, 25 Nov 2026".
+
+Sakelar **Pakai tanggal hari ini** di peluncur beralih ke tanggal dan jam sungguhan dan mengulang data contoh
+(semua tanggal relatif dibangun ulang terhadap hari ini; jadwal bertanggal tetap seperti di atas, jadi bisa sudah
+lewat). Matikan sakelar untuk kembali ke tanggal demo. Pilihan ini tersimpan di peramban bersama data contoh dan
+ikut berlaku di jendela lain pada peramban yang sama.
 
 ## Skrip demo (urutan presentasi)
 
@@ -58,12 +72,16 @@ Mulai dari **http://localhost:3000/app/demo** dan tekan **Reset data contoh** ag
 1. **Masuk sebagai pembeli.** Ketuk *Coba masuk dengan nomor WhatsApp*, isi nomor mana pun (≥ 10 angka),
    ketuk *Kirim kode*, isi 6 angka apa saja, ketuk *Masuk*. (Pintasan: ketuk *Rina · Pembeli* di peluncur.)
 2. **Beranda pembeli.** Kartu "Perjalanan rumah Anda" berada di tahap *Bangun 72 %*. Ketuk *Lihat foto* untuk
-   membuka Progres (linimasa foto per tahap dan estimasi serah terima).
+   membuka Progres (linimasa foto per tahap dan estimasi serah terima). Bel notifikasi di Mode Pembeli hanya berisi
+   kabar pembeli (uang muka jatuh tempo, foto progres); kabar rumah dan kawasan baru muncul di Mode Warga.
 3. **Bayar cicilan uang muka lewat VA.** Menu *Bayar* → *Bayar uang muka 3 · Rp1.000.000* → *Pilih metode bayar*
    → pilih bank → nomor VA tampil → *Saya sudah bayar*. Status berubah *Lunas* dan kuitansi muncul.
    Angsuran KPR (Rp1.062.500/bulan) hanya simulasi dan "dibayar ke bank setelah akad".
 4. **Serah terima.** Kembali ke peluncur (`/app/demo`) → *Simulasikan BAST* → layar "Selamat datang di rumah baru"
-   → *Mulai* → hubungkan kunci & kamera → undang keluarga → kontak darurat → *Selesai*.
+   → *Mulai* → ketuk *Hubungkan sekarang* → tunggu kunci dan kamera terhubung → *Lanjut* → undang keluarga: isi
+   nama + nomor WhatsApp → *Tambah* → *Lanjut* → kontak darurat (boleh dikosongkan) → *Selesai*. Nama + nomor yang
+   sudah diketik tapi belum ditambahkan ikut disimpan saat *Lanjut*/*Selesai*; isian yang belum lengkap ditahan
+   dengan pesan (lengkapi atau kosongkan).
 5. **Beranda warga.** Kartu "Rumah aman". Buka *Keamanan* → **geser** *Geser untuk buka* → pintu terbuka, hitung
    mundur kunci otomatis 30 detik, riwayat akses bertambah. Di *Kunci pintu* buat kode sementara untuk ART
    (mis. "Bu Siti · ART") lalu bagikan lewat *WhatsApp*.
@@ -76,7 +94,9 @@ Mulai dari **http://localhost:3000/app/demo** dan tekan **Reset data contoh** ag
      *Periksa kode*) → "Tamu valid". Warga menerima notifikasi "Tamu … sudah masuk".
 8. **SOS (dua jendela).**
    - Jendela warga: tombol **SOS** di tengah menu bawah → **tahan 3 detik** (lepas sebelum itu = batal) →
-     pilih *Kemalingan* → *Kirim laporan*. Status: "Menunggu satpam…".
+     pilih *Kemalingan* → *Kirim laporan*. Status: "Menunggu satpam…". Di HP: tahan dengan jari sampai lembar
+     "Pilih jenis darurat" muncul, lalu angkat jari; lembar tetap terbuka. Tombol *Telepon* pada kontak darurat
+     hanya simulasi (tidak menelepon).
    - Jendela satpam: kartu merah "Laporan darurat Kemalingan" muncul tanpa muat ulang → ketuk →
      layar penuh merah → *Terima & menuju*.
    - Jendela warga berubah menjadi "**Pak Joko menuju rumah Anda**". Jendela satpam: *Tandai selesai* →
@@ -177,7 +197,9 @@ S2 dengan SOS yang menunggu diterima; S1/S3 dengan satu undangan tamu hari ini; 
   memanggil jaringan. Tidak ada OTP sungguhan; kode 6 angka apa pun diterima.
 - **Tanpa integrasi sungguhan.** Tidak tersambung ke perangkat IoT (kunci, kamera, meter energi), bank, VA/QRIS,
   dompet digital, atau biller pulsa/PLN/PDAM. Nomor VA, QR, token, dan struk dibuat acak di peramban. Nama bank hanya
-  tampil sebagai data contoh.
+  tampil sebagai data contoh. Tombol *Telepon* tidak memanggil nomor apa pun; prototipe hanya menampilkan catatan
+  "Panggilan … disimulasikan di prototipe".
+- **Tanggal demo.** Bawaannya tanggal dibekukan pada 25 Nov 2026 dengan jam berjalan (lihat *Tanggal demo*).
 - **Penyimpanan per peramban.** Status (pembayaran, kunci, SOS, tamu, tiket, keranjang, polling) disimpan di
   `localStorage` peramban itu saja. Peramban atau perangkat lain punya datanya sendiri. Tombol
   **Reset data contoh** di peluncur mengembalikan semuanya ke awal. Data simpanan dari versi prototipe sebelumnya

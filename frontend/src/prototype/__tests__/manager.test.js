@@ -6,9 +6,9 @@ import PrototypeApp from "@/prototype/PrototypeApp";
 import { __initStoreForTest, getState, setState } from "@/prototype/services/store";
 import { setLatency } from "@/prototype/services/latency";
 import { startPayment, confirmPayment } from "@/prototype/services/api/payments";
-import { sendSos } from "@/prototype/services/api/sos";
+import { sendSos, acceptSos } from "@/prototype/services/api/sos";
 import { listAnnouncements, listProducts, listServices, addToCart, cartLines, cartTotal, checkout } from "@/prototype/services/api/community";
-import { listTickets } from "@/prototype/services/api/care";
+import { listTickets, createTicket } from "@/prototype/services/api/care";
 import {
   getManagerSummary, iplOverview, listIplPeriods, issueIplBills, sendIplReminders, assignTicket, postAnnouncement, listVendors, setVendorStatus,
 } from "@/prototype/services/api/manager";
@@ -206,6 +206,22 @@ describe("layar K1–K7", () => {
     expect(getState().care.tickets.find((t) => t.id === "tk-1").status).toBe("selesai");
   });
 
+  test("K3: klik ganda Majukan hanya memajukan satu tahap", async () => {
+    const tk = await createTicket({ kind: "rusak", category: "Listrik", description: "Stopkontak dapur mati total", photos: [] });
+    mount("/app/pengelola/tiket");
+    const card = await waitFor(() => {
+      const el = document.querySelector(`[data-ticket="${tk.id}"]`);
+      expect(el).not.toBeNull();
+      return el;
+    });
+    const btn = within(card).getByRole("button", { name: /Majukan ke Diverifikasi/ });
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    await waitFor(() => expect(getState().care.tickets.find((t) => t.id === tk.id).status).toBe("diverifikasi"));
+    await act(() => new Promise((r) => setTimeout(r, 20)));
+    expect(getState().care.tickets.find((t) => t.id === tk.id).status).toBe("diverifikasi");
+  });
+
   test("K4: kirim pengumuman muncul di daftar terkirim dan listAnnouncements", async () => {
     mount("/app/pengelola/pengumuman");
     fireEvent.change(await screen.findByLabelText("Judul"), { target: { value: "Jalan ditutup" } });
@@ -234,6 +250,13 @@ describe("layar K1–K7", () => {
     await act(async () => { await sendSos("kebakaran"); });
     expect(await screen.findByRole("alert")).toHaveTextContent(/SOS kebakaran/i);
     expect(screen.queryByText("Tidak ada SOS aktif")).toBeNull();
+  });
+
+  test("K6: SOS diterima menyebut satpam seperti W8/S2 (Pak Joko)", async () => {
+    const e = await sendSos("medis");
+    await acceptSos(e.id);
+    mount("/app/pengelola/keamanan");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Diterima Pak Joko. Sedang ditangani.");
   });
 
   test("K7: tangguhkan mitra mengubah status dan menyembunyikan produk", async () => {

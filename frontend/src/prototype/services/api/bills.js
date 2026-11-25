@@ -6,13 +6,16 @@ import { newId } from "../ids";
 const digitsOf = (v) => String(v == null ? "" : v).replace(/\D/g, "");
 const byNewest = (a, b) => Date.parse(b) - Date.parse(a);
 
-/** Tagihan IPL + air: belum lunas dulu, lalu yang terbaru. */
+/** Tagihan IPL + air: belum lunas dulu (jatuh tempo terlama dulu), lalu yang lunas (terbaru dulu). */
 export async function listBills() {
   await wait();
   const { bills } = getState();
-  return [...bills.ipl, ...bills.air].sort(
-    (a, b) => Number(a.status === "paid") - Number(b.status === "paid") || byNewest(a.dueDate, b.dueDate)
-  );
+  return [...bills.ipl, ...bills.air].sort((a, b) => {
+    const paidA = a.status === "paid";
+    const paidB = b.status === "paid";
+    if (paidA !== paidB) return paidA ? 1 : -1;
+    return paidA ? byNewest(a.dueDate, b.dueDate) : byNewest(b.dueDate, a.dueDate);
+  });
 }
 
 /** Semua kuitansi (tagihan, isi ulang, dan cicilan rumah), terbaru dulu. */

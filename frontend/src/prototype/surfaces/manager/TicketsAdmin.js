@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { ArrowRight, Star } from "lucide-react";
 import ManagerPage, { Loading, FIELD } from "./ManagerPage";
 import StatusChip from "../../components/StatusChip";
@@ -19,6 +19,15 @@ const LABEL = { dibuat: "Dibuat", diverifikasi: "Diverifikasi", dikerjakan: "Dik
 function Card({ t, unit, technicians, onAdvance, onAssign }) {
   const next = TICKET_FLOW[TICKET_FLOW.indexOf(t.status) + 1];
   const last = t.history[t.history.length - 1];
+  // Kunci selama permintaan berjalan: klik ganda tidak boleh memajukan dua tahap.
+  const lock = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const advance = async () => {
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    try { await onAdvance(t.id); } finally { lock.current = false; setBusy(false); }
+  };
   return (
     <article className="rounded-2xl border border-[color:var(--rdg-line)] bg-white p-3.5 shadow-sm" data-ticket={t.id}>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -43,7 +52,7 @@ function Card({ t, unit, technicians, onAdvance, onAssign }) {
         </label>
       )}
       {next && (
-        <button type="button" className="rdg-btn-primary mt-3 !min-h-[38px] w-full !px-3 !text-[13.5px]" onClick={() => onAdvance(t.id)}>
+        <button type="button" className="rdg-btn-primary mt-3 !min-h-[38px] w-full !px-3 !text-[13.5px]" disabled={busy} aria-busy={busy} onClick={advance}>
           {`Majukan ke ${LABEL[next]}`} <ArrowRight size={15} aria-hidden="true" />
         </button>
       )}

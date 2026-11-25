@@ -164,7 +164,8 @@ async function settle(page, id) {
     )
     .catch(() => {});
   await page.evaluate(() => (document.fonts ? document.fonts.ready : null));
-  await page.waitForTimeout(450);
+  // Lebih lama dari jeda layanan terpanjang (600 ms) agar layar tanpa indikator Memuat (mis. P1) sudah berisi data.
+  await page.waitForTimeout(700);
 }
 
 async function overflowAt360(page) {

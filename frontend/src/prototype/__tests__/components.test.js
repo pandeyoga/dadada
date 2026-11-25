@@ -129,8 +129,31 @@ describe("Sheet", () => {
     expect(container.querySelector(".rdg [role=dialog]")).toBe(dialog);
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
-    fireEvent.click(container.querySelector("[data-sheet-backdrop]"));
+    const backdrop = container.querySelector("[data-sheet-backdrop]");
+    fireEvent.pointerDown(backdrop);
+    fireEvent.click(backdrop);
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  test("klik di latar tanpa pointerdown di latar (klik susulan jari yang ditahan) tidak menutup", () => {
+    const onClose = jest.fn();
+    const { container } = render(
+      <div className="rdg">
+        <Sheet open onClose={onClose} title="Jenis">
+          <p>Isi</p>
+        </Sheet>
+      </div>
+    );
+    const backdrop = container.querySelector("[data-sheet-backdrop]");
+    fireEvent.click(backdrop);
+    expect(onClose).not.toHaveBeenCalled();
+    // pointerdown di panel lalu klik berakhir di latar (seret keluar) juga tidak menutup.
+    fireEvent.pointerDown(screen.getByRole("dialog"));
+    fireEvent.click(backdrop);
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.pointerDown(backdrop);
+    fireEvent.click(backdrop);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   test("tertutup tidak merender apa pun", () => {

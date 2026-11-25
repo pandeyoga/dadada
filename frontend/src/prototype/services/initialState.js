@@ -7,14 +7,16 @@ import { buildPartner } from "./fixtures/partner";
 
 // Naikkan setiap kali bentuk state/fixture berubah: state tersimpan dengan versi lain dibuang
 // dan diganti fixture baru (lihat store.parse).
-export const STATE_VERSION = 2;
+// v3: notifikasi ber-audience (pembeli/warga) dan session.demoClock.
+export const STATE_VERSION = 3;
 
-export function buildInitialState(now) {
+/** `demoClock`: 'anchored' (tanggal demo 25 Nov 2026, jam sungguhan) atau 'real' (lihat clock.js). */
+export function buildInitialState(now, { demoClock = "anchored" } = {}) {
   const world = buildWorld();
   const care = buildCare(now);
   return {
     version: STATE_VERSION,
-    session: { persona: "buyer", loggedIn: false, phone: "" },
+    session: { persona: "buyer", loggedIn: false, phone: "", demoClock },
     mode: "buyer",
     onboarding: { done: false },
     location: "inside",

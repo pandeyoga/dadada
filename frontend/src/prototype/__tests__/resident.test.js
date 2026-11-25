@@ -149,6 +149,40 @@ describe("T1 onboarding", () => {
     await screen.findByText("Rumah aman");
   });
 
+  const toFamilyStep = async () => {
+    simulateBast();
+    mount("/app/selamat-datang");
+    fireEvent.click(await screen.findByRole("button", { name: "Mulai" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Lewati dulu" }));
+    await screen.findByText("Undang keluarga");
+  };
+
+  test("Undang keluarga: baris memakai hubungan (Suami/Anak), bukan id peran; tanpa nomor tanpa ' · '", async () => {
+    await toFamilyStep();
+    const row = (n) => screen.getByText(n).closest(".rdg-row").textContent;
+    expect(row("Dimas Pratama")).toContain("Suami · 0812-3456-7001");
+    expect(row("Alya Pratama")).toContain("Anak");
+    expect(row("Alya Pratama")).not.toContain("·");
+    expect(`${row("Dimas Pratama")} ${row("Alya Pratama")}`).not.toMatch(/keluarga/);
+  });
+
+  test("isian yang diketik tapi belum ditambahkan ikut tersimpan saat Lanjut/Selesai; isian tidak lengkap ditahan", async () => {
+    await toFamilyStep();
+    fireEvent.change(screen.getByLabelText("Nama"), { target: { value: "Bu Ani" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Nomor WhatsApp belum lengkap. Lengkapi lalu ketuk Tambah, atau kosongkan isian.");
+    expect(screen.getByText("Undang keluarga")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Nomor WhatsApp"), { target: { value: "081234560011" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+    await screen.findByText("Orang yang dihubungi saat SOS. Kontak pos satpam sudah tersimpan.");
+    fireEvent.change(screen.getByLabelText("Nama"), { target: { value: "Pak Budi" } });
+    fireEvent.change(screen.getByLabelText("Nomor WhatsApp"), { target: { value: "081311112222" } });
+    fireEvent.click(screen.getByRole("button", { name: "Selesai" }));
+    await waitFor(() => expect(screen.getByTestId("where").textContent).toBe("/app/warga"));
+    expect(getState().care.family.find((f) => f.name === "Bu Ani")).toMatchObject({ phone: "0812-3456-0011" });
+    expect(getState().security.contacts.find((c) => c.name === "Pak Budi")).toMatchObject({ phone: "0813-1111-2222" });
+  });
+
   test("langkah bisa dilewati dan kembali", async () => {
     mount("/app/selamat-datang");
     fireEvent.click(await screen.findByRole("button", { name: "Mulai" }));

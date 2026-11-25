@@ -49,9 +49,13 @@ export async function advanceTicket(id) {
     history: [...x.history, { status: next, at, note: STEP_NOTES[next] }],
   }));
   if (next === "selesai") {
+    // Pertanyaan pra-serah terima (kind 'tanya') datang dari Akun pembeli (P9); lainnya dari warga (W21/W22).
+    const note = tk.kind === "tanya"
+      ? { audience: "buyer", title: "Pertanyaan Anda sudah dijawab", body: `${tk.category}: lihat jawabannya di Akun.`, link: "/app/pembeli/akun" }
+      : { audience: "resident", title: "Perbaikan selesai dikerjakan", body: `${tk.category}: mohon konfirmasi dan beri nilai.`, link: "/app/warga/lapor" };
     setState((s) => ({
       ...s,
-      notifications: [{ id: newId("nt", now()), tier: "info", title: "Perbaikan selesai dikerjakan", body: `${tk.category}: mohon konfirmasi dan beri nilai.`, at, read: false, link: "/app/warga/lapor" }, ...s.notifications],
+      notifications: [{ id: newId("nt", now()), tier: "info", ...note, at, read: false }, ...s.notifications],
     }));
   }
   return out;

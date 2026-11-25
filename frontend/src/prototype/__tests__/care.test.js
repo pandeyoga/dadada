@@ -136,7 +136,8 @@ describe("energi, notifikasi, keluarga", () => {
     expect(e.tips.length).toBeGreaterThan(1);
   });
 
-  test("listNotifications urut darurat dulu, lalu keamanan, info, terbaru dulu", async () => {
+  test("listNotifications (mode warga) urut darurat dulu, lalu keamanan, info, terbaru dulu", async () => {
+    setState((s) => ({ ...s, mode: "resident" }));
     const list = await listNotifications();
     expect(list[0].tier).toBe("darurat");
     const rank = { darurat: 0, keamanan: 1, info: 2 };
@@ -147,11 +148,12 @@ describe("energi, notifikasi, keluarga", () => {
     }
   });
 
-  test("markRead dan markAllRead", async () => {
+  test("markRead dan markAllRead (mode warga)", async () => {
+    setState((s) => ({ ...s, mode: "resident" }));
     await markRead("nt-1");
     expect(getState().notifications.find((n) => n.id === "nt-1").read).toBe(true);
     await markAllRead();
-    expect(getState().notifications.every((n) => n.read)).toBe(true);
+    expect(getState().notifications.filter((n) => n.audience === "resident").every((n) => n.read)).toBe(true);
   });
 
   test("inviteFamily validasi, hak akses, dan dedup", async () => {
@@ -211,15 +213,17 @@ describe("layar", () => {
   });
 
   test("W27: darurat paling atas, tandai semua dibaca menghapus titik di beranda", async () => {
+    setState((s) => ({ ...s, mode: "resident" }));
     mount("/app/notifikasi");
     const items = await screen.findAllByTestId("notif-item");
     expect(items[0].textContent).toContain("Peringatan banjir wilayah Setu");
     expect(screen.getByRole("heading", { name: "Darurat" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Tandai semua dibaca" }));
-    await waitFor(() => expect(getState().notifications.every((n) => n.read)).toBe(true));
+    await waitFor(() => expect(getState().notifications.filter((n) => n.audience === "resident").every((n) => n.read)).toBe(true));
   });
 
   test("W1: titik bel hilang setelah semua notifikasi dibaca", async () => {
+    setState((s) => ({ ...s, mode: "resident" }));
     mount("/app/warga");
     const bell = await screen.findByRole("link", { name: "Notifikasi" });
     expect(bell.hasAttribute("data-badge")).toBe(true);

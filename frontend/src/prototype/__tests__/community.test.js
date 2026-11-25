@@ -3,6 +3,8 @@ import { render, screen, waitFor, within, fireEvent } from "@testing-library/rea
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import PrototypeApp from "@/prototype/PrototypeApp";
 import { __initStoreForTest, getState } from "@/prototype/services/store";
+import { buildInitialState } from "@/prototype/services/initialState";
+import { persenBulat } from "@/prototype/lib/format";
 import { setLatency } from "@/prototype/services/latency";
 import { startPayment, confirmPayment } from "@/prototype/services/api/payments";
 import {
@@ -22,6 +24,35 @@ beforeEach(() => {
   setLatency(0);
 });
 afterAll(() => setLatency(null));
+
+// Hari yang disebut di data contoh harus cocok dengan kalender 2026 (25 Nov 2026 = Rabu).
+const HARI = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+const BULAN = { Nov: 10, Des: 11 };
+const hariOf = (y, m, d) => HARI[new Date(Date.UTC(y, m, d)).getUTCDay()];
+
+test("kalender: hari pada acara dan teks bertanggal cocok dengan tanggal 2026", () => {
+  const s = buildInitialState(Date.parse("2026-11-25T03:00:00Z"));
+  expect(hariOf(2026, 10, 25)).toBe("Rabu");
+  s.community.events.forEach((ev) => {
+    const [y, m, d] = ev.date.split("-").map(Number);
+    const named = HARI.find((h) => `${ev.title} ${ev.body}`.includes(h));
+    if (named) expect(`${ev.id} ${named}`).toBe(`${ev.id} ${hariOf(y, m - 1, d)}`);
+    expect(["Sabtu", "Minggu"].includes(hariOf(y, m - 1, d)) || /Pengajian/.test(ev.title)).toBe(true);
+  });
+  const texts = JSON.stringify([s.community, s.manager.announcements, s.notifications]);
+  const re = new RegExp(`(${HARI.join("|")}),? (\\d{1,2}) (Nov|Des)`, "g");
+  const found = [...texts.matchAll(re)];
+  expect(found.length).toBeGreaterThan(1);
+  found.forEach(([all, h, d, mon]) => expect(all).toBe(all.replace(h, hariOf(2026, BULAN[mon], Number(d)))));
+});
+
+test("persenBulat: sisa terbesar, selalu berjumlah 100", () => {
+  expect(persenBulat([42, 6])).toEqual([88, 12]);
+  expect(persenBulat([1, 1, 1])).toEqual([34, 33, 33]);
+  expect(persenBulat([18, 25, 7])).toEqual([36, 50, 14]);
+  expect(persenBulat([0, 0])).toEqual([0, 0]);
+  [[41, 6], [19, 25, 7], [2, 2, 3], [5, 0, 1]].forEach((v) => expect(persenBulat(v).reduce((a, b) => a + b, 0)).toBe(100));
+});
 
 test("pengumuman: yang disematkan lebih dulu", async () => {
   const list = await listAnnouncements();
@@ -92,11 +123,21 @@ test("bookService: tanpa slot melempar; dengan slot tersimpan", async () => {
 });
 
 describe("layar", () => {
+  test("W17: setelah memilih Setuju di po-2, persentase berjumlah 100", async () => {
+    mount("/app/warga/komunitas/polling");
+    const card = (await screen.findByText(/lampu taman tambahan/)).closest("section");
+    fireEvent.click(within(card).getByRole("button", { name: "Setuju" }));
+    await within(card).findByText(/suara Anda tercatat/);
+    const pcts = within(card).getAllByRole("progressbar").map((b) => Number(b.getAttribute("aria-valuenow")));
+    expect(pcts).toEqual([88, 12]);
+    expect(within(card).getByText("88% · 42")).toBeTruthy();
+  });
+
   test("W14: tab berpindah", async () => {
     mount("/app/warga/komunitas");
     await screen.findByText("Penyemprotan nyamuk (fogging)");
     fireEvent.click(screen.getByRole("tab", { name: "Agenda" }));
-    await screen.findByText("Kerja bakti Minggu, 7 Des");
+    await screen.findByText("Kerja bakti Minggu, 6 Des");
     fireEvent.click(screen.getByRole("tab", { name: "Hobi" }));
     await screen.findByText("Ibu-ibu Estora");
     fireEvent.click(screen.getByRole("tab", { name: "Polling" }));

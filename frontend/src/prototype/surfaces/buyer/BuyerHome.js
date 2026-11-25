@@ -11,6 +11,7 @@ import StatusChip from "../../components/StatusChip";
 import ServiceGrid from "../../components/ServiceGrid";
 import { StageIllustration, PromoIllustration } from "../../components/Illustrations";
 import { getBuyerHome } from "../../services/api/buyer";
+import { isForMode } from "../../services/api/account";
 import { useProto } from "../../services/useStore";
 import { rupiah, tanggal } from "../../lib/format";
 import useLoad from "../../lib/useLoad";
@@ -57,7 +58,9 @@ export default function BuyerHome() {
   const fetcher = useCallback(() => getBuyerHome(), []);
   const { data } = useLoad(fetcher);
   const world = useProto((s) => s.world);
-  const unreadBell = useProto((s) => s.notifications).some((n) => !n.read);
+  const notifications = useProto((s) => s.notifications);
+  const mode = useProto((s) => s.mode);
+  const unreadBell = notifications.some((n) => !n.read && isForMode(n, mode));
   const j = data && data.journey;
   return (
     <MobileShell nav="buyer">

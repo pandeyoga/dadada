@@ -34,7 +34,7 @@ export async function checkInGuest(code) {
   const { unit } = getState().world;
   const entry = { id: newId("gl", t), name: pass.guestName, plate: "—", purpose: `Tamu ${unit.block}`, direction: "masuk", at: iso(t) };
   const note = {
-    id: newId("nt-tamu", t), tier: "keamanan", title: `Tamu ${pass.guestName} sudah masuk`,
+    id: newId("nt-tamu", t), audience: "resident", tier: "keamanan", title: `Tamu ${pass.guestName} sudah masuk`,
     body: `${pass.guestName} melewati gerbang pukul ${new Date(t + 7 * 3600000).toISOString().slice(11, 16).replace(":", ".")} WIB.`,
     at: iso(t), read: false, link: "/app/warga/keamanan/tamu",
   };

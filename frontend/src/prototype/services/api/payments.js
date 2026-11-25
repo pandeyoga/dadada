@@ -124,7 +124,9 @@ export async function confirmPayment(paymentId) {
   const paid = { ...payment, status: "paid", paidAt, receiptId: receipt.id };
   setState((s) => {
     const payments = s.bills.payments.map((p) => (p.id === paid.id ? paid : p));
-    const next = { ...s, bills: { ...s.bills, payments, receipts: [receipt, ...s.bills.receipts] } };
+    // Pengingat jatuh tempo untuk tagihan ini (`about`) tidak relevan lagi setelah lunas.
+    const notifications = s.notifications.map((n) => (n.about === paid.targetId && !n.read ? { ...n, read: true } : n));
+    const next = { ...s, notifications, bills: { ...s.bills, payments, receipts: [receipt, ...s.bills.receipts] } };
     return patchTarget(next, paid.targetType, paid.targetId, { status: "paid", paidAt, receiptId: receipt.id });
   });
   return { payment: paid, receipt };

@@ -57,12 +57,12 @@ test("versi lama diganti state awal", () => {
   expect(getState().mode).toBe("buyer");
 });
 
-test("state v1 tersimpan (bentuk lama) diganti fixture baru v2", () => {
-  expect(STATE_VERSION).toBe(2);
+test("state v1 tersimpan (bentuk lama) diganti fixture baru", () => {
+  expect(STATE_VERSION).toBe(3);
   const v1 = { ...buildInitialState(NOW), version: 1, mode: "resident" };
   v1.security = { ...v1.security, energy: { kwh: 142, lastKwh: 131 } };
   __initStoreForTest({ storage: memStorage({ [STORAGE_KEY]: JSON.stringify(v1) }), now: () => NOW });
-  expect(getState().version).toBe(2);
+  expect(getState().version).toBe(3);
   expect(getState().mode).toBe("buyer");
   expect(getState().security.energy.months.length).toBeGreaterThan(0);
 });
@@ -121,4 +121,67 @@ test("semua link fixture adalah rute di screens.json", () => {
   walk(buildInitialState(Date.now()));
   expect(links.length).toBeGreaterThan(0);
   links.forEach((l) => expect(paths.has(l)).toBe(true));
+});
+
+describe("jam demo (tanpa jam suntikan)", () => {
+  const WIB = (s) => Date.parse(`${s}+07:00`);
+  // Modul store segar: jalur produksi (localStorage jsdom, jam bawaan), bukan __initStoreForTest.
+  const freshStore = () => {
+    let mod;
+    jest.isolateModules(() => { mod = require("@/prototype/services/store"); });
+    return mod;
+  };
+  let real;
+  beforeEach(() => {
+    window.localStorage.clear();
+    real = WIB("2026-12-15T10:30:00");
+    jest.spyOn(Date, "now").mockImplementation(() => real);
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+    window.localStorage.clear();
+  });
+
+  test("anchoredOffset: jam WIB hari ini dipindah ke Rabu, 25 Nov 2026 (juga dekat tengah malam)", () => {
+    const { anchoredOffset, DEMO_DATE } = require("@/prototype/services/clock");
+    expect(DEMO_DATE).toBe("2026-11-25");
+    const at = (s) => WIB(s) + anchoredOffset(WIB(s));
+    expect(at("2026-12-15T10:30:00")).toBe(WIB("2026-11-25T10:30:00"));
+    expect(at("2026-12-15T23:59:30")).toBe(WIB("2026-11-25T23:59:30"));
+    expect(at("2026-12-16T00:00:10")).toBe(WIB("2026-11-25T00:00:10"));
+    expect(at("2026-11-25T09:41:00")).toBe(WIB("2026-11-25T09:41:00"));
+  });
+
+  test("bawaan 'anchored': tanggal demo 25 Nov, jam tetap berjalan", () => {
+    const store = freshStore();
+    expect(store.getState().session.demoClock).toBe("anchored");
+    expect(store.now()).toBe(WIB("2026-11-25T10:30:00"));
+    real += 5000;
+    expect(store.now()).toBe(WIB("2026-11-25T10:30:05"));
+    expect(store.getState().buyer.installments.find((i) => i.id === "dp-3").dueDate).toBe("2026-12-10");
+  });
+
+  test("setDemoClock('real') memakai tanggal hari ini, membangun ulang data, dan bertahan saat dimuat ulang", () => {
+    const store = freshStore();
+    store.setState((s) => ({ ...s, session: { ...s.session, persona: "resident", loggedIn: true } }));
+    store.setDemoClock("real");
+    expect(store.now()).toBe(real);
+    expect(store.getState().session).toMatchObject({ demoClock: "real", loggedIn: false });
+    expect(Date.parse(store.getState().security.door.changedAt)).toBe(real - 2 * 3600000);
+    const again = freshStore();
+    expect(again.getState().session.demoClock).toBe("real");
+    expect(again.now()).toBe(real);
+    again.setDemoClock("anchored");
+    expect(again.now()).toBe(WIB("2026-11-25T10:30:00"));
+    again.resetState();
+    expect(again.getState().session.demoClock).toBe("anchored");
+  });
+
+  test("tab lain mengganti mode jam lewat event storage", () => {
+    const store = freshStore();
+    expect(store.now()).toBe(WIB("2026-11-25T10:30:00"));
+    const other = buildInitialState(real, { demoClock: "real" });
+    window.dispatchEvent(new StorageEvent("storage", { key: store.STORAGE_KEY, newValue: JSON.stringify(other) }));
+    expect(store.now()).toBe(real);
+  });
 });

@@ -50,7 +50,7 @@ export function simulateBast() {
     buyer: { ...s.buyer, journey: { ...s.buyer.journey, current: 5, progress: 100 } },
     notifications: [
       {
-        id: `nt-bast-${t}`, tier: "info", title: "Selamat, rumah Anda resmi diserahterimakan",
+        id: `nt-bast-${t}`, audience: "resident", tier: "info", title: "Selamat, rumah Anda resmi diserahterimakan",
         body: "Rumah C-12 Estora Residence kini milik Anda. Mulai kenali fitur warga.",
         at: new Date(t).toISOString(), read: false, link: "/app/selamat-datang",
       },

@@ -55,10 +55,17 @@ export async function getEnergy() {
   return { months: getState().security.energy.months, tips: TIPS };
 }
 
-/** Darurat › keamanan › info, lalu terbaru dulu. */
+/** Penerima notifikasi untuk mode aplikasi: Mode Pembeli → 'buyer', selain itu 'resident'. */
+export const audienceFor = (mode) => (mode === "buyer" ? "buyer" : "resident");
+/** Notifikasi ini untuk mode `mode`? (Data tanpa `audience` dianggap untuk warga.) */
+export const isForMode = (n, mode) => (n.audience || "resident") === audienceFor(mode);
+
+/** Notifikasi mode aktif saja: darurat › keamanan › info, lalu terbaru dulu. */
 export async function listNotifications() {
   await wait();
-  return [...getState().notifications].sort((a, b) => (TIER_RANK[a.tier] ?? 9) - (TIER_RANK[b.tier] ?? 9) || Date.parse(b.at) - Date.parse(a.at));
+  const { notifications, mode } = getState();
+  return notifications.filter((n) => isForMode(n, mode))
+    .sort((a, b) => (TIER_RANK[a.tier] ?? 9) - (TIER_RANK[b.tier] ?? 9) || Date.parse(b.at) - Date.parse(a.at));
 }
 
 export async function markRead(id) {
@@ -66,7 +73,8 @@ export async function markRead(id) {
   setState((s) => ({ ...s, notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)) }));
 }
 
+/** Tandai dibaca semua notifikasi mode aktif (notifikasi mode lain tidak tersentuh). */
 export async function markAllRead() {
   await wait();
-  setState((s) => ({ ...s, notifications: s.notifications.map((n) => (n.read ? n : { ...n, read: true })) }));
+  setState((s) => ({ ...s, notifications: s.notifications.map((n) => (n.read || !isForMode(n, s.mode) ? n : { ...n, read: true })) }));
 }

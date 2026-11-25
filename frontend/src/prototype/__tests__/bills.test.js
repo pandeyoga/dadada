@@ -8,6 +8,7 @@ import { setLatency } from "@/prototype/services/latency";
 import { startPayment, confirmPayment } from "@/prototype/services/api/payments";
 import { getResidentHome } from "@/prototype/services/api/resident";
 import { listBills, listReceipts, getCashReport, getTopUpCatalog, createTopUp, topUpResult } from "@/prototype/services/api/bills";
+import { issueIplBills } from "@/prototype/services/api/manager";
 
 const mount = (path) =>
   render(
@@ -31,6 +32,15 @@ test("listBills: IPL Desember belum lunas ada di urutan pertama", async () => {
   const bills = await listBills();
   expect(bills[0]).toMatchObject({ id: "ipl-2026-12", status: "unpaid", amount: 150000 });
   expect(bills.slice(1).every((b) => b.status === "paid")).toBe(true);
+});
+
+test("tagihan Januari baru terbit: Desember (terlama) tetap ditagih lebih dulu di W1 dan W10", async () => {
+  await issueIplBills("2027-01");
+  const bills = await listBills();
+  expect(bills.slice(0, 2).map((b) => b.id)).toEqual(["ipl-2026-12", "ipl-2027-01"]);
+  expect(bills.slice(2).every((b) => b.status === "paid")).toBe(true);
+  expect(bills.slice(2).map((b) => b.id)).toEqual(["ipl-2026-11", "ipl-2026-10", "ipl-2026-09"]);
+  expect((await getResidentHome()).iplDue.id).toBe("ipl-2026-12");
 });
 
 test("bayar IPL: lunas, kuitansi bertambah 1, bayar ulang ditolak, W1 tidak menagih lagi", async () => {

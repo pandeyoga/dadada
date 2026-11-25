@@ -1,29 +1,59 @@
-import React, { useState } from "react";
+import React, { forwardRef, useImperativeHandle, useState } from "react";
 import { Phone, Trash2 } from "lucide-react";
 import ListRow from "../../components/ListRow";
 
 const field = "h-12 w-full rounded-2xl border-2 border-[rgba(0,103,71,0.22)] bg-white px-4 text-[15px] font-medium text-rdg-ink900 focus:border-rdg-teal focus:outline-none";
+const digits = (v) => String(v || "").replace(/\D/g, "");
 
-/** Daftar orang (nama + nomor) dengan formulir tambah; dipakai langkah keluarga dan kontak darurat. */
-export default function PeopleStep({ idPrefix, items, existing = [], onChange, addLabel = "Tambah" }) {
+// Keluarga punya `relation` tampilan ("Suami") di samping id `role` ("keluarga"); kontak darurat hanya `role` tampilan.
+const subtitleOf = (p) => [p.relation || p.role || "Kontak", p.phone].filter(Boolean).join(" · ");
+
+/**
+ * Daftar orang (nama + nomor) dengan formulir tambah; dipakai langkah keluarga dan kontak darurat.
+ * `ref.flush()` dipanggil saat Lanjut/Selesai: isian yang sudah diketik tapi belum ditambahkan ikut
+ * ditambahkan bila valid (mengembalikan daftar baru), atau ditahan dengan pesan (mengembalikan null).
+ */
+const PeopleStep = forwardRef(function PeopleStep({ idPrefix, items, existing = [], onChange, addLabel = "Tambah" }, ref) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [error, setError] = useState("");
-  const add = () => {
-    if (!name.trim()) return setError("Nama belum diisi");
-    if (phone.replace(/\D/g, "").length < 10) return setError("Nomor WhatsApp belum lengkap");
-    const d = phone.replace(/\D/g, "");
-    const taken = [...existing, ...items].some((x) => x.name.toLowerCase() === name.trim().toLowerCase() || (x.phone && x.phone.replace(/\D/g, "") === d));
-    if (taken) return setError("Nama atau nomor ini sudah ada di daftar");
-    onChange([...items, { name: name.trim(), phone }]);
-    setName(""); setPhone(""); setError("");
+  const check = () => {
+    const n = name.trim();
+    const d = digits(phone);
+    if (!n) return { error: "Nama belum diisi" };
+    if (d.length < 10) return { error: "Nomor WhatsApp belum lengkap" };
+    const taken = [...existing, ...items].some((x) => x.name.toLowerCase() === n.toLowerCase() || (x.phone && digits(x.phone) === d));
+    if (taken) return { error: "Nama atau nomor ini sudah ada di daftar" };
+    return { item: { name: n, phone } };
   };
+  const commit = (item) => {
+    const next = [...items, item];
+    onChange(next);
+    setName(""); setPhone(""); setError("");
+    return next;
+  };
+  const add = () => {
+    const r = check();
+    if (r.error) return setError(r.error);
+    return commit(r.item);
+  };
+  useImperativeHandle(ref, () => ({
+    flush() {
+      if (!name.trim() && !phone.trim()) return items;
+      const r = check();
+      if (r.error) {
+        setError(`${r.error}. Lengkapi lalu ketuk ${addLabel}, atau kosongkan isian.`);
+        return null;
+      }
+      return commit(r.item);
+    },
+  }));
   return (
     <div className="space-y-3">
       {(existing.length > 0 || items.length > 0) && (
         <ul className="divide-y divide-[color:var(--rdg-line)] rounded-2xl bg-white/80 px-3" aria-label="Daftar">
           {existing.map((p) => (
-            <li key={p.id}><ListRow icon={Phone} title={p.name} subtitle={`${p.role || p.relation || "Kontak"} · ${p.phone}`} /></li>
+            <li key={p.id}><ListRow icon={Phone} title={p.name} subtitle={subtitleOf(p)} /></li>
           ))}
           {items.map((p, i) => (
             <li key={`${p.name}-${i}`}>
@@ -53,4 +83,6 @@ export default function PeopleStep({ idPrefix, items, existing = [], onChange, a
       <button type="button" className="rdg-btn-ghost w-full" onClick={add}>{addLabel}</button>
     </div>
   );
-}
+});
+
+export default PeopleStep;

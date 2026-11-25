@@ -13,6 +13,7 @@ import { HeaderButton } from "../../components/ScreenHeader";
 import ServiceGrid from "../../components/ServiceGrid";
 import Loading from "../../components/Loading";
 import { getResidentHome } from "../../services/api/resident";
+import { isForMode } from "../../services/api/account";
 import { doorStatus } from "../../services/api/security";
 import { useProto, useNow } from "../../services/useStore";
 import { rupiah, tanggal } from "../../lib/format";
@@ -56,12 +57,13 @@ export default function ResidentHome() {
   const world = useProto((s) => s.world);
   const security = useProto((s) => s.security);
   const notifications = useProto((s) => s.notifications);
+  const mode = useProto((s) => s.mode);
   const t = useNow();
   const door = doorStatus({ security }, t);
   const hs = data && data.homeStatus;
   const guards = hs ? hs.guardsOnDuty : 0;
   const safe = door === "locked" && (!hs || guards > 0);
-  const unread = notifications.some((n) => !n.read);
+  const unread = notifications.some((n) => !n.read && isForMode(n, mode));
   const bill = data && data.iplDue;
   const initials = world.resident.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
