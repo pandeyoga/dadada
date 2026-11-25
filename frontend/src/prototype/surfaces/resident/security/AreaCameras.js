@@ -44,7 +44,7 @@ export default function AreaCameras() {
               <ListRow
                 icon={UserRound}
                 title={g.name}
-                subtitle={`Shift ${g.shift}`}
+                subtitle={g.post || `Shift ${g.shift}`}
                 right={<StatusChip tone={onDuty.includes(g.id) ? "ok" : "neutral"} icon={null}>{onDuty.includes(g.id) ? "Bertugas" : "Istirahat"}</StatusChip>}
               />
             </li>

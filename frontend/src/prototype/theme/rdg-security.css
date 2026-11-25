@@ -52,3 +52,4 @@
   display: grid; place-items: center; height: 150px; border-radius: 20px; border: 2px dashed var(--rdg-teal);
   background: rgba(0, 127, 131, 0.07); color: var(--rdg-ink);
 }
+/* Chip & ikon di layar/kartu SOS: teks #c42f35 di atas putih = 5,5:1 (sebelumnya putih di atas putih 20 % pada merah ≈3,4:1). */

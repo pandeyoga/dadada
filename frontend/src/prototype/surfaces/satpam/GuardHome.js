@@ -24,7 +24,7 @@ export default function GuardHome() {
   const passes = useProto((s) => s.security.guestPasses);
   const event = useActiveSos();
   const t = useNow(30000);
-  const me = world.guards.find((g) => g.id === "g-4") || { name: "Pak Joko", shift: "Pagi 06.00-14.00", post: "Pos gerbang utama" };
+  const me = world.guards.find((g) => g.id === "g-4") || { name: "Pak Joko", post: "Pos gerbang utama" };
   const today = passes.filter((p) => p.date === wibDay(t));
   const waiting = today.filter((p) => guestPassStatus(p, t) === "active").length;
   const used = today.filter((p) => p.status === "used").length;
@@ -36,9 +36,9 @@ export default function GuardHome() {
           <GlassCard className="flex items-center gap-3.5">
             <span className="grid h-14 w-14 flex-none place-items-center rounded-2xl bg-white/15 text-rdg-lime"><ShieldCheck size={28} aria-hidden="true" /></span>
             <div className="min-w-0">
-              <h2 className="text-[20px] font-extrabold leading-tight">{me.name}</h2>
-              <p className="text-[13px] text-white/90">{`${me.post || "Pos gerbang utama"} · Shift ${me.shift}`}</p>
-              <p className="mt-1.5"><StatusChip tone="ok" icon={null}>Bertugas di pos</StatusChip></p>
+              <h2 className="text-[20px] font-extrabold leading-tight">Pak Joko</h2>
+              <p className="text-[13px] text-white/90">{me.post || "Pos gerbang utama"}</p>
+              <p className="mt-1.5"><StatusChip tone="ok" icon={null}>Bertugas</StatusChip></p>
             </div>
           </GlassCard>
         </Hero>

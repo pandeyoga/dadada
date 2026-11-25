@@ -7,6 +7,7 @@ import { __initStoreForTest, getState } from "@/prototype/services/store";
 import { setLatency } from "@/prototype/services/latency";
 import { createGuestPass, revokeGuestPass } from "@/prototype/services/api/security";
 import { sendSos, activeSos } from "@/prototype/services/api/sos";
+import { guardsOnDutyAt } from "@/prototype/services/api/resident";
 import { acceptSos, resolveSos, checkInGuest, logPatrol } from "@/prototype/services/api/guard";
 
 jest.mock("@/prototype/lib/scrollTop", () => ({ scrollToTop: jest.fn() }));
@@ -66,6 +67,23 @@ describe("checkInGuest", () => {
   });
 });
 
+describe("satpam bertugas", () => {
+  test("pos gerbang (Pak Joko) selalu bertugas + satu satpam shift: pagi dan malam", () => {
+    const { world } = getState();
+    const morning = guardsOnDutyAt(world, Date.parse("2026-11-25T03:00:00Z")).map((g) => g.name);
+    const night = guardsOnDutyAt(world, Date.parse("2026-11-25T18:00:00Z")).map((g) => g.name);
+    expect(morning).toEqual(["Pak Sutrisno", "Pak Joko"]);
+    expect(night).toEqual(["Pak Darmin", "Pak Joko"]);
+  });
+  test("S1 menampilkan Pak Joko, Pos gerbang utama, Bertugas tanpa jam shift", async () => {
+    mount("/app/satpam");
+    expect(await screen.findByText("Pak Joko")).toBeInTheDocument();
+    expect(screen.getByText("Pos gerbang utama")).toBeInTheDocument();
+    expect(screen.getByText("Bertugas")).toBeInTheDocument();
+    expect(screen.queryByText(/06\.00/)).toBeNull();
+  });
+});
+
 describe("logPatrol", () => {
   test("menambah di depan; titik wajib", async () => {
     const before = getState().security.patrols.length;
@@ -116,6 +134,15 @@ describe("layar satpam", () => {
     fireEvent.click(screen.getByRole("button", { name: /Periksa kode/ }));
     expect(await screen.findByText("Tamu tidak valid")).toBeInTheDocument();
     expect(screen.getByText(/sudah dipakai/i)).toBeInTheDocument();
+  });
+
+  test("S3: mengubah kode mengosongkan hasil sebelumnya", async () => {
+    mount("/app/satpam/tamu");
+    fireEvent.change(await screen.findByLabelText(/Kode tamu/), { target: { value: "ZZZZZZ" } });
+    fireEvent.click(screen.getByRole("button", { name: /Periksa kode/ }));
+    expect(await screen.findByText("Tamu tidak valid")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Kode tamu/), { target: { value: "ZZZZZ" } });
+    expect(screen.queryByText("Tamu tidak valid")).toBeNull();
   });
 
   test("S4 menampilkan 6 kamera", async () => {

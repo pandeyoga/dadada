@@ -62,15 +62,15 @@ export default function GuestScan() {
           </div>
         )}
       </FrostCard>
+      {result && <Result result={result} />}
       <FrostCard>
         <form onSubmit={(e) => { e.preventDefault(); check(code); }} className="space-y-3">
           <Field id="gs-code" label="Kode tamu (6 karakter)">
-            <input id="gs-code" className={`${FIELD} uppercase tracking-[0.15em]`} value={code} maxLength={6} autoComplete="off" onChange={(e) => setCode(e.target.value)} placeholder="Mis. K7P2QX" />
+            <input id="gs-code" className={`${FIELD} uppercase tracking-[0.15em]`} value={code} maxLength={6} autoComplete="off" onChange={(e) => { setCode(e.target.value); setResult(null); }} placeholder="Mis. K7P2QX" />
           </Field>
           <button type="submit" className="rdg-btn-ghost w-full" disabled={busy}>Periksa kode</button>
         </form>
       </FrostCard>
-      {result && <Result result={result} />}
     </Page>
   );
 }

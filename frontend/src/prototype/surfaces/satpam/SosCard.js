@@ -9,7 +9,7 @@ export default function SosCard({ event }) {
   const waiting = event.status === "sent";
   return (
     <Link to="/app/satpam/sos" className={`rdg-sos-card ${waiting ? "is-new" : ""}`}>
-      <span className="grid h-14 w-14 flex-none place-items-center rounded-2xl bg-white/20"><Siren size={28} aria-hidden="true" /></span>
+      <span className="grid h-14 w-14 flex-none place-items-center rounded-2xl bg-white text-[color:var(--rdg-sos-ink)]"><Siren size={28} aria-hidden="true" /></span>
       <span className="min-w-0 flex-1">
         <span className="block text-[13px] font-semibold">{waiting ? "Menunggu diterima" : "Sedang ditangani"}</span>
         <span className="block text-[19px] font-extrabold leading-tight">{`Laporan darurat ${sosLabel(event.type)}`}</span>

@@ -13,9 +13,12 @@ function onDuty(shift, hour) {
 
 const wibHour = (t) => (new Date(t).getUTCHours() + 7) % 24;
 
+/** Penjaga pos (punya `post`) selalu bertugas (pos dijaga 24 jam bergilir, penyederhanaan demo); lainnya menurut shift. */
+const guardOnDuty = (g, hour) => Boolean(g.post) || onDuty(g.shift, hour);
+
 /** Satpam yang sedang bertugas pada waktu `t`. */
 export function guardsOnDutyAt(world, t) {
-  return world.guards.filter((g) => onDuty(g.shift, wibHour(t)));
+  return world.guards.filter((g) => guardOnDuty(g, wibHour(t)));
 }
 
 /** Data Beranda warga. */
@@ -24,7 +27,7 @@ export async function getResidentHome() {
   const state = getState();
   const t = now();
   const door = doorStatus(state, t);
-  const guardsOnDuty = state.world.guards.filter((g) => onDuty(g.shift, wibHour(t))).length;
+  const guardsOnDuty = guardsOnDutyAt(state.world, t).length;
   const anns = [...state.community.announcements].sort((a, b) => Number(b.pinned) - Number(a.pinned) || Date.parse(b.at) - Date.parse(a.at));
   const { kwh, deltaPct } = state.security.energy;
   return {
