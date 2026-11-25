@@ -38,19 +38,24 @@ export default function PartnerCommission() {
           </FrostCard>
           <FrostCard>
             <h2 className="text-[16px] font-extrabold">Ajukan pencairan</h2>
-            {data.bank ? (
-              <p className="mt-1 text-[13.5px] text-[color:var(--rdg-muted)]">{`Ke ${data.bank.bankName} · ${data.bank.accountNumber} a.n. ${data.bank.holder}`}</p>
+            {!data.registered || !data.bank ? (
+              <>
+                <p className="mt-1 text-[13.5px] text-[color:var(--rdg-muted)]">Lengkapi pendaftaran dan rekening dulu sebelum mengajukan pencairan.</p>
+                <Link to="/app/mitra/daftar" className="rdg-btn-primary mt-3 w-full">Lengkapi pendaftaran</Link>
+              </>
             ) : (
-              <p className="mt-1 text-[13.5px] text-[color:var(--rdg-muted)]">Rekening belum diisi. <Link to="/app/mitra/daftar" className="font-bold text-rdg-forest underline">Lengkapi pendaftaran</Link></p>
+              <>
+                <p className="mt-1 text-[13.5px] text-[color:var(--rdg-muted)]">{`Ke ${data.bank.bankName} · ${data.bank.accountNumber} a.n. ${data.bank.holder}`}</p>
+                <form onSubmit={submit} className="mt-3 space-y-3" noValidate>
+                  <Field id="m5-amt" label="Nominal (Rp)">
+                    <input id="m5-amt" className={FIELD} inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="500000" />
+                  </Field>
+                  <Msg error={problem} ok={ok} />
+                  <button type="submit" className="rdg-btn-primary w-full">Ajukan pencairan</button>
+                </form>
+                <p className="mt-2 text-[12.5px] text-[color:var(--rdg-muted)]">Simulasi: tidak ada uang yang benar-benar dipindahkan.</p>
+              </>
             )}
-            <form onSubmit={submit} className="mt-3 space-y-3" noValidate>
-              <Field id="m5-amt" label="Nominal (Rp)">
-                <input id="m5-amt" className={FIELD} inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="500000" />
-              </Field>
-              <Msg error={problem} ok={ok} />
-              <button type="submit" className="rdg-btn-primary w-full">Ajukan pencairan</button>
-            </form>
-            <p className="mt-2 text-[12.5px] text-[color:var(--rdg-muted)]">Simulasi: tidak ada uang yang benar-benar dipindahkan.</p>
           </FrostCard>
           <section aria-labelledby="m5-po">
             <h2 id="m5-po" className="mb-2 text-[16px] font-extrabold">Pencairan</h2>

@@ -122,6 +122,7 @@ export async function getCommission() {
     pending: sum(p.commissions.filter((c) => c.status === "diproses")),
     commissions: p.commissions.slice().sort(byDate),
     payouts: p.payouts.slice().sort(byDate),
+    registered: !!p.registered,
     bank: p.profile.bank || null,
   };
 }
@@ -129,8 +130,10 @@ export async function getCommission() {
 export async function requestPayout(amount) {
   await wait();
   const n = Number(amount);
+  const cur = partnerOf(getState());
+  if (!cur.registered || !(cur.profile && cur.profile.bank)) throw new Error("Lengkapi pendaftaran dan rekening dulu");
   if (!Number.isInteger(n) || n <= 0) throw new Error("Nominal pencairan tidak valid");
-  if (n > balanceOf(partnerOf(getState()))) throw new Error("Saldo komisi tidak cukup");
+  if (n > balanceOf(cur)) throw new Error("Saldo komisi tidak cukup");
   const payout = { id: newId("po", now()), amount: n, status: "diproses", at: new Date(now()).toISOString() };
   patch((p) => ({ ...p, payouts: [payout, ...p.payouts] }));
   return payout;

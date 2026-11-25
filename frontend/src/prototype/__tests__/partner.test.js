@@ -90,7 +90,12 @@ describe("beranda, rujukan, komisi", () => {
     const g = await listReferrals();
     expect(g.map((x) => [x.stage, x.count])).toEqual([["lead", 2], ["booking", 2], ["akad", 1]]);
   });
+  test("belum terdaftar: pencairan ditolak", async () => {
+    await expect(requestPayout(100000)).rejects.toThrow("Lengkapi pendaftaran dan rekening dulu");
+    expect(getState().partner.payouts).toHaveLength(0);
+  });
   test("pencairan melebihi saldo ditolak; sah mengurangi saldo", async () => {
+    await registerPartner(VALID);
     expect((await getCommission()).balance).toBe(2000000);
     await expect(requestPayout(2000001)).rejects.toThrow("Saldo komisi tidak cukup");
     await expect(requestPayout(0)).rejects.toThrow("Nominal pencairan tidak valid");
@@ -172,7 +177,14 @@ describe("M4 rujukan", () => {
 });
 
 describe("M5 komisi", () => {
+  test("belum terdaftar: formulir diganti ajakan mendaftar, saldo tetap tampil", async () => {
+    mount("/app/mitra/komisi");
+    await waitFor(() => expect(screen.getByTestId("balance")).toHaveTextContent("Rp2.000.000"));
+    expect(screen.queryByRole("button", { name: "Ajukan pencairan" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Lengkapi pendaftaran" })).toHaveAttribute("href", "/app/mitra/daftar");
+  });
   test("pencairan melebihi saldo ditolak; yang sah muncul di daftar dan saldo turun", async () => {
+    await registerPartner(VALID);
     mount("/app/mitra/komisi");
     await waitFor(() => expect(screen.getByTestId("balance")).toHaveTextContent("Rp2.000.000"));
     typeIn("Nominal (Rp)", "2500000");
