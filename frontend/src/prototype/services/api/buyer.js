@@ -1,5 +1,6 @@
 import { getState, setState, now } from "../store";
 import { wait } from "../latency";
+import { insertTicket } from "./tickets";
 
 const iso = (t) => new Date(t).toISOString();
 const STATUSES = ["tersedia", "dipesan", "terjual", "milik-anda"];
@@ -126,11 +127,5 @@ export async function listQuestions() {
 export async function askQuestion({ category, description }) {
   await wait();
   if (!String(description || "").trim()) throw new Error("Tulis pertanyaan atau keluhan Anda");
-  const t = now();
-  const ticket = {
-    id: `tk-${t}`, kind: "tanya", category: category || "Umum", description: String(description).trim(),
-    photos: [], status: "dibuat", history: [{ status: "dibuat", at: iso(t), note: "Pertanyaan dikirim oleh Rina Ayu." }],
-  };
-  setState((s) => ({ ...s, care: { ...s.care, tickets: [ticket, ...s.care.tickets] } }));
-  return ticket;
+  return insertTicket({ kind: "tanya", category: category || "Umum", description });
 }

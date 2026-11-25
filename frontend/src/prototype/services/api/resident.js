@@ -54,7 +54,7 @@ export function formatPhone(v) {
 }
 
 // Validasi (tolak seluruh panggilan bila ada entri tidak valid), lalu lewati duplikat nama/nomor.
-function prepare(list, existing) {
+export function prepare(list, existing) {
   const seenName = new Set(existing.map((x) => x.name.trim().toLowerCase()));
   const seenPhone = new Set(existing.map((x) => digitsOf(x.phone)).filter(Boolean));
   const out = [];
@@ -76,7 +76,7 @@ export async function completeOnboarding({ connectDevices = true, invites = [], 
   await wait();
   const t = now();
   const { care, security } = getState();
-  const fam = prepare(invites, care.family).map((x, i) => ({ id: `fm-${t}-${i}`, ...x, relation: "Keluarga", access: false }));
+  const fam = prepare(invites, care.family).map((x, i) => ({ id: `fm-${t}-${i}`, ...x, relation: "Keluarga", role: "keluarga", access: [] }));
   const cts = prepare(contacts, security.contacts).map((x, i) => ({ id: `ct-${t}-${i}`, ...x, role: "Keluarga" }));
   setState((s) => ({
     ...s,

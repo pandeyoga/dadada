@@ -3,9 +3,19 @@ const HOUR = 3600000;
 const MIN = 60000;
 const iso = (t) => new Date(t).toISOString();
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+
+// 6 bulan terakhir (terlama dulu); bulan terbaru 142 kWh dan sebelumnya 131 kWh.
+function energyMonths(now) {
+  const kwh = [118, 124, 135, 127, 131, 142];
+  const water = [9.8, 10.2, 10.6, 11.1, 10.9, 11.6];
+  const cur = new Date(now + 7 * HOUR).getUTCMonth();
+  return kwh.map((k, i) => ({ month: MONTHS[(cur - 5 + i + 12) % 12], kwh: k, waterM3: water[i] }));
+}
+
 export function buildSecurity(now) {
   return {
-    energy: { kwh: 142, lastKwh: 131, deltaPct: 8 },
+    energy: { kwh: 142, lastKwh: 131, deltaPct: 8, months: energyMonths(now) },
     door: { state: "locked", changedAt: iso(now - 2 * HOUR) },
     cameras: {
       home: 2,

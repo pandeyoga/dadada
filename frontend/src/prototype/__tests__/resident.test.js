@@ -56,7 +56,7 @@ describe("layanan warga", () => {
     expect(getState().onboarding.done).toBe(true);
     expect(getState().security.contacts).toHaveLength(before + 1);
     const fam = getState().care.family.find((f) => f.name === "Mas Dimas");
-    expect(fam).toMatchObject({ relation: "Keluarga", access: false, phone: "0812-3456-0000" });
+    expect(fam).toMatchObject({ relation: "Keluarga", role: "keluarga", access: [], phone: "0812-3456-0000" });
     expect(getState().world.family).toBeUndefined();
     expect(getState().security.contacts.at(-1).phone).toBe("0811-0001-11");
     expect(homePathFor(getState())).toBe("/app/warga");

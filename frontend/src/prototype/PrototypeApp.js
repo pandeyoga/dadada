@@ -46,6 +46,15 @@ import Groups from "./surfaces/resident/community/Groups";
 import Polls from "./surfaces/resident/community/Polls";
 import Market from "./surfaces/resident/community/Market";
 import HomeServices from "./surfaces/resident/community/HomeServices";
+import AllServices from "./surfaces/resident/care/AllServices";
+import ReportIssue from "./surfaces/resident/care/ReportIssue";
+import Warranty from "./surfaces/resident/care/Warranty";
+import HomeDocuments from "./surfaces/resident/care/HomeDocuments";
+import Renovation from "./surfaces/resident/care/Renovation";
+import Facilities from "./surfaces/resident/care/Facilities";
+import Energy from "./surfaces/resident/care/Energy";
+import Notifications from "./surfaces/resident/Notifications";
+import ResidentAccount from "./surfaces/resident/ResidentAccount";
 import GuardHome from "./surfaces/satpam/GuardHome";
 import SosAlert from "./surfaces/satpam/SosAlert";
 import GuestScan from "./surfaces/satpam/GuestScan";
@@ -65,6 +74,8 @@ const COMPONENTS = {
   W2: SecurityHome, W3: DoorLock, W4: HomeCctv, W5: AreaSecurity, W6: Gate, W7: Guests, W8: Sos, W9: SosContacts,
   W10: Bills, W11: BillHistory, W12: CashReport, W13: TopUp,
   W14: Community, W15: EventDetail, W16: Groups, W17: Polls, W18: Market, W19: HomeServices,
+  W20: AllServices, W21: ReportIssue, W22: Warranty, W23: HomeDocuments, W24: Renovation, W25: Facilities, W26: Energy,
+  W27: Notifications, W28: ResidentAccount,
   S1: GuardHome, S2: SosAlert, S3: GuestScan, S4: GuardCctv, S5: Patrol,
 };
 
