@@ -28,3 +28,27 @@
   50% { box-shadow: 0 0 0 12px rgba(255, 255, 255, 0); }
 }
 @media (prefers-reduced-motion: reduce) { .rdg .rdg-sos-pulse { animation: none; } }
+
+/* Aplikasi satpam (Task 8): kartu & layar SOS merah, tombol putih di atas merah. Teks putih ≥4,5:1 pada #d63c42. */
+.rdg .rdg-sos-card {
+  display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: 22px; text-decoration: none;
+  color: #fff; background: var(--rdg-grad-sos); box-shadow: 0 10px 24px rgba(196, 47, 53, 0.4);
+}
+.rdg .rdg-sos-card.is-new { animation: rdg-sos-glow 1.6s ease-in-out infinite; }
+@keyframes rdg-sos-glow {
+  0%, 100% { box-shadow: 0 10px 24px rgba(196, 47, 53, 0.4), 0 0 0 0 rgba(229, 72, 77, 0.55); }
+  50% { box-shadow: 0 10px 24px rgba(196, 47, 53, 0.4), 0 0 0 10px rgba(229, 72, 77, 0); }
+}
+@media (prefers-reduced-motion: reduce) { .rdg .rdg-sos-card.is-new { animation: none; } }
+.rdg .rdg-sos-card:focus-visible { outline: 3px solid var(--rdg-ink900); outline-offset: 3px; }
+.rdg .rdg-sos-screen { min-height: 100vh; padding: calc(env(safe-area-inset-top) + 16px) 20px 120px; color: #fff; background: var(--rdg-grad-sos); }
+.rdg .rdg-btn-light {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 56px; padding: 0 22px;
+  border: 0; border-radius: 999px; background: #fff; color: var(--rdg-sos-ink); font-size: 17px; font-weight: 800; cursor: pointer;
+}
+.rdg .rdg-btn-light:disabled { opacity: 0.6; cursor: default; }
+.rdg .rdg-btn-light:focus-visible { outline: 3px solid var(--rdg-ink900); outline-offset: 3px; }
+.rdg .rdg-scan-frame {
+  display: grid; place-items: center; height: 150px; border-radius: 20px; border: 2px dashed var(--rdg-teal);
+  background: rgba(0, 127, 131, 0.07); color: var(--rdg-ink);
+}

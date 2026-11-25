@@ -65,7 +65,7 @@ describe("layanan warga", () => {
   test("getResidentHome: IPL Rp150.000, kamera aktif, satpam bertugas, energi", async () => {
     const h = await getResidentHome();
     expect(h.iplDue.amount).toBe(150000);
-    expect(h.homeStatus).toMatchObject({ door: "locked", cameras: "aktif", guardsOnDuty: 1, safe: true });
+    expect(h.homeStatus).toMatchObject({ door: "locked", cameras: "aktif", guardsOnDuty: 2, safe: true });
     expect(h.announcement.title).toMatch(/fogging/i);
     expect(typeof h.energy.kwh).toBe("number");
   });
@@ -166,7 +166,7 @@ describe("W1 beranda warga", () => {
     await screen.findByText("Rumah aman");
     expect(screen.getByText("Terkunci")).toBeTruthy();
     expect(await screen.findByText("2 aktif")).toBeTruthy();
-    expect(screen.getByText("1 bertugas")).toBeTruthy();
+    expect(screen.getByText("2 bertugas")).toBeTruthy();
     await screen.findByText("Rp150.000");
     const bayar = screen.getByRole("link", { name: "Bayar" });
     expect(bayar.getAttribute("href")).toBe("/app/warga/tagihan");

@@ -27,6 +27,11 @@ export function buildSecurity(now) {
       { id: "gl-4", name: "Ojek online", plate: "B 6677 TZ", purpose: "Antar makanan", direction: "masuk", at: iso(now - 52 * HOUR) },
     ],
     sos: [],
+    patrols: [
+      { id: "pt-1", checkpoint: "Gerbang utama", note: "Aman, palang berfungsi normal.", by: "Pak Sutrisno", at: iso(now - 5 * HOUR) },
+      { id: "pt-2", checkpoint: "Taman bermain", note: "Lampu taman menyala semua.", by: "Pak Sutrisno", at: iso(now - 4 * HOUR) },
+      { id: "pt-3", checkpoint: "Jalan Blok C", note: "Tidak ada kendaraan mencurigakan.", by: "Pak Sutrisno", at: iso(now - 3 * HOUR) },
+    ],
     contacts: [
       { id: "ct-1", name: "Satpam Estora (pos)", phone: "0857-1111-2200", role: "Keamanan" },
       { id: "ct-2", name: "Pak RT 04", phone: "0812-9000-4404", role: "Ketua RT" },

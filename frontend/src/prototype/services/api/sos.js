@@ -37,11 +37,14 @@ export async function sendSos(type) {
   return event;
 }
 
-function change(id, allowed, fail, patch) {
+function change(id, allowed, fail, patch, notify) {
   const e = getState().security.sos.find((x) => x.id === id);
   if (!e) throw new Error("Laporan tidak ditemukan");
   if (!allowed.includes(e.status)) throw new Error(fail);
-  setState((s) => sec(s, { sos: s.security.sos.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
+  setState((s) => ({
+    ...sec(s, { sos: s.security.sos.map((x) => (x.id === id ? { ...x, ...patch } : x)) }),
+    notifications: notify ? [notify, ...s.notifications] : s.notifications,
+  }));
 }
 
 /** Batalkan laporan hanya selama belum diterima satpam. */
@@ -50,18 +53,26 @@ export async function cancelSos(id) {
   change(id, ["sent"], "Laporan sudah diterima satpam dan tidak bisa dibatalkan", { status: "cancelled" });
 }
 
-/** Satpam menerima laporan (dipakai aplikasi satpam). */
-export async function acceptSos(id, guardName) {
+/** Satpam menerima laporan (hanya dari 'sent'); warga diberi tahu. */
+export async function acceptSos(id, guardName = "Joko") {
   await wait();
-  change(id, ["sent"], "Laporan ini sudah tidak menunggu", {
-    status: "accepted", acceptedBy: String(guardName || "").trim(), acceptedAt: iso(now()),
-  });
+  const t = now();
+  const name = String(guardName || "").trim() || "Joko";
+  const note = {
+    id: newId("nt-sosok", t), tier: "keamanan", title: `Pak ${name.replace(/^pak\s+/i, "")} menuju rumah Anda`,
+    body: "Satpam sudah menerima laporan darurat Anda. Tetap di tempat yang aman.",
+    at: iso(t), read: false, link: "/app/warga/sos",
+  };
+  change(id, ["sent"], "Laporan ini sudah tidak menunggu", { status: "accepted", acceptedBy: name, acceptedAt: iso(t) }, note);
 }
 
-/** Satpam menandai selesai. */
-export async function resolveSos(id) {
+/** Satpam menandai selesai (hanya dari 'accepted'), dengan catatan opsional. */
+export async function resolveSos(id, note) {
   await wait();
-  change(id, ACTIVE, "Laporan ini sudah selesai", { status: "resolved", resolvedAt: iso(now()) });
+  const text = String(note == null ? "" : note).trim();
+  change(id, ["accepted"], "Terima laporan lebih dulu sebelum menandai selesai", {
+    status: "resolved", resolvedAt: iso(now()), ...(text ? { note: text } : {}),
+  });
 }
 
 export async function listContacts() {

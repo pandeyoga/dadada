@@ -22,6 +22,7 @@ export function buildWorld() {
       { id: "g-1", name: "Pak Sutrisno", shift: "Pagi 06.00-14.00", phone: "0857-1111-2201" },
       { id: "g-2", name: "Pak Wahyu", shift: "Siang 14.00-22.00", phone: "0857-1111-2202" },
       { id: "g-3", name: "Pak Darmin", shift: "Malam 22.00-06.00", phone: "0857-1111-2203" },
+      { id: "g-4", name: "Pak Joko", shift: "Pagi 06.00-14.00", phone: "0857-1111-2204", post: "Pos gerbang utama" },
     ],
   };
 }
