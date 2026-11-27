@@ -19,3 +19,10 @@ yang diskalakan ke tinggi 900 px dengan sudut membulat (nama berkas `ph_*`, `pre
 `NODE_PATH=$PWD/node_modules node deck_bedah.js out.pptx` membangun `reports/Bedah pemenang BTN Housingpreneur.pptx` (34 slide).
 Gambar di `assets/bd/` dipotong dari `research_notes/Bedah pemenang BTN Housingpreneur/screenshots/` (lihat kotak potong di
 skrip persiapan aset dalam riwayat sesi) dan diskalakan maksimal 1100 px dengan sudut membulat.
+
+## Deck gabungan + lampiran
+`NODE_PATH=$PWD/node_modules node deck_lampiran.js "../Estora pitch deck + lampiran prototipe.pptx"` membangun deck gabungan
+(46 slide): halaman Canva 1–9 sebagai gambar penuh (`assets/canva/page-NN.jpg`), sampul Lampiran, pembatas + slide isi per peran (A–G),
+dan daftar halaman. Screenshot diambil dari `docs/prototype/screens/index.json` (kolom `first`, PNG `--layar`); fonta Inter.
+Halaman Canva diekspor dari PDF dengan `pdftoppm -jpeg -jpegopt quality=85 -scale-to-x 1920 -scale-to-y 1080 <pdf> assets/canva/page`
+(halaman 10 "DRAFT LAMPIRAN" dan 11–13 kosong tidak dipakai). PDF: `soffice --headless --convert-to pdf "<pptx>"` di folder `reports/`.
