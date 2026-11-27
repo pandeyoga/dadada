@@ -56,5 +56,11 @@ Avatar inisial, ilustrasi dokumen, logo, ikon, fitur baru, teks/konten selain la
   ```
   Nama = ID dua digit + slug judul dari `screens.json` (huruf kecil, tanpa aksen, tanda hubung). Berkas lama yang datar (`W18.png` dst.) dihapus; tautan README demo diperbarui.
 
+## Tambahan dari pemilik produk (27 Nov)
+- **Semua** gambar harus foto realistis, termasuk tampilan **CCTV** (bukan ilustrasi vektor).
+- Penamaan halaman harus jelas: setiap screenshot diberi judul halaman + peran + penjelasan singkat apa yang ditampilkan.
+- Keluaran utama: **PowerPoint** yang menggabungkan pitch deck Canva pemilik produk (PDF unggahan "Ini hanya sebagian kecil masalah sederhana…", 13 halaman 16:9, halaman terakhir "DRAFT LAMPIRAN") dengan **Lampiran** berisi screenshot aplikasi. Halaman Canva dimasukkan sebagai gambar penuh (tidak bisa diedit dari sini); lampiran dibuat dengan gaya deck yang sama (hijau Estora). Setiap slide lampiran: kode lampiran + peran + nama halaman + rute + satu kalimat penjelasan; layar ponsel 3 per slide (layar pertama 390×844), dasbor pengelola 1 per slide. Disertai PDF.
+- Folder screenshot tetap dibuat (halaman penuh + layar pertama) sesuai struktur di atas.
+
 ## Diserahkan ke builder
 Pilihan foto persisnya, potongan/crop, gaya filter CCTV, posisi chip "Foto ilustrasi", dan slug yang terlalu panjang boleh dipendekkan asal tetap jelas.
