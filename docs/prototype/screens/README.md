@@ -59,10 +59,10 @@ python3 scripts/optimize-screens.py
 | ID | Halaman | Penjelasan | Rute | Berkas |
 |---|---|---|---|---|
 | W01 | Beranda warga | Beranda warga: status pintu, kamera dan satpam, tagihan IPL, layanan, pengumuman, dan energi. | `/app/warga` | [halaman penuh](04-warga/W01-beranda-warga.png), [layar pertama](04-warga/W01-beranda-warga--layar.png) |
-| W02 | Keamanan rumah | Buka kunci pintu dengan geser, lihat CCTV rumah ringkas, dan baca riwayat akses. | `/app/warga/keamanan` | [halaman penuh](04-warga/W02-keamanan-rumah.png), [layar pertama](04-warga/W02-keamanan-rumah--layar.png) |
+| W02 | Keamanan rumah | Buka kunci pintu dengan geser, lihat CCTV rumah ringkas (simulasi), dan baca riwayat akses. | `/app/warga/keamanan` | [halaman penuh](04-warga/W02-keamanan-rumah.png), [layar pertama](04-warga/W02-keamanan-rumah--layar.png) |
 | W03 | Kunci pintu | Atur kunci pintu: buat kode sementara untuk tamu atau ART, bagikan lewat WA, lalu cabut. | `/app/warga/keamanan/kunci` | [halaman penuh](04-warga/W03-kunci-pintu.png), [layar pertama](04-warga/W03-kunci-pintu--layar.png) |
 | W04 | CCTV rumah | Tonton siaran kamera rumah (simulasi), pilih kamera, putar rekaman per jam, dan atur notifikasi. | `/app/warga/keamanan/cctv-rumah` | [halaman penuh](04-warga/W04-cctv-rumah.png), [layar pertama](04-warga/W04-cctv-rumah--layar.png) |
-| W05 | Keamanan kawasan | Pantau CCTV kawasan di gerbang, jalan, dan taman, serta lihat satpam yang sedang bertugas. | `/app/warga/keamanan/kawasan` | [halaman penuh](04-warga/W05-keamanan-kawasan.png), [layar pertama](04-warga/W05-keamanan-kawasan--layar.png) |
+| W05 | Keamanan kawasan | Pantau CCTV kawasan (simulasi) di gerbang, jalan, dan taman, serta lihat satpam yang sedang bertugas. | `/app/warga/keamanan/kawasan` | [halaman penuh](04-warga/W05-keamanan-kawasan.png), [layar pertama](04-warga/W05-keamanan-kawasan--layar.png) |
 | W06 | Gerbang pintar | Cek lokasi di dalam atau luar radius, buka gerbang masuk atau keluar, dan lihat riwayatnya. | `/app/warga/keamanan/gerbang` | [halaman penuh](04-warga/W06-gerbang-pintar.png), [layar pertama](04-warga/W06-gerbang-pintar--layar.png) |
 | W07 | Undang tamu | Buat undangan tamu berupa QR sekali pakai dengan jam berlaku, lalu bagikan lewat WhatsApp. | `/app/warga/keamanan/tamu` | [halaman penuh](04-warga/W07-undang-tamu.png), [layar pertama](04-warga/W07-undang-tamu--layar.png) |
 | W08 | SOS | Tahan tombol SOS, pilih jenis darurat, lalu pantau satpam yang menuju rumah sampai selesai. | `/app/warga/sos` | [halaman penuh](04-warga/W08-sos.png), [layar pertama](04-warga/W08-sos--layar.png) |
@@ -76,13 +76,13 @@ python3 scripts/optimize-screens.py
 | W16 | Kelompok hobi | Daftar kelompok hobi warga; gabung dan lihat info kelompok. | `/app/warga/komunitas/hobi` | [halaman penuh](04-warga/W16-kelompok-hobi.png), [layar pertama](04-warga/W16-kelompok-hobi--layar.png) |
 | W17 | Polling warga | Ikut polling warga, pilih jawaban, dan lihat hasil suara sementara. | `/app/warga/komunitas/polling` | [halaman penuh](04-warga/W17-polling-warga.png), [layar pertama](04-warga/W17-polling-warga--layar.png) |
 | W18 | Pasar warga | Belanja produk tetangga dan tenant, isi keranjang, lalu bayar. | `/app/warga/pasar` | [halaman penuh](04-warga/W18-pasar-warga.png), [layar pertama](04-warga/W18-pasar-warga--layar.png) |
-| W19 | Jasa rumah | Pesan jasa rumah seperti tukang, kebersihan, galon, dan servis AC dengan jadwal pilihan. | `/app/warga/jasa` | [halaman penuh](04-warga/W19-jasa-rumah.png), [layar pertama](04-warga/W19-jasa-rumah--layar.png) |
+| W19 | Jasa rumah | Pesan jasa rumah seperti servis AC, tukang ledeng, laundry kiloan, asisten rumah tangga, dan katering. | `/app/warga/jasa` | [halaman penuh](04-warga/W19-jasa-rumah.png), [layar pertama](04-warga/W19-jasa-rumah--layar.png) |
 | W20 | Semua layanan | Grid lengkap semua layanan aplikasi warga untuk menjangkau fitur yang tidak ada di menu bawah. | `/app/warga/layanan` | [halaman penuh](04-warga/W20-semua-layanan.png), [layar pertama](04-warga/W20-semua-layanan--layar.png) |
 | W21 | Lapor kerusakan | Buat tiket kerusakan dengan kategori dan foto, pantau linimasanya, lalu beri rating. | `/app/warga/lapor` | [halaman penuh](04-warga/W21-lapor-kerusakan.png), [layar pertama](04-warga/W21-lapor-kerusakan--layar.png) |
 | W22 | Klaim garansi | Ajukan klaim garansi per bagian rumah dan pantau statusnya. | `/app/warga/garansi` | [halaman penuh](04-warga/W22-klaim-garansi.png), [layar pertama](04-warga/W22-klaim-garansi--layar.png) |
 | W23 | Dokumen rumah | Dokumen rumah: BAST, status sertifikat, garansi, denah, dan jalur instalasi. | `/app/warga/dokumen` | [halaman penuh](04-warga/W23-dokumen-rumah.png), [layar pertama](04-warga/W23-dokumen-rumah--layar.png) |
 | W24 | Izin renovasi | Ajukan izin renovasi ke pengelola dan pantau status persetujuannya. | `/app/warga/renovasi` | [halaman penuh](04-warga/W24-izin-renovasi.png), [layar pertama](04-warga/W24-izin-renovasi--layar.png) |
-| W25 | Booking fasilitas | Pilih slot waktu untuk memesan lapangan, aula, atau kolam renang kawasan. | `/app/warga/fasilitas` | [halaman penuh](04-warga/W25-booking-fasilitas.png), [layar pertama](04-warga/W25-booking-fasilitas--layar.png) |
+| W25 | Booking fasilitas | Pilih slot waktu untuk memesan lapangan serbaguna, musala, atau balai warga; taman bermain hanya info. | `/app/warga/fasilitas` | [halaman penuh](04-warga/W25-booking-fasilitas.png), [layar pertama](04-warga/W25-booking-fasilitas--layar.png) |
 | W26 | Energi rumah | Bandingkan pemakaian listrik dan air bulan ini dengan bulan lalu, plus tips hemat. | `/app/warga/energi` | [halaman penuh](04-warga/W26-energi-rumah.png), [layar pertama](04-warga/W26-energi-rumah--layar.png) |
 | W27 | Notifikasi | Notifikasi berjenjang dari Darurat, Keamanan, hingga Info, bisa ditandai sudah dibaca. | `/app/notifikasi` | [halaman penuh](04-warga/W27-notifikasi.png), [layar pertama](04-warga/W27-notifikasi--layar.png) |
 | W28 | Akun warga | Profil warga, anggota keluarga dan penyewa dengan hak akses, perangkat, dan pengaturan. | `/app/warga/akun` | [halaman penuh](04-warga/W28-akun-warga.png), [layar pertama](04-warga/W28-akun-warga--layar.png) |
@@ -96,7 +96,7 @@ python3 scripts/optimize-screens.py
 | S01 | Beranda pos | Beranda pos satpam: status shift, antrean SOS, dan daftar tamu yang diharapkan hari ini. | `/app/satpam` | [halaman penuh](05-satpam/S01-beranda-pos.png), [layar pertama](05-satpam/S01-beranda-pos--layar.png) |
 | S02 | Peringatan SOS | Peringatan SOS layar penuh: terima, menuju lokasi, lalu tandai selesai agar warga tahu. | `/app/satpam/sos` | [halaman penuh](05-satpam/S02-peringatan-sos.png), [layar pertama](05-satpam/S02-peringatan-sos--layar.png) |
 | S03 | Pindai QR tamu | Pindai QR tamu (simulasi kamera), lihat valid atau tidak, lalu catat tamu masuk. | `/app/satpam/tamu` | [halaman penuh](05-satpam/S03-pindai-qr-tamu.png), [layar pertama](05-satpam/S03-pindai-qr-tamu--layar.png) |
-| S04 | CCTV kawasan | Grid CCTV kawasan untuk memantau gerbang, jalan, dan fasilitas dari pos. | `/app/satpam/cctv` | [halaman penuh](05-satpam/S04-cctv-kawasan.png), [layar pertama](05-satpam/S04-cctv-kawasan--layar.png) |
+| S04 | CCTV kawasan | Grid CCTV kawasan (simulasi) untuk memantau gerbang, jalan, dan fasilitas dari pos. | `/app/satpam/cctv` | [halaman penuh](05-satpam/S04-cctv-kawasan.png), [layar pertama](05-satpam/S04-cctv-kawasan--layar.png) |
 | S05 | Log patroli | Catat patroli dan kejadian selama shift dalam satu log berurutan. | `/app/satpam/patroli` | [halaman penuh](05-satpam/S05-log-patroli.png), [layar pertama](05-satpam/S05-log-patroli--layar.png) |
 
 ## Pengelola (`06-pengelola/`)
@@ -119,8 +119,8 @@ python3 scripts/optimize-screens.py
 
 | ID | Halaman | Penjelasan | Rute | Berkas |
 |---|---|---|---|---|
-| M01 | Daftar mitra | Formulir pendaftaran mitra: isi data usaha dan pilih jenis layanan yang ditawarkan. | `/app/mitra/daftar` | [halaman penuh](07-mitra/M01-daftar-mitra.png), [layar pertama](07-mitra/M01-daftar-mitra--layar.png) |
-| M02 | Beranda mitra | Beranda mitra: ringkasan rujukan, komisi, dan pintasan ke katalog proyek. | `/app/mitra` | [halaman penuh](07-mitra/M02-beranda-mitra.png), [layar pertama](07-mitra/M02-beranda-mitra--layar.png) |
+| M01 | Daftar mitra | Pendaftaran mitra dalam empat langkah: akun, data pribadi, rekening, dan media sosial. | `/app/mitra/daftar` | [halaman penuh](07-mitra/M01-daftar-mitra.png), [layar pertama](07-mitra/M01-daftar-mitra--layar.png) |
+| M02 | Beranda mitra | Beranda mitra: poin, peringkat, komisi diproses, menu pintas, dan papan peringkat mitra. | `/app/mitra` | [halaman penuh](07-mitra/M02-beranda-mitra.png), [layar pertama](07-mitra/M02-beranda-mitra--layar.png) |
 | M03 | Katalog proyek | Katalog proyek developer lengkap dengan harga dan tautan rujukan untuk dibagikan. | `/app/mitra/katalog` | [halaman penuh](07-mitra/M03-katalog-proyek.png), [layar pertama](07-mitra/M03-katalog-proyek--layar.png) |
 | M04 | Rujukan saya | Daftar calon pembeli yang dirujuk mitra beserta tahap prosesnya. | `/app/mitra/rujukan` | [halaman penuh](07-mitra/M04-rujukan-saya.png), [layar pertama](07-mitra/M04-rujukan-saya--layar.png) |
 | M05 | Komisi & pencairan | Lihat komisi yang didapat dan ajukan pencairan ke rekening mitra. | `/app/mitra/komisi` | [halaman penuh](07-mitra/M05-komisi-dan-pencairan.png), [layar pertama](07-mitra/M05-komisi-dan-pencairan--layar.png) |

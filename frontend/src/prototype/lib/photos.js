@@ -16,7 +16,7 @@ const RULES = [
   [/gerbang|portal/, "cctv/gerbang-utama"],
   [/teras|depan|pintu/, "cctv/teras-depan"],
   [/belakang|kebun/, "cctv/taman-belakang"],
-  [/pos/, "cctv/pos-satpam"],
+  [/\bpos\b/, "cctv/pos-satpam"],
   [/bermain/, "cctv/taman-bermain"],
   [/jalan|blok|carport/, "cctv/jalan-blok"],
   [/lapangan/, "cctv/lapangan"],

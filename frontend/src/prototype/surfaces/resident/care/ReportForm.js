@@ -33,13 +33,14 @@ export default function ReportForm({ onDone }) {
       </fieldset>
       <fieldset>
         <legend className="mb-1 text-[13.5px] font-semibold text-[color:var(--rdg-muted)]">{`Foto contoh (pilih sampai ${MAX_PHOTOS})`}</legend>
+        <p className="mb-2 text-[13px] text-[color:var(--rdg-muted)]">Foto contoh — ilustrasi, bukan foto rumah Anda.</p>
         <div className="grid grid-cols-4 gap-2">
           {PHOTO_OPTIONS.map((p) => {
             const on = photos.includes(p.id);
             return (
               <button key={p.id} type="button" aria-pressed={on} aria-label={`Foto ${p.label}`} onClick={() => toggle(p.id)}
                 className={`relative aspect-square overflow-hidden rounded-xl border-2 ${on ? "border-rdg-forest" : "border-transparent"}`}>
-                <TicketPhoto img={p.id} className="h-full w-full" />
+                <TicketPhoto img={p.id} className="h-full w-full" tag={false} />
                 {on && <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-rdg-forest text-white"><Check size={13} strokeWidth={3} aria-hidden="true" /></span>}
               </button>
             );

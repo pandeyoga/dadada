@@ -49,6 +49,7 @@ describe("CCTV", () => {
     const img = container.querySelector("img");
     expect(img.getAttribute("src")).toBe("/rdg/foto/cctv/gerbang-utama.jpg");
     expect(screen.getByText("LIVE")).toBeTruthy();
+    expect(container.querySelector(".rdg-cam-sim").textContent).toBe("Simulasi");
     expect(container.querySelector(".rdg-cam-clock").textContent).toMatch(/^\d\d:\d\d:\d\d$/);
     expect(container.querySelector(".rdg-cam-scan")).not.toBeNull();
     fireEvent.error(img);
@@ -56,9 +57,33 @@ describe("CCTV", () => {
     expect(container.querySelector("svg.rdg-cam-scene")).not.toBeNull();
   });
 
-  test("REKAMAN tetap tampil", () => {
+  test("REKAMAN tetap tampil dan berlabel simulasi", () => {
     render(<CameraView cameraId="c" label="Teras depan" live={false} />);
     expect(screen.getByText("REKAMAN")).toBeTruthy();
+    expect(screen.getByText("Simulasi")).toBeTruthy();
+  });
+
+  test("gagal muat tidak menempel saat pindah kamera", () => {
+    const { container, rerender } = render(<CameraView cameraId="a" label="Gerbang utama" />);
+    fireEvent.error(container.querySelector("img"));
+    expect(container.querySelector("img")).toBeNull();
+    rerender(<CameraView cameraId="b" label="Lapangan" />);
+    expect(container.querySelector("img").getAttribute("src")).toBe("/rdg/foto/cctv/lapangan.jpg");
+  });
+
+  test("Photo: gagal muat direset saat kunci berganti", () => {
+    const { container, rerender } = render(<MarketIllustration img="market/telur" label="Telur" />);
+    fireEvent.error(container.querySelector("img"));
+    expect(container.querySelector("img")).toBeNull();
+    rerender(<MarketIllustration img="market/kopi" label="Kopi" />);
+    expect(container.querySelector("img")).not.toBeNull();
+  });
+
+  test("cctvKeyFor: pos sebagai kata utuh", () => {
+    expect(cctvKeyFor("a", "Pos jaga")).toBe("cctv/pos-satpam");
+    expect(cctvKeyFor("a", "Kamera posisi atas")).not.toBe("cctv/pos-satpam");
+    const k = cctvKeyFor("x", "Kamera posisi atas");
+    expect(CCTV_KEYS).toContain(k);
   });
 
   test("cctvKeyFor: kata kunci dan hash deterministik", () => {
@@ -97,3 +122,17 @@ test("W25 menampilkan foto fasilitas", async () => {
   expect(screen.getByText(/Foto ilustrasi — bukan foto fasilitas Estora sebenarnya/)).toBeTruthy();
 });
 afterAll(() => setLatency(null));
+
+test("W21: foto contoh tanpa chip per ubin, dengan satu keterangan", async () => {
+  __initStoreForTest({ storage: null, now: () => Date.parse("2026-11-25T03:00:00Z") });
+  setLatency(0);
+  const { container } = render(
+    <MemoryRouter initialEntries={["/app/warga/lapor"]}>
+      <Routes><Route path="/app/*" element={<PrototypeApp />} /></Routes>
+    </MemoryRouter>
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Lapor kerusakan baru" }));
+  await screen.findByRole("button", { name: "Foto Atap dan plafon" });
+  expect(screen.getByText(/Foto contoh — ilustrasi, bukan foto rumah Anda/)).toBeTruthy();
+  expect(container.querySelectorAll(".rdg-photo-tag").length).toBe(0);
+});

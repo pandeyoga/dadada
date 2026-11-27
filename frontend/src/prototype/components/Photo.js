@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { getPhoto } from "../lib/photos";
 
 /**
@@ -8,6 +8,8 @@ import { getPhoto } from "../lib/photos";
 export default function Photo({ photoKey, alt, className = "", fallback = null, tag = true }) {
   const [failed, setFailed] = useState(false);
   const photo = getPhoto(photoKey);
+  const src = photo ? photo.src : null;
+  useEffect(() => { setFailed(false); }, [src]);
   if (!photo || failed) return fallback;
   return (
     <span className={`rdg-photo-box ${className}`}>

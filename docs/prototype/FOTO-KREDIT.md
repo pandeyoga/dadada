@@ -1,6 +1,6 @@
 # Kredit Foto Prototipe
 
-Semua foto di `frontend/public/rdg/foto/` bersumber dari Pexels dan dipakai sesuai Lisensi Pexels (gratis untuk penggunaan komersial, tanpa kewajiban atribusi); kredit tetap dicatat di sini. Foto dipotong dan diperkecil, isinya tidak diubah.
+Semua foto di `frontend/public/rdg/foto/` bersumber dari Pexels dan dipakai sesuai Lisensi Pexels (gratis untuk penggunaan komersial, tanpa kewajiban atribusi); kredit tetap dicatat di sini. Kredit tiap foto adalah URL halaman Pexels-nya (ID foto pada URL sudah dicocokkan dengan berkasnya); nama fotografer tertulis "Pexels contributor" bila namanya tidak terlihat pada halaman. Foto dipotong dan diperkecil, isinya tidak diubah.
 
 | Berkas | Isi foto | Fotografer | Halaman Pexels | Lisensi |
 |---|---|---|---|---|

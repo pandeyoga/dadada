@@ -128,7 +128,7 @@
     "title": "Keamanan rumah",
     "surface": "resident",
     "tier": "D",
-    "desc": "Buka kunci pintu dengan geser, lihat CCTV rumah ringkas, dan baca riwayat akses."
+    "desc": "Buka kunci pintu dengan geser, lihat CCTV rumah ringkas (simulasi), dan baca riwayat akses."
   },
   {
     "id": "W3",
@@ -152,7 +152,7 @@
     "title": "Keamanan kawasan",
     "surface": "resident",
     "tier": "D",
-    "desc": "Pantau CCTV kawasan di gerbang, jalan, dan taman, serta lihat satpam yang sedang bertugas."
+    "desc": "Pantau CCTV kawasan (simulasi) di gerbang, jalan, dan taman, serta lihat satpam yang sedang bertugas."
   },
   {
     "id": "W6",
@@ -264,7 +264,7 @@
     "title": "Jasa rumah",
     "surface": "resident",
     "tier": "L",
-    "desc": "Pesan jasa rumah seperti tukang, kebersihan, galon, dan servis AC dengan jadwal pilihan."
+    "desc": "Pesan jasa rumah seperti servis AC, tukang ledeng, laundry kiloan, asisten rumah tangga, dan katering."
   },
   {
     "id": "W20",
@@ -312,7 +312,7 @@
     "title": "Booking fasilitas",
     "surface": "resident",
     "tier": "L",
-    "desc": "Pilih slot waktu untuk memesan lapangan, aula, atau kolam renang kawasan."
+    "desc": "Pilih slot waktu untuk memesan lapangan serbaguna, musala, atau balai warga; taman bermain hanya info."
   },
   {
     "id": "W26",
@@ -368,7 +368,7 @@
     "title": "CCTV kawasan",
     "surface": "satpam",
     "tier": "L",
-    "desc": "Grid CCTV kawasan untuk memantau gerbang, jalan, dan fasilitas dari pos."
+    "desc": "Grid CCTV kawasan (simulasi) untuk memantau gerbang, jalan, dan fasilitas dari pos."
   },
   {
     "id": "S5",
@@ -440,7 +440,7 @@
     "title": "Daftar mitra",
     "surface": "partner",
     "tier": "L",
-    "desc": "Formulir pendaftaran mitra: isi data usaha dan pilih jenis layanan yang ditawarkan."
+    "desc": "Pendaftaran mitra dalam empat langkah: akun, data pribadi, rekening, dan media sosial."
   },
   {
     "id": "M2",
@@ -448,7 +448,7 @@
     "title": "Beranda mitra",
     "surface": "partner",
     "tier": "L",
-    "desc": "Beranda mitra: ringkasan rujukan, komisi, dan pintasan ke katalog proyek."
+    "desc": "Beranda mitra: poin, peringkat, komisi diproses, menu pintas, dan papan peringkat mitra."
   },
   {
     "id": "M3",

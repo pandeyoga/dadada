@@ -1,4 +1,4 @@
-import React, { useId, useState } from "react";
+import React, { useEffect, useId, useState } from "react";
 import { useNow } from "../services/useStore";
 import { pickScene } from "./cameraScenes";
 import { getPhoto, cctvKeyFor } from "../lib/photos";
@@ -19,6 +19,8 @@ export default function CameraView({ cameraId, label, live = true }) {
   const { Scene, mirror, name } = pickScene(cameraId, label);
   const [failed, setFailed] = useState(false);
   const photo = getPhoto(cctvKeyFor(cameraId, label));
+  const src = photo ? photo.src : null;
+  useEffect(() => { setFailed(false); }, [src]);
   return (
     <figure className="rdg-cam" data-scene={name} aria-label={`Kamera ${label}${live ? ", siaran langsung" : ""}`}>
       {photo && !failed ? (
@@ -36,6 +38,7 @@ export default function CameraView({ cameraId, label, live = true }) {
       ) : (
         <span className="rdg-cam-rec">REKAMAN</span>
       )}
+      <span className="rdg-cam-sim">Simulasi</span>
       <figcaption className="rdg-cam-label">{label}</figcaption>
       <span className="rdg-cam-clock" aria-hidden="true">{clock(t)}</span>
     </figure>
