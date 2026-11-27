@@ -1,0 +1,335 @@
+{
+  "market/nasi-kuning": {
+    "src": "/rdg/foto/market/nasi-kuning.jpg",
+    "alt": "Nasi dengan telur mata sapi, sambal, dan lauk di atas daun pisang",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/nasi-lemak-served-on-banana-leaf-11912788/"
+    }
+  },
+  "market/brownies": {
+    "src": "/rdg/foto/market/brownies.jpg",
+    "alt": "Sepotong brownies cokelat di atas piring putih",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/slice-of-chocolate-brownie-on-white-ceramic-plate-5386665/"
+    }
+  },
+  "market/keripik": {
+    "src": "/rdg/foto/market/keripik.jpg",
+    "alt": "Mangkuk keripik renyah berbumbu",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/a-bowl-of-potato-chips-10527520/"
+    }
+  },
+  "market/kopi": {
+    "src": "/rdg/foto/market/kopi.jpg",
+    "alt": "Segelas es kopi susu dengan susu yang sedang dituang",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/a-person-pouring-milk-on-a-glass-of-iced-coffee-9281134/"
+    }
+  },
+  "market/kopi-aren": {
+    "src": "/rdg/foto/market/kopi-aren.jpg",
+    "alt": "Es kopi susu dalam gelas plastik bening di atas meja",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/iced-coffee-drink-in-a-disposal-plastic-cup-standing-on-a-table-17541113/"
+    }
+  },
+  "market/cabai": {
+    "src": "/rdg/foto/market/cabai.jpg",
+    "alt": "Bibit tanaman muda dalam tray semai",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/green-seedlings-growing-in-pots-7728012/"
+    }
+  },
+  "market/pot": {
+    "src": "/rdg/foto/market/pot.jpg",
+    "alt": "Tiga tanaman dalam pot gerabah",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/photo-of-three-potted-plants-2478231/"
+    }
+  },
+  "market/sprei": {
+    "src": "/rdg/foto/market/sprei.jpg",
+    "alt": "Tempat tidur dengan sprei rapi dan bantal berwarna",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Max Vakhtbovych",
+      "url": "https://www.pexels.com/photo/cozy-bed-with-colorful-cushions-6492390/"
+    }
+  },
+  "market/telur": {
+    "src": "/rdg/foto/market/telur.jpg",
+    "alt": "Tangan mengambil telur ayam dari sarang jerami",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/person-holding-white-eggs-on-brown-grass-4911785/"
+    }
+  },
+  "market/rajut": {
+    "src": "/rdg/foto/market/rajut.jpg",
+    "alt": "Boneka rajut buatan tangan berbentuk beruang dengan syal",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/a-knitted-teddy-bear-with-a-scarf-10585143/"
+    }
+  },
+  "market/beras": {
+    "src": "/rdg/foto/market/beras.jpg",
+    "alt": "Butir beras putih dari dekat",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/grains-of-rice-18328392/"
+    }
+  },
+  "market/laundry": {
+    "src": "/rdg/foto/market/laundry.jpg",
+    "alt": "Tumpukan pakaian bersih terlipat rapi di tangan",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Polina Tankilevitch",
+      "url": "https://www.pexels.com/photo/a-person-holding-a-stack-of-neatly-folded-shirts-4440574/"
+    }
+  },
+  "progress/lahan": {
+    "src": "/rdg/foto/progress/lahan.jpg",
+    "alt": "Lahan kosong berumput yang sudah rata, siap dibangun",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/vast-green-grass-field-under-blue-sky-and-white-clouds-6877860/"
+    }
+  },
+  "progress/pondasi": {
+    "src": "/rdg/foto/progress/pondasi.jpg",
+    "alt": "Pengecoran pondasi di galian tanah dengan besi tulangan di sampingnya",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/a-builder-filling-a-hole-in-the-ground-with-concrete-26107203/"
+    }
+  },
+  "progress/dinding": {
+    "src": "/rdg/foto/progress/dinding.jpg",
+    "alt": "Pemasangan dinding bata merah pada bangunan yang sedang dibangun",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/workmen-building-apartment-house-on-construction-site-5335018/"
+    }
+  },
+  "progress/kusen": {
+    "src": "/rdg/foto/progress/kusen.jpg",
+    "alt": "Pekerja memasang kusen pintu dan jendela di rumah baru",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/faceless-handyman-installing-window-in-new-house-5691550/"
+    }
+  },
+  "progress/atap": {
+    "src": "/rdg/foto/progress/atap.jpg",
+    "alt": "Pemasangan genteng tanah liat pada rangka atap",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/roof-installation-with-terracotta-tiles-in-progress-31763541/"
+    }
+  },
+  "progress/plester": {
+    "src": "/rdg/foto/progress/plester.jpg",
+    "alt": "Pekerja dari belakang meratakan plester dinding putih",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Antoni Shkraba",
+      "url": "https://www.pexels.com/photo/a-construction-worker-working-on-the-wall-of-a-house-5493658/"
+    }
+  },
+  "unit/tipe-30": {
+    "src": "/rdg/foto/unit/tipe-30.jpg",
+    "alt": "Rumah tapak mungil bercat krem dengan atap genteng oranye",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/beige-concrete-house-with-orange-roof-8482681/"
+    }
+  },
+  "unit/tipe-36": {
+    "src": "/rdg/foto/unit/tipe-36.jpg",
+    "alt": "Rumah satu lantai berwarna putih dengan teras dan taman kecil",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/white-and-gray-house-near-green-trees-8031881/"
+    }
+  },
+  "unit/tipe-45": {
+    "src": "/rdg/foto/unit/tipe-45.jpg",
+    "alt": "Tampak depan rumah putih dengan teras berpilar kayu",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/facade-of-a-house-4839348/"
+    }
+  },
+  "promo/pr-1": {
+    "src": "/rdg/foto/promo/pr-1.jpg",
+    "alt": "Tangan menandatangani dokumen dengan pulpen",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/a-person-signing-a-document-7054505/"
+    }
+  },
+  "promo/pr-2": {
+    "src": "/rdg/foto/promo/pr-2.jpg",
+    "alt": "Rumah bata merah dengan pagar dan area parkir di depan",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/photo-of-house-gate-12191313/"
+    }
+  },
+  "promo/pr-3": {
+    "src": "/rdg/foto/promo/pr-3.jpg",
+    "alt": "Tangan memegang seikat kunci rumah baru",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/handing-the-keys-of-a-new-house-7641904/"
+    }
+  },
+  "cctv/teras-depan": {
+    "src": "/rdg/foto/cctv/teras-depan.jpg",
+    "alt": "Teras depan rumah dengan tangga kayu dan tanaman palem",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/tree-near-house-terrace-and-stairs-18326828/"
+    }
+  },
+  "cctv/taman-belakang": {
+    "src": "/rdg/foto/cctv/taman-belakang.jpg",
+    "alt": "Halaman belakang rumah dengan rumput hijau dan teras",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Max Vakhtbovych",
+      "url": "https://www.pexels.com/photo/house-backyard-with-lawn-green-grass-7546775/"
+    }
+  },
+  "cctv/gerbang-utama": {
+    "src": "/rdg/foto/cctv/gerbang-utama.jpg",
+    "alt": "Jalan masuk menuju gerbang utama kawasan di antara pepohonan",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/asphalt-road-near-black-concrete-arch-gate-beside-trees-1544351/"
+    }
+  },
+  "cctv/pos-satpam": {
+    "src": "/rdg/foto/cctv/pos-satpam.jpg",
+    "alt": "Pos satpam kaca dengan palang pintu di sisi jalan masuk",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Crab Lens",
+      "url": "https://www.pexels.com/photo/security-guard-sitting-in-booth-19922732/"
+    }
+  },
+  "cctv/taman-bermain": {
+    "src": "/rdg/foto/cctv/taman-bermain.jpg",
+    "alt": "Taman bermain anak dari atas dengan ayunan dan perosotan",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/aerial-view-of-colorful-playground-in-park-33074641/"
+    }
+  },
+  "cctv/jalan-blok": {
+    "src": "/rdg/foto/cctv/jalan-blok.jpg",
+    "alt": "Jalan lingkungan perumahan dari sudut pandang tinggi",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/aerial-view-of-houses-along-a-street-7937280/"
+    }
+  },
+  "cctv/lapangan": {
+    "src": "/rdg/foto/cctv/lapangan.jpg",
+    "alt": "Lapangan olahraga terbuka terlihat dari balik pagar kawat",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/basketball-court-with-chain-link-fence-9405983/"
+    }
+  },
+  "cctv/gerbang-belakang": {
+    "src": "/rdg/foto/cctv/gerbang-belakang.jpg",
+    "alt": "Gerbang belakang terbuka pada tembok beton",
+    "illustrative": false,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/open-gate-in-concrete-block-wall-8125961/"
+    }
+  },
+  "facility/lapangan": {
+    "src": "/rdg/foto/facility/lapangan.jpg",
+    "alt": "Lantai kayu lapangan serbaguna dengan kok bulu tangkis",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/shuttlecocks-on-wooden-floor-in-sports-hall-5767580/"
+    }
+  },
+  "facility/musala": {
+    "src": "/rdg/foto/facility/musala.jpg",
+    "alt": "Bangunan masjid berkubah merah dengan halaman luas",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/majestic-mosque-with-red-domes-and-minarets-37320967/"
+    }
+  },
+  "facility/balai": {
+    "src": "/rdg/foto/facility/balai.jpg",
+    "alt": "Aula acara dengan meja dan kursi tertata untuk hajatan",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/people-standing-in-the-event-hall-4717550/"
+    }
+  },
+  "facility/taman": {
+    "src": "/rdg/foto/facility/taman.jpg",
+    "alt": "Wahana bermain kayu dengan perosotan di atas pasir",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/wooden-playground-structure-on-sandy-ground-39422105/"
+    }
+  },
+  "ticket/bocor-dapur": {
+    "src": "/rdg/foto/ticket/bocor-dapur.jpg",
+    "alt": "Plafon berlubang dan dinding ruangan yang rembes serta mengelupas",
+    "illustrative": true,
+    "credit": {
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/interior-of-abandoned-room-with-damaged-walls-4570110/"
+    }
+  }
+}
