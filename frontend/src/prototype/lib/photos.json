@@ -1,11 +1,11 @@
 {
   "market/nasi-kuning": {
     "src": "/rdg/foto/market/nasi-kuning.jpg",
-    "alt": "Nasi dengan telur mata sapi, sambal, dan lauk di atas daun pisang",
+    "alt": "Sepiring nasi kuning berwarna kuning cerah dengan irisan tomat",
     "illustrative": false,
     "credit": {
       "photographer": "Pexels contributor",
-      "url": "https://www.pexels.com/photo/nasi-lemak-served-on-banana-leaf-11912788/"
+      "url": "https://www.pexels.com/photo/a-dish-with-rice-served-on-a-plate-with-floral-pattern-13063294/"
     }
   },
   "market/brownies": {
@@ -127,11 +127,11 @@
   },
   "progress/dinding": {
     "src": "/rdg/foto/progress/dinding.jpg",
-    "alt": "Pemasangan dinding bata merah pada bangunan yang sedang dibangun",
+    "alt": "Tangan bersarung memasang bata merah dengan adukan semen pada dinding rumah",
     "illustrative": true,
     "credit": {
       "photographer": "Pexels contributor",
-      "url": "https://www.pexels.com/photo/workmen-building-apartment-house-on-construction-site-5335018/"
+      "url": "https://www.pexels.com/photo/close-up-of-bricklayer-s-hand-laying-a-brick-32913797/"
     }
   },
   "progress/kusen": {
@@ -172,20 +172,20 @@
   },
   "unit/tipe-36": {
     "src": "/rdg/foto/unit/tipe-36.jpg",
-    "alt": "Rumah satu lantai berwarna putih dengan teras dan taman kecil",
+    "alt": "Rumah tapak satu lantai berdinding bata dengan atap genteng dan halaman kecil",
     "illustrative": true,
     "credit": {
       "photographer": "Pexels contributor",
-      "url": "https://www.pexels.com/photo/white-and-gray-house-near-green-trees-8031881/"
+      "url": "https://www.pexels.com/photo/charming-rustic-house-in-cianjur-indonesia-31393339/"
     }
   },
   "unit/tipe-45": {
     "src": "/rdg/foto/unit/tipe-45.jpg",
-    "alt": "Tampak depan rumah putih dengan teras berpilar kayu",
+    "alt": "Rumah putih beratap genteng merah dengan taman depan",
     "illustrative": true,
     "credit": {
       "photographer": "Pexels contributor",
-      "url": "https://www.pexels.com/photo/facade-of-a-house-4839348/"
+      "url": "https://www.pexels.com/photo/charming-suburban-homes-with-red-tile-roofs-29952462/"
     }
   },
   "promo/pr-1": {
@@ -217,29 +217,29 @@
   },
   "cctv/teras-depan": {
     "src": "/rdg/foto/cctv/teras-depan.jpg",
-    "alt": "Teras depan rumah dengan tangga kayu dan tanaman palem",
+    "alt": "Teras rumah kecil dengan meja kursi dan tanaman rambat",
     "illustrative": false,
     "credit": {
       "photographer": "Pexels contributor",
-      "url": "https://www.pexels.com/photo/tree-near-house-terrace-and-stairs-18326828/"
+      "url": "https://www.pexels.com/photo/tables-and-chairs-on-a-terrace-in-front-of-a-small-residential-building-16011253/"
     }
   },
   "cctv/taman-belakang": {
     "src": "/rdg/foto/cctv/taman-belakang.jpg",
-    "alt": "Halaman belakang rumah dengan rumput hijau dan teras",
+    "alt": "Halaman belakang rumah dengan tanaman tropis dan kursi anyaman",
     "illustrative": false,
     "credit": {
-      "photographer": "Max Vakhtbovych",
-      "url": "https://www.pexels.com/photo/house-backyard-with-lawn-green-grass-7546775/"
+      "photographer": "Pexels contributor",
+      "url": "https://www.pexels.com/photo/backyard-of-modern-residential-villa-with-comfy-wicker-furniture-and-tropical-plants-6430734/"
     }
   },
   "cctv/gerbang-utama": {
     "src": "/rdg/foto/cctv/gerbang-utama.jpg",
-    "alt": "Jalan masuk menuju gerbang utama kawasan di antara pepohonan",
+    "alt": "Gerbang tertutup dengan pagar putih dan pohon palem di baliknya",
     "illustrative": false,
     "credit": {
       "photographer": "Pexels contributor",
-      "url": "https://www.pexels.com/photo/asphalt-road-near-black-concrete-arch-gate-beside-trees-1544351/"
+      "url": "https://www.pexels.com/photo/palm-trees-behind-house-gate-15824791/"
     }
   },
   "cctv/pos-satpam": {
@@ -262,11 +262,11 @@
   },
   "cctv/jalan-blok": {
     "src": "/rdg/foto/cctv/jalan-blok.jpg",
-    "alt": "Jalan lingkungan perumahan dari sudut pandang tinggi",
+    "alt": "Kompleks perumahan dari atas dengan rumah-rumah kecil dan jalan lingkungan",
     "illustrative": false,
     "credit": {
       "photographer": "Pexels contributor",
-      "url": "https://www.pexels.com/photo/aerial-view-of-houses-along-a-street-7937280/"
+      "url": "https://www.pexels.com/photo/aerial-view-of-residential-neighborhood-complex-32170345/"
     }
   },
   "cctv/lapangan": {
@@ -280,11 +280,11 @@
   },
   "cctv/gerbang-belakang": {
     "src": "/rdg/foto/cctv/gerbang-belakang.jpg",
-    "alt": "Gerbang belakang terbuka pada tembok beton",
+    "alt": "Gerbang besi berkarat pada tembok beton di sisi belakang",
     "illustrative": false,
     "credit": {
       "photographer": "Pexels contributor",
-      "url": "https://www.pexels.com/photo/open-gate-in-concrete-block-wall-8125961/"
+      "url": "https://www.pexels.com/photo/close-up-of-an-old-fence-and-gate-in-front-of-a-house-22707296/"
     }
   },
   "facility/lapangan": {
@@ -298,20 +298,20 @@
   },
   "facility/musala": {
     "src": "/rdg/foto/facility/musala.jpg",
-    "alt": "Bangunan masjid berkubah merah dengan halaman luas",
+    "alt": "Ruang salat berkarpet merah dengan dua jamaah dari kejauhan",
     "illustrative": true,
     "credit": {
       "photographer": "Pexels contributor",
-      "url": "https://www.pexels.com/photo/majestic-mosque-with-red-domes-and-minarets-37320967/"
+      "url": "https://www.pexels.com/photo/people-praying-inside-a-mosque-7531459/"
     }
   },
   "facility/balai": {
     "src": "/rdg/foto/facility/balai.jpg",
-    "alt": "Aula acara dengan meja dan kursi tertata untuk hajatan",
+    "alt": "Ruang pertemuan kosong dengan kursi tertata dan jendela besar",
     "illustrative": true,
     "credit": {
       "photographer": "Pexels contributor",
-      "url": "https://www.pexels.com/photo/people-standing-in-the-event-hall-4717550/"
+      "url": "https://www.pexels.com/photo/photo-of-an-empty-room-with-chairs-11907613/"
     }
   },
   "facility/taman": {
