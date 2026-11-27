@@ -26,6 +26,7 @@ describe.each(CASES)("foto %s", (_n, make, chip) => {
     expect(img.getAttribute("src")).toMatch(/^\/rdg\/foto\//);
     expect(img.getAttribute("src")).not.toMatch(/http/);
     expect(img.getAttribute("alt")).toBeTruthy();
+    expect(img.getAttribute("alt")).not.toBe("Foto contoh: Foto laporan");
     expect(img.getAttribute("loading")).toBe("lazy");
     expect(Boolean(screen.queryByText("Foto ilustrasi"))).toBe(chip);
     expect(container.querySelector("svg")).toBeNull();
@@ -93,5 +94,6 @@ test("W25 menampilkan foto fasilitas", async () => {
   const srcs = [...container.querySelectorAll("img")].map((i) => i.getAttribute("src"));
   expect(srcs.some((s) => s.startsWith("/rdg/foto/facility/"))).toBe(true);
   srcs.forEach((s) => expect(s).not.toMatch(/http/));
+  expect(screen.getByText(/Foto ilustrasi — bukan foto fasilitas Estora sebenarnya/)).toBeTruthy();
 });
 afterAll(() => setLatency(null));

@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { Trophy, Landmark, Users, TreePine, CalendarCheck } from "lucide-react";
+import { Trophy, Landmark, Users, TreePine, CalendarCheck, Image as ImageIcon } from "lucide-react";
 import Page, { Loading } from "../../buyer/Page";
 import { FrostCard } from "../../../components/GlassCard";
 import ListRow from "../../../components/ListRow";
@@ -71,6 +71,10 @@ export default function Facilities() {
           )}
           <section aria-labelledby="w25-daftar" className="space-y-2">
             <h2 id="w25-daftar" className="text-[16px] font-extrabold">Pilih fasilitas</h2>
+            <p className="flex items-center gap-1.5 text-[12.5px] text-[color:var(--rdg-muted)]">
+              <ImageIcon size={14} aria-hidden="true" className="flex-none" />
+              Foto ilustrasi — bukan foto fasilitas Estora sebenarnya.
+            </p>
             {data.map((f) => {
               const Icon = ICONS[f.img] || Users;
               return (

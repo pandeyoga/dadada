@@ -11,8 +11,8 @@ export const PHOTO_OPTIONS = [
 ];
 
 export default function TicketPhoto({ img, className = "", tag = true }) {
-  const label = (PHOTO_OPTIONS.find((p) => p.id === img) || { label: "Foto laporan" }).label;
-  const alt = `Foto contoh: ${label}`;
+  const opt = PHOTO_OPTIONS.find((p) => p.id === img);
+  const alt = img === "ticket/bocor-dapur" ? "Foto contoh: Plafon bocor" : `Foto contoh: ${opt ? opt.label : "Foto laporan"}`;
   return (
     <Photo photoKey={img} alt={alt} className={className} tag={tag}
       fallback={<StageIllustration img={img === "ticket/bocor-dapur" ? "progress/atap" : img} label={alt} className={className} photo={false} />} />
