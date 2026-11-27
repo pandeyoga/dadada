@@ -4,77 +4,88 @@
     "path": "/app/demo",
     "title": "Peluncur demo",
     "surface": "demo",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Peluncur untuk presentasi: pilih peran, simulasikan serah terima (BAST), atau reset data demo."
   },
   {
     "id": "U2",
     "path": "/app/masuk",
     "title": "Masuk",
     "surface": "demo",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Masuk dengan nomor WhatsApp dan kode OTP simulasi; kode apa saja diterima."
   },
   {
     "id": "P1",
     "path": "/app/pembeli",
     "title": "Beranda pembeli",
     "surface": "buyer",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Beranda pembeli: perjalanan rumah dari booking sampai BAST, tagihan berikutnya, progres, dan promo."
   },
   {
     "id": "P2",
     "path": "/app/pembeli/progres",
     "title": "Progres",
     "surface": "buyer",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Linimasa foto progres pembangunan per tahap beserta estimasi serah terima rumah."
   },
   {
     "id": "P3",
     "path": "/app/pembeli/kavling",
     "title": "Peta kavling",
     "surface": "buyer",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Peta kavling kawasan dengan unit milik pembeli disorot, bisa diketuk untuk melihat detail."
   },
   {
     "id": "P4",
     "path": "/app/pembeli/bayar",
     "title": "Bayar",
     "surface": "buyer",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Jadwal cicilan dan riwayat pembayaran uang muka serta angsuran, lengkap dengan status."
   },
   {
     "id": "P5",
     "path": "/app/pembeli/bayar/dp-3",
     "title": "Bayar uang muka",
     "surface": "buyer",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Pilih metode bayar, dapatkan nomor VA atau kode QRIS, lalu pantau status menunggu hingga lunas."
   },
   {
     "id": "P6",
     "path": "/app/pembeli/kpr",
     "title": "Status KPR",
     "surface": "buyer",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Pantau status pengajuan KPR atau SP3K dan lihat jadwal angsuran bulanan."
   },
   {
     "id": "P7",
     "path": "/app/pembeli/pembatalan",
     "title": "Pembatalan & refund",
     "surface": "buyer",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Lihat ketentuan, status, dan perkiraan dana kembali bila pembelian dibatalkan (hanya baca)."
   },
   {
     "id": "P8",
     "path": "/app/pembeli/dokumen",
     "title": "Dokumen",
     "surface": "buyer",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Kumpulan dokumen pembeli: SPR, PPJB, kuitansi, dan berkas KPR yang bisa dibuka kapan saja."
   },
   {
     "id": "P9",
     "path": "/app/pembeli/akun",
     "title": "Akun pembeli",
     "surface": "buyer",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Profil pembeli, anggota keluarga, serta tanya dan komplain sebelum serah terima."
   },
   {
     "id": "P10",
@@ -84,335 +95,383 @@
     "tier": "L",
     "extraIds": [
       "W29"
-    ]
+    ],
+    "desc": "Bagikan kode atau tautan ajakan ke teman, pantau status rujukan, dan lihat hadiahnya."
   },
   {
     "id": "P11",
     "path": "/app/pembeli/promo/promo-1",
     "title": "Promo & info developer",
     "surface": "buyer",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Detail promo dan informasi dari developer, lengkap dengan syarat dan masa berlaku."
   },
   {
     "id": "T1",
     "path": "/app/selamat-datang",
     "title": "Selamat datang di rumah baru",
     "surface": "transition",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Sambutan di rumah baru: hubungkan kunci dan kamera, undang keluarga, isi kontak darurat."
   },
   {
     "id": "W1",
     "path": "/app/warga",
     "title": "Beranda warga",
     "surface": "resident",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Beranda warga: status pintu, kamera dan satpam, tagihan IPL, layanan, pengumuman, dan energi."
   },
   {
     "id": "W2",
     "path": "/app/warga/keamanan",
     "title": "Keamanan rumah",
     "surface": "resident",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Buka kunci pintu dengan geser, lihat CCTV rumah ringkas, dan baca riwayat akses."
   },
   {
     "id": "W3",
     "path": "/app/warga/keamanan/kunci",
     "title": "Kunci pintu",
     "surface": "resident",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Atur kunci pintu: buat kode sementara untuk tamu atau ART, bagikan lewat WA, lalu cabut."
   },
   {
     "id": "W4",
     "path": "/app/warga/keamanan/cctv-rumah",
     "title": "CCTV rumah",
     "surface": "resident",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Tonton siaran kamera rumah (simulasi), pilih kamera, putar rekaman per jam, dan atur notifikasi."
   },
   {
     "id": "W5",
     "path": "/app/warga/keamanan/kawasan",
     "title": "Keamanan kawasan",
     "surface": "resident",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Pantau CCTV kawasan di gerbang, jalan, dan taman, serta lihat satpam yang sedang bertugas."
   },
   {
     "id": "W6",
     "path": "/app/warga/keamanan/gerbang",
     "title": "Gerbang pintar",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Cek lokasi di dalam atau luar radius, buka gerbang masuk atau keluar, dan lihat riwayatnya."
   },
   {
     "id": "W7",
     "path": "/app/warga/keamanan/tamu",
     "title": "Undang tamu",
     "surface": "resident",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Buat undangan tamu berupa QR sekali pakai dengan jam berlaku, lalu bagikan lewat WhatsApp."
   },
   {
     "id": "W8",
     "path": "/app/warga/sos",
     "title": "SOS",
     "surface": "resident",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Tahan tombol SOS, pilih jenis darurat, lalu pantau satpam yang menuju rumah sampai selesai."
   },
   {
     "id": "W9",
     "path": "/app/warga/sos/kontak",
     "title": "Kontak darurat",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Kelola daftar kontak darurat yang dihubungi saat tombol SOS ditekan."
   },
   {
     "id": "W10",
     "path": "/app/warga/tagihan",
     "title": "Tagihan",
     "surface": "resident",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Bayar IPL bulan ini lewat VA, QRIS, e-wallet, atau tautan WA, lalu unduh kuitansinya."
   },
   {
     "id": "W11",
     "path": "/app/warga/tagihan/riwayat",
     "title": "Riwayat tagihan",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Riwayat tagihan IPL bulan-bulan sebelumnya beserta kuitansi pembayaran."
   },
   {
     "id": "W12",
     "path": "/app/warga/tagihan/kas",
     "title": "Laporan kas kawasan",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Laporan kas kawasan yang transparan: pemasukan dan pengeluaran per bulan."
   },
   {
     "id": "W13",
     "path": "/app/warga/isi-ulang",
     "title": "Bayar & Isi Ulang",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Beli pulsa, paket data, token PLN, atau bayar PDAM, lalu terima token atau struk."
   },
   {
     "id": "W14",
     "path": "/app/warga/komunitas",
     "title": "Komunitas",
     "surface": "resident",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Pengumuman pengelola dan agenda kegiatan warga dalam satu halaman."
   },
   {
     "id": "W15",
     "path": "/app/warga/komunitas/event/ev-1",
     "title": "Event warga",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Detail acara warga: waktu, tempat, deskripsi, dan tombol untuk ikut serta."
   },
   {
     "id": "W16",
     "path": "/app/warga/komunitas/hobi",
     "title": "Kelompok hobi",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Daftar kelompok hobi warga; gabung dan lihat info kelompok."
   },
   {
     "id": "W17",
     "path": "/app/warga/komunitas/polling",
     "title": "Polling warga",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Ikut polling warga, pilih jawaban, dan lihat hasil suara sementara."
   },
   {
     "id": "W18",
     "path": "/app/warga/pasar",
     "title": "Pasar warga",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Belanja produk tetangga dan tenant, isi keranjang, lalu bayar."
   },
   {
     "id": "W19",
     "path": "/app/warga/jasa",
     "title": "Jasa rumah",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Pesan jasa rumah seperti tukang, kebersihan, galon, dan servis AC dengan jadwal pilihan."
   },
   {
     "id": "W20",
     "path": "/app/warga/layanan",
     "title": "Semua layanan",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Grid lengkap semua layanan aplikasi warga untuk menjangkau fitur yang tidak ada di menu bawah."
   },
   {
     "id": "W21",
     "path": "/app/warga/lapor",
     "title": "Lapor kerusakan",
     "surface": "resident",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Buat tiket kerusakan dengan kategori dan foto, pantau linimasanya, lalu beri rating."
   },
   {
     "id": "W22",
     "path": "/app/warga/garansi",
     "title": "Klaim garansi",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Ajukan klaim garansi per bagian rumah dan pantau statusnya."
   },
   {
     "id": "W23",
     "path": "/app/warga/dokumen",
     "title": "Dokumen rumah",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Dokumen rumah: BAST, status sertifikat, garansi, denah, dan jalur instalasi."
   },
   {
     "id": "W24",
     "path": "/app/warga/renovasi",
     "title": "Izin renovasi",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Ajukan izin renovasi ke pengelola dan pantau status persetujuannya."
   },
   {
     "id": "W25",
     "path": "/app/warga/fasilitas",
     "title": "Booking fasilitas",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Pilih slot waktu untuk memesan lapangan, aula, atau kolam renang kawasan."
   },
   {
     "id": "W26",
     "path": "/app/warga/energi",
     "title": "Energi rumah",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Bandingkan pemakaian listrik dan air bulan ini dengan bulan lalu, plus tips hemat."
   },
   {
     "id": "W27",
     "path": "/app/notifikasi",
     "title": "Notifikasi",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Notifikasi berjenjang dari Darurat, Keamanan, hingga Info, bisa ditandai sudah dibaca."
   },
   {
     "id": "W28",
     "path": "/app/warga/akun",
     "title": "Akun warga",
     "surface": "resident",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Profil warga, anggota keluarga dan penyewa dengan hak akses, perangkat, dan pengaturan."
   },
   {
     "id": "S1",
     "path": "/app/satpam",
     "title": "Beranda pos",
     "surface": "satpam",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Beranda pos satpam: status shift, antrean SOS, dan daftar tamu yang diharapkan hari ini."
   },
   {
     "id": "S2",
     "path": "/app/satpam/sos",
     "title": "Peringatan SOS",
     "surface": "satpam",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Peringatan SOS layar penuh: terima, menuju lokasi, lalu tandai selesai agar warga tahu."
   },
   {
     "id": "S3",
     "path": "/app/satpam/tamu",
     "title": "Pindai QR tamu",
     "surface": "satpam",
-    "tier": "D"
+    "tier": "D",
+    "desc": "Pindai QR tamu (simulasi kamera), lihat valid atau tidak, lalu catat tamu masuk."
   },
   {
     "id": "S4",
     "path": "/app/satpam/cctv",
     "title": "CCTV kawasan",
     "surface": "satpam",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Grid CCTV kawasan untuk memantau gerbang, jalan, dan fasilitas dari pos."
   },
   {
     "id": "S5",
     "path": "/app/satpam/patroli",
     "title": "Log patroli",
     "surface": "satpam",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Catat patroli dan kejadian selama shift dalam satu log berurutan."
   },
   {
     "id": "K1",
     "path": "/app/pengelola",
     "title": "Ringkasan kawasan",
     "surface": "manager",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Ringkasan kawasan untuk pengelola: tagihan, tiket, keamanan, dan kas dalam satu dasbor."
   },
   {
     "id": "K2",
     "path": "/app/pengelola/ipl",
     "title": "Tagihan IPL",
     "surface": "manager",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Pantau tagihan IPL semua unit, status bayarnya, dan kirim pengingat ke penunggak."
   },
   {
     "id": "K3",
     "path": "/app/pengelola/tiket",
     "title": "Tiket & keluhan",
     "surface": "manager",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Kelola tiket dan keluhan warga: tinjau, tugaskan, dan perbarui statusnya."
   },
   {
     "id": "K4",
     "path": "/app/pengelola/pengumuman",
     "title": "Pengumuman & agenda",
     "surface": "manager",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Buat pengumuman dan agenda kawasan untuk dilihat seluruh warga."
   },
   {
     "id": "K5",
     "path": "/app/pengelola/kas",
     "title": "Laporan kas",
     "surface": "manager",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Laporan kas kawasan: pemasukan IPL, pengeluaran, dan saldo per bulan."
   },
   {
     "id": "K6",
     "path": "/app/pengelola/keamanan",
     "title": "Keamanan",
     "surface": "manager",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Pantau keamanan kawasan: kejadian SOS, log patroli, dan akses tamu."
   },
   {
     "id": "K7",
     "path": "/app/pengelola/mitra",
     "title": "Mitra layanan & pasar",
     "surface": "manager",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Kelola mitra layanan dan pedagang pasar warga yang tampil di aplikasi."
   },
   {
     "id": "M1",
     "path": "/app/mitra/daftar",
     "title": "Daftar mitra",
     "surface": "partner",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Formulir pendaftaran mitra: isi data usaha dan pilih jenis layanan yang ditawarkan."
   },
   {
     "id": "M2",
     "path": "/app/mitra",
     "title": "Beranda mitra",
     "surface": "partner",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Beranda mitra: ringkasan rujukan, komisi, dan pintasan ke katalog proyek."
   },
   {
     "id": "M3",
     "path": "/app/mitra/katalog",
     "title": "Katalog proyek",
     "surface": "partner",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Katalog proyek developer lengkap dengan harga dan tautan rujukan untuk dibagikan."
   },
   {
     "id": "M4",
     "path": "/app/mitra/rujukan",
     "title": "Rujukan saya",
     "surface": "partner",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Daftar calon pembeli yang dirujuk mitra beserta tahap prosesnya."
   },
   {
     "id": "M5",
     "path": "/app/mitra/komisi",
     "title": "Komisi & pencairan",
     "surface": "partner",
-    "tier": "L"
+    "tier": "L",
+    "desc": "Lihat komisi yang didapat dan ajukan pencairan ke rekening mitra."
   }
 ]

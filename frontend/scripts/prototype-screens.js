@@ -4,7 +4,7 @@
  *
  * Pemakaian (dari folder frontend, setelah `yarn build`):
  *   NODE_PATH="$(npm root -g)" node scripts/prototype-screens.js \
- *     [--out ../docs/prototype/screens] [--port 4173] [--only W8,S2] [--full] [--now 2026-11-25T09:41:00+07:00]
+ *     [--out ../docs/prototype/screens] [--port 4173] [--only W8,S2] [--now 2026-11-25T09:41:00+07:00]
  *
  * Playwright dipakai dari instalasi global (di kontainer pengembang: /usr/local/lib/node_modules_global).
  * - Melayani `frontend/build` dengan server http Node bawaan (fallback SPA ke index.html).
@@ -12,10 +12,12 @@
  * - Untuk setiap entri screens.json: siapkan state lewat /app/demo + window.__rdgDemo
  *   (persona menurut `surface`; warga = sesudah BAST; S2/W8 kirim SOS dulu, W8 juga diterima
  *   satpam; S1/S3 buat undangan tamu), buka `path`, tunggu [data-screen], jalankan klik
- *   tambahan bila ada (mis. P5 memilih VA), simpan PNG (pengelola 1366×900; selain itu 390×844 @2x).
+ *   tambahan bila ada (mis. P5 memilih VA), simpan dua PNG ke folder peran:
+ *   `<ID2>-<slug>.png` (halaman penuh: tinggi viewport = scrollHeight, maks 8000 px) dan
+ *   `<ID2>-<slug>--layar.png` (layar pertama; pengelola 1366×900 @1x, selain itu 390×844 @2x).
+ * - Tanpa --only: juga membuat `00-lembar-kontak.png` per folder, `index.json`, dan `README.md` di folder keluaran.
  * - Ukur ulang di lebar 360 px: catat bila scrollWidth > innerWidth.
  * - Cetak "N layar, M overflow"; keluar kode 1 bila ada luapan atau galat halaman.
- * - --full: tangkap halaman penuh (untuk QA visual), bukan hanya layar pertama.
  * - Permintaan ke luar 127.0.0.1 diblokir (prototipe tidak boleh memakai jaringan).
  */
 const http = require("http");
@@ -33,10 +35,12 @@ try {
 const FRONTEND = path.resolve(__dirname, "..");
 const BUILD = path.join(FRONTEND, "build");
 const SCREENS = require(path.join(FRONTEND, "src/prototype/screens.json"));
+const names = require("./screen-names");
+const MAX_FULL_HEIGHT = 8000;
 
 function parseArgs(argv) {
   const opts = {
-    out: path.resolve(FRONTEND, "../docs/prototype/screens"), port: 4173, only: null, full: false,
+    out: path.resolve(FRONTEND, "../docs/prototype/screens"), port: 4173, only: null,
     now: "2026-11-25T09:41:00+07:00",
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -44,7 +48,6 @@ function parseArgs(argv) {
     if (a === "--out") opts.out = path.resolve(argv[(i += 1)]);
     else if (a === "--port") opts.port = Number(argv[(i += 1)]);
     else if (a === "--only") opts.only = new Set(argv[(i += 1)].split(","));
-    else if (a === "--full") opts.full = true;
     else if (a === "--now") opts.now = argv[(i += 1)];
     else {
       console.error(`Argumen tidak dikenal: ${a}`);
@@ -229,8 +232,17 @@ async function capture({ browser, base, opts, entries, blocked, overflow, failur
         await page.waitForTimeout(900); // jeda lapisan layanan 200–600 ms
       }
       if (AFTER[entry.id]) await page.evaluate(() => window.scrollTo(0, 0));
-      const file = path.join(opts.out, `${entry.id}.png`);
-      await page.screenshot({ path: file, fullPage: opts.full });
+      const dir = path.join(opts.out, names.folderFor(entry.id));
+      fs.mkdirSync(dir, { recursive: true });
+      const base0 = path.join(dir, names.screenFileName(entry));
+      await page.screenshot({ path: `${base0}--layar.png` });
+      // Halaman penuh: perbesar viewport setinggi isi agar elemen fixed (menu bawah, SOS) tetap di dasar.
+      const height = await page.evaluate(() => document.documentElement.scrollHeight);
+      await page.setViewportSize({ width: viewport.width, height: Math.min(Math.max(height, viewport.height), MAX_FULL_HEIGHT) });
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      await page.waitForTimeout(150);
+      await page.screenshot({ path: `${base0}.png` });
+      await page.setViewportSize(viewport);
       const over = await overflowAt360(page);
       if (over) overflow.push({ id: entry.id, ...over });
       if (page.errors.length) failures.push({ id: entry.id, error: page.errors.join(" | ") });
@@ -241,6 +253,83 @@ async function capture({ browser, base, opts, entries, blocked, overflow, failur
       console.log(`${entry.id.padEnd(4)} ${entry.path}  GAGAL: ${err.message.split("\n")[0]}`);
     }
   }
+}
+
+// ---------------------------------------------------------------- lembar kontak, index, README
+const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+async function contactSheets(browser, out) {
+  const context = await browser.newContext({ viewport: { width: 1600, height: 900 }, deviceScaleFactor: 1 });
+  const page = await context.newPage();
+  const folders = [...new Set(SCREENS.map((s) => names.folderFor(s.id)))];
+  for (const folder of folders) {
+    const items = SCREENS.filter((s) => names.folderFor(s.id) === folder);
+    const desktop = items[0].surface === "manager";
+    const cells = items
+      .map((e) => {
+        const f = path.join(out, folder, `${names.screenFileName(e)}--layar.png`);
+        const uri = `data:image/png;base64,${fs.readFileSync(f).toString("base64")}`;
+        return `<figure><figcaption>${esc(names.id2(e.id))} · ${esc(e.title)}</figcaption><img src="${uri}"></figure>`;
+      })
+      .join("");
+    const cols = desktop ? 3 : 6;
+    const html = `<!doctype html><meta charset="utf-8"><style>
+      body{margin:0;padding:24px;width:1552px;background:#f1f5f9;font-family:system-ui,sans-serif}
+      h1{margin:0 0 16px;font-size:22px;color:#0f172a}
+      .g{display:grid;grid-template-columns:repeat(${cols},1fr);gap:20px 16px}
+      figure{margin:0}figcaption{font-size:${desktop ? 16 : 14}px;font-weight:600;color:#0f172a;margin-bottom:6px}
+      img{width:100%;display:block;border:1px solid #cbd5e1;border-radius:6px;background:#fff}
+    </style><h1>${esc(folder)} · lembar kontak (layar pertama)</h1><div class="g">${cells}</div>`;
+    await page.setContent(html, { waitUntil: "load" });
+    await page.screenshot({ path: path.join(out, folder, "00-lembar-kontak.png"), fullPage: true });
+  }
+  await context.close();
+}
+
+function writeIndex(out) {
+  const rel = (f) => path.relative(path.resolve(FRONTEND, ".."), path.join(out, f)).split(path.sep).join("/");
+  const index = SCREENS.map((e) => {
+    const folder = names.folderFor(e.id);
+    const n = names.screenFileName(e);
+    return {
+      id: e.id, id2: names.id2(e.id), title: e.title, desc: e.desc, route: e.path, role: names.roleFor(e.id),
+      folder, full: rel(`${folder}/${n}.png`), first: rel(`${folder}/${n}--layar.png`),
+    };
+  });
+  fs.writeFileSync(path.join(out, "index.json"), `${JSON.stringify(index, null, 2)}\n`);
+  const lines = [
+    "# Tangkapan layar prototipe",
+    "",
+    "Tangkapan layar semua halaman prototipe \"Rumah Dalam Genggaman\", dikelompokkan per peran. Dibuat otomatis oleh `frontend/scripts/prototype-screens.js` dari `frontend/src/prototype/screens.json`.",
+    "",
+    "**Penamaan.** Setiap halaman punya dua berkas di folder perannya: `<ID>-<judul>.png` dan `<ID>-<judul>--layar.png`. ID = huruf peran + nomor dua digit (mis. `W18`); judul ditulis huruf kecil dan disambung tanda hubung.",
+    "",
+    "- **Halaman penuh** (`W18-pasar-warga.png`): seluruh isi halaman dari atas sampai bawah (maksimal 8000 px), menu bawah di dasar gambar. Halaman penuh ponsel diperkecil ke lebar 488 px (sekitar @1,25) agar ukuran folder wajar; dasbor pengelola 1366 px.",
+    "- **Layar pertama** (`W18-pasar-warga--layar.png`): yang terlihat sekilas saat halaman dibuka. Ponsel 390×844 @2x; dasbor pengelola 1366×900 @1x.",
+    "- `00-lembar-kontak.png` di tiap folder: kumpulan layar pertama untuk dilihat sekilas.",
+    "- `index.json`: daftar mesin-baca (ID, judul, penjelasan, rute, peran, jalur berkas) untuk bahan presentasi.",
+    "",
+    "**Membuat ulang** (dari folder `frontend`):",
+    "",
+    "```bash",
+    "REACT_APP_BACKEND_URL=http://127.0.0.1:9 yarn build",
+    "NODE_PATH=\"$(npm root -g)\" node scripts/prototype-screens.js",
+    "python3 scripts/optimize-screens.py",
+    "```",
+    "",
+  ];
+  const folders = [...new Set(index.map((i) => i.folder))];
+  folders.forEach((folder) => {
+    const rows = index.filter((i) => i.folder === folder);
+    lines.push(`## ${rows[0].role} (\`${folder}/\`)`, "", `[Lembar kontak](${folder}/00-lembar-kontak.png)`, "");
+    lines.push("| ID | Halaman | Penjelasan | Rute | Berkas |", "|---|---|---|---|---|");
+    rows.forEach((r) => {
+      const base = `${folder}/${path.basename(r.full)}`;
+      lines.push(`| ${r.id2} | ${r.title.replace(/\|/g, "\\|")} | ${r.desc} | \`${r.route}\` | [halaman penuh](${base}), [layar pertama](${base.replace(/\.png$/, "--layar.png")}) |`);
+    });
+    lines.push("");
+  });
+  fs.writeFileSync(path.join(out, "README.md"), lines.join("\n"));
 }
 
 async function main() {
@@ -261,6 +350,10 @@ async function main() {
   try {
     browser = await chromium.launch();
     await capture({ browser, base, opts, entries, blocked, overflow, failures });
+    if (!opts.only && !failures.length) {
+      await contactSheets(browser, opts.out);
+      writeIndex(opts.out);
+    }
   } finally {
     // Selalu tutup peramban dan server, juga bila ada galat di tengah jalan.
     if (browser) await browser.close().catch(() => {});
