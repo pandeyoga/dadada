@@ -9,6 +9,7 @@ import "./theme/rdg.css";
 import "./theme/rdg-components.css";
 import "./theme/rdg-controls.css";
 import "./theme/rdg-security.css";
+import "./theme/rdg-photo.css";
 import screens from "./screens.json";
 import { isPrototypeHost } from "./lib/host";
 import { scrollToTop } from "./lib/scrollTop";

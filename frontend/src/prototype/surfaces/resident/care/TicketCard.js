@@ -27,7 +27,7 @@ export default function TicketCard({ ticket, onConfirm }) {
       </div>
       {ticket.photos.length > 0 && (
         <div className="flex gap-2">
-          {ticket.photos.map((p) => <TicketPhoto key={p} img={p} className="h-16 w-24 rounded-lg" />)}
+          {ticket.photos.map((p) => <TicketPhoto key={p} img={p} className="h-16 w-24 rounded-lg" tag={false} />)}
         </div>
       )}
       <Stepper steps={STEPS} current={current} />

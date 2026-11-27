@@ -4,6 +4,7 @@ import Page, { Loading } from "../../buyer/Page";
 import { FrostCard } from "../../../components/GlassCard";
 import ListRow from "../../../components/ListRow";
 import StatusChip from "../../../components/StatusChip";
+import Photo from "../../../components/Photo";
 import Sheet from "../../../components/Sheet";
 import { Msg, Field, FIELD } from "../security/ui";
 import { listFacilities, bookFacility } from "../../../services/api/care";
@@ -74,7 +75,8 @@ export default function Facilities() {
               const Icon = ICONS[f.img] || Users;
               return (
                 <FrostCard key={f.id} className="flex items-center gap-3">
-                  <span className="rdg-row-icon"><Icon size={20} aria-hidden="true" /></span>
+                  <Photo photoKey={f.img} alt={`Foto ${f.name}`} tag={false} className="rdg-fac-thumb"
+                    fallback={<span className="rdg-row-icon"><Icon size={20} aria-hidden="true" /></span>} />
                   <span className="min-w-0 flex-1">
                     <span className="block text-[15px] font-bold">{f.name}</span>
                     <span className="block text-[13px] text-[color:var(--rdg-muted)]">{f.about}</span>

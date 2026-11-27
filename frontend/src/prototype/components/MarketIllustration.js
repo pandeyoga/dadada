@@ -1,4 +1,5 @@
 import React from "react";
+import Photo from "./Photo";
 
 /* Ilustrasi produk pasar warga: SVG lokal berdasarkan kunci `img` fixture (mis. "market/brownies"). */
 const ART = {
@@ -19,10 +20,11 @@ const ART = {
 export default function MarketIllustration({ img = "", label, className }) {
   const key = String(img).replace(/^market\//, "");
   const a = ART[key] || ART.brownies;
-  return (
+  const svg = (
     <svg viewBox="0 0 160 110" role="img" aria-label={label || "Foto produk"} className={className} preserveAspectRatio="xMidYMid slice">
       <rect width="160" height="110" fill={a.bg} />
       {a.art}
     </svg>
   );
+  return <Photo photoKey={`market/${key}`} alt={label} className={className} fallback={svg} />;
 }

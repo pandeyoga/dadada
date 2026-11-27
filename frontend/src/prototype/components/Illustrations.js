@@ -1,4 +1,5 @@
 import React from "react";
+import Photo from "./Photo";
 
 /* Ilustrasi SVG lokal (tanpa gambar eksternal): tahap pembangunan rumah dan promo.
    Dipakai Progres, Beranda pembeli, Promo; boleh dipakai ulang layar lain. */
@@ -91,10 +92,15 @@ const SCENES = {
 const ALIASES = { "progress/lahan": "lahan", "progress/pondasi": "pondasi", "progress/dinding": "dinding", "progress/atap": "atap", "progress/plester": "plester", "progress/kusen": "kusen" };
 
 /** `img` = kunci dari fixture (mis. "progress/atap") atau nama adegan. */
-export function StageIllustration({ img, label, className }) {
+export function StageIllustration({ img, label, className, photo = true }) {
   const key = ALIASES[img] || img;
   const scene = SCENES[key] || SCENES.lahan;
-  return <Frame id={`st-${key}`} label={label || `Foto progres ${key}`} className={className}>{scene}</Frame>;
+  const alt = label || `Foto progres ${key}`;
+  if (!photo) return <Frame id={`st-${key}`} label={alt} className={className}>{scene}</Frame>;
+  return (
+    <Photo photoKey={img} alt={alt} className={className}
+      fallback={<Frame id={`st-${key}`} label={alt} className={className}>{scene}</Frame>} />
+  );
 }
 
 const PROMO_STYLES = {
@@ -106,7 +112,7 @@ const PROMO_STYLES = {
 /** Gambar promo: gradasi hijau + simbol sederhana, tanpa berkas gambar. */
 export function PromoIllustration({ id, label, className }) {
   const st = PROMO_STYLES[id] || PROMO_STYLES["pr-1"];
-  return (
+  const svg = (
     <svg viewBox="0 0 160 90" role="img" aria-label={label || "Ilustrasi promo"} className={className} preserveAspectRatio="xMidYMid slice">
       <defs>
         <linearGradient id={`pg-${id}`} x1="0" y1="0" x2="1" y2="1">
@@ -119,4 +125,5 @@ export function PromoIllustration({ id, label, className }) {
       <path d={st.icon} transform="translate(46 4)" fill="none" stroke="#fff" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
+  return <Photo photoKey={`promo/${id}`} alt={label} className={className} fallback={svg} />;
 }

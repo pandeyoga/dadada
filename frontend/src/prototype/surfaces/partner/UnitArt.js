@@ -1,4 +1,5 @@
 import React from "react";
+import Photo from "../../components/Photo";
 
 /* Ilustrasi unit rumah: SVG lokal berdasarkan kunci `img` fixture (mis. "unit/tipe-36"). */
 const TONE = {
@@ -10,7 +11,7 @@ const TONE = {
 export default function UnitArt({ img = "", label, className }) {
   const t = TONE[String(img).replace(/^unit\//, "")] || TONE["tipe-36"];
   const x = 80 - t.wide / 2;
-  return (
+  const svg = (
     <svg viewBox="0 0 160 100" role="img" aria-label={label || "Ilustrasi unit"} className={className} preserveAspectRatio="xMidYMid slice">
       <rect width="160" height="100" fill={t.sky} />
       <ellipse cx="128" cy="22" rx="14" ry="8" fill="#fff" opacity="0.8" />
@@ -22,4 +23,5 @@ export default function UnitArt({ img = "", label, className }) {
       <rect x={x + t.wide - 20} y="54" width="14" height="12" rx="2" fill="#a9d9de" />
     </svg>
   );
+  return <Photo photoKey={`unit/${String(img).replace(/^unit\//, "")}`} alt={label} className={className} fallback={svg} />;
 }
