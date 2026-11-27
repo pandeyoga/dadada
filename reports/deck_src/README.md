@@ -25,4 +25,4 @@ skrip persiapan aset dalam riwayat sesi) dan diskalakan maksimal 1100 px dengan 
 (46 slide): halaman Canva 1–9 sebagai gambar penuh (`assets/canva/page-NN.jpg`), sampul Lampiran, pembatas + slide isi per peran (A–G),
 dan daftar halaman. Screenshot diambil dari `docs/prototype/screens/index.json` (kolom `first`, PNG `--layar`); fonta Inter.
 Halaman Canva diekspor dari PDF dengan `pdftoppm -jpeg -jpegopt quality=85 -scale-to-x 1920 -scale-to-y 1080 <pdf> assets/canva/page`
-(halaman 10 "DRAFT LAMPIRAN" dan 11–13 kosong tidak dipakai). PDF: `soffice --headless --convert-to pdf "<pptx>"` di folder `reports/`.
+(halaman 10 "DRAFT LAMPIRAN" dan 11–13 kosong tidak dipakai). PDF: halaman 1–9 diambil langsung dari PDF Canva asli (vektor, bisa dicari; diskalakan ke 960×540 pt dengan pypdf), halaman 10 dst. dari hasil `soffice --headless --convert-to pdf "<pptx>"`, digabung dengan pypdf (`PdfWriter`).

@@ -18,11 +18,11 @@ const FONT = 'Inter';
 const C = { deep: '053B36', teal: '0A5A5E', mint: 'D6EFE6', ink: '14232A', muted: '5B6B70', accent: 'F2C14E', card: 'FFFFFF', line: 'D5E0E0', soft: 'E6F2EE', footer: 'B9D6D2' };
 const SECTIONS = [
   { letter: 'A', role: 'Demo', name: 'Demo & masuk', sent: 'Cara juri berpindah peran: peluncur demo, masuk dengan OTP simulasi, dan pengaturan ulang data contoh.' },
-  { letter: 'B', role: 'Pembeli', name: 'Pembeli', sent: 'Perjalanan pembeli dari memilih unit dan booking, memantau progres pembangunan, sampai pengajuan KPR.' },
+  { letter: 'B', role: 'Pembeli', name: 'Pembeli', sent: 'Perjalanan pembeli dari booking, memantau progres pembangunan, bayar uang muka, sampai pengajuan KPR.' },
   { letter: 'C', role: 'Serah terima', name: 'Serah terima', sent: 'Onboarding saat serah terima unit: berita acara serah terima (BAST) dan aktivasi akun penghuni.' },
-  { letter: 'D', role: 'Warga', name: 'Warga', sent: 'Aplikasi harian penghuni: iuran, layanan, pasar warga, dan keamanan kawasan berbasis IoT (CCTV, SOS, tamu).' },
+  { letter: 'D', role: 'Warga', name: 'Warga', sent: 'Aplikasi harian penghuni: iuran, layanan, pasar warga, serta keamanan kawasan (CCTV, SOS, tamu) yang disimulasikan.' },
   { letter: 'E', role: 'Satpam', name: 'Satpam', sent: 'Aplikasi petugas keamanan untuk menerima SOS warga, mencatat tamu, dan memantau kejadian di kawasan.' },
-  { letter: 'F', role: 'Pengelola', name: 'Pengelola', sent: 'Dasbor desktop pengelola kawasan: tagihan, tiket layanan, warga, dan laporan operasional.' },
+  { letter: 'F', role: 'Pengelola', name: 'Pengelola', sent: 'Dasbor desktop pengelola kawasan: tagihan IPL, tiket, pengumuman, kas, keamanan, dan mitra.' },
   { letter: 'G', role: 'Mitra', name: 'Mitra', sent: 'Portal mitra pemasaran: prospek, komisi, dan status penjualan unit.' },
 ];
 for (const s of SECTIONS) {
@@ -60,6 +60,7 @@ async function rounded(src, out, height, radius) {
 
 // ---------- komponen ----------
 let pres;
+const slideOf = {}; // id2 -> nomor slide
 const footerText = 'Estora · Rumah Dalam Genggaman — prototipe, data contoh';
 function footer(slide) {
   slide.addText(footerText, { x: 0.6, y: 7.05, w: 8, h: 0.28, fontFace: FONT, fontSize: 10, color: C.footer, margin: 0, valign: 'middle' });
@@ -69,11 +70,11 @@ function title(slide, text) {
   slide.addText(text, { x: 0.6, y: 0.35, w: 12.1, h: 0.55, fontFace: FONT, fontSize: 24, bold: true, color: 'FFFFFF', margin: 0, valign: 'middle', fit: 'shrink' });
 }
 function labelBlock(slide, it, x, y, w, h, opts = {}) {
-  const fs = opts.fs || 11;
+  const fs = opts.fs || 11, hs = opts.hs || 13;
   slide.addText([
-    { text: `${it.id2} · ${it.title}`, options: { bold: true, fontSize: 13, color: C.deep, breakLine: true } },
+    { text: `${it.id2} · ${it.title}`, options: { bold: true, fontSize: hs, color: C.deep, breakLine: true } },
     { text: it.desc, options: { fontSize: fs, color: C.ink, breakLine: true, paraSpaceBefore: 3 } },
-    { text: it.route, options: { fontSize: 9, color: C.muted, fontFace: 'DejaVu Sans Mono', paraSpaceBefore: 4 } },
+    { text: it.route, options: { fontSize: 9, color: C.muted, fontFace: 'Courier New', paraSpaceBefore: 4 } },
   ], { x, y, w, h, fontFace: FONT, margin: 0, valign: 'top', objectName: `label ${it.id2}` });
 }
 function rangeText(items) { return items.length === 1 ? items[0].id2 : `${items[0].id2}–${items[items.length - 1].id2}`; }
@@ -104,7 +105,7 @@ async function main() {
     s.addImage({ path: chip.file, x: 0.7, y: 0.6, h: 0.8, w: 0.8 * chip.ratio, altText: 'Logo Estora' });
     s.addText('Lampiran', { x: 0.7, y: 1.85, w: 7, h: 1.1, fontFace: FONT, fontSize: 60, bold: true, color: 'FFFFFF', margin: 0 });
     s.addText('Prototipe aplikasi Rumah Dalam Genggaman', { x: 0.7, y: 3.0, w: 6.6, h: 0.9, fontFace: FONT, fontSize: 24, color: C.mint, margin: 0, valign: 'top' });
-    s.addText(`${total} halaman · 7 peran · data contoh, tanpa backend`, { x: 0.7, y: 4.15, w: 6.6, h: 0.4, fontFace: FONT, fontSize: 16, color: C.accent, bold: true, margin: 0 });
+    s.addText(`${total} halaman · 7 bagian · data contoh, tanpa backend`, { x: 0.7, y: 4.15, w: 6.6, h: 0.4, fontFace: FONT, fontSize: 16, color: C.accent, bold: true, margin: 0 });
     // daftar bagian dalam kartu putih
     const cx = 7.9, cy = 1.0, cw = 4.8, ch = 5.5;
     s.addShape('roundRect', { x: cx, y: cy, w: cw, h: ch, rectRadius: 0.15, fill: { color: 'FFFFFF' }, line: { color: 'FFFFFF', width: 0 }, shadow: { type: 'outer', color: '000000', opacity: 0.25, blur: 10, offset: 3, angle: 90 } });
@@ -137,6 +138,7 @@ async function main() {
     for (let i = 0; i < sec.items.length; i += per) {
       const group = sec.items.slice(i, i + per);
       const s = pres.addSlide();
+      group.forEach((g) => { slideOf[g.id2] = pres.slides.length; });
       s.background = { path: bgV };
       title(s, `Lampiran ${sec.letter} · ${sec.name} — ${rangeText(group)}`);
       footer(s);
@@ -147,7 +149,7 @@ async function main() {
         s.addShape('roundRect', { x: 0.6, y: 1.2, w: 12.13, h: 5.65, rectRadius: 0.12, fill: { color: C.card }, line: { color: C.card, width: 0 } });
         s.addImage({ path: img.file, x: 0.68, y: 1.275, w: iw, h: ih, altText: `${it.id2} ${it.title}` });
         const lx = 0.68 + iw + 0.4;
-        labelBlock(s, it, lx, 1.6, 12.73 - lx - 0.35 + 0.0, 4.5, { fs: 13 });
+        labelBlock(s, it, lx, 1.6, 12.73 - lx - 0.35 + 0.0, 4.5, { fs: 12.5, hs: 16 });
       } else {
         const cw = 3.85, gap = 0.29, x0 = (13.333 - (group.length * cw + (group.length - 1) * gap)) / 2;
         for (let k = 0; k < group.length; k++) {
@@ -165,8 +167,7 @@ async function main() {
 
   // daftar halaman (2 slide, 2 tabel per slide)
   const rows = INDEX.map((x) => {
-    const sec = SECTIONS.find((q) => q.role === x.role);
-    return [x.id2, x.title, `${sec.letter} · ${sec.name}`];
+    return [x.id2, x.title, `Slide ${slideOf[x.id2]}`];
   });
   const half = Math.ceil(rows.length / 4);
   const pages = [rows.slice(0, half * 2), rows.slice(half * 2)];
@@ -177,7 +178,7 @@ async function main() {
     footer(s);
     const mid = Math.ceil(pg.length / 2);
     [pg.slice(0, mid), pg.slice(mid)].forEach((part, ci) => {
-      const hdr = ['ID', 'Halaman', 'Lampiran'].map((t) => ({ text: t, options: { bold: true, color: 'FFFFFF', fill: { color: C.deep }, fontSize: 10 } }));
+      const hdr = ['ID', 'Halaman', 'Di deck'].map((t) => ({ text: t, options: { bold: true, color: 'FFFFFF', fill: { color: C.deep }, fontSize: 10 } }));
       const body = part.map((r, ri) => r.map((t, k) => ({ text: t, options: { color: k === 0 ? C.deep : C.ink, bold: k === 0, fontSize: 10, fill: { color: ri % 2 ? C.soft : 'FFFFFF' } } })));
       s.addTable([hdr, ...body], {
         x: 0.6 + ci * 6.15, y: 1.1, w: 5.95, colW: [0.75, 3.1, 2.1], rowH: 0.34, fontFace: FONT, valign: 'middle',
@@ -187,6 +188,6 @@ async function main() {
   });
 
   await pres.writeFile({ fileName: OUT });
-  console.log('OK', OUT, 'slides:', CANVA_PAGES + 1 + SECTIONS.length + INDEX.length / 3);
+  console.log('OK', OUT, 'slides:', pres.slides ? pres.slides.length : '?');
 }
 main().catch((e) => { console.error(e); process.exit(1); });
