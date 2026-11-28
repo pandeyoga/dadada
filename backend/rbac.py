@@ -50,6 +50,9 @@ ROLE_GRANTS = {
         "units": ["view_all"], "pricing": ["view_all"], "financing": ["view_all"],
         "complaints": ["view_all"], "appointments": ["view_all", "create"],
         "activities": ["view", "create"],
+        # Alat baca pembeli terverifikasi di WA (tagihan, KPR, progres) — hanya BACA, dibatasi ke satu kontak.
+        "customers": ["view_all"], "contracts": ["view_all"], "finance": ["view_all"],
+        "construction": ["view_all"], "payment_scheme": ["view_all"],
     },
     # Fase 39b: verifikasi dokumen syarat. Ditulis sebagai grant eksplisit (bukan hanya di
     # DEFAULT_PERMISSIONS) karena matriks RBAC organisasi yang sudah tersimpan di DB
