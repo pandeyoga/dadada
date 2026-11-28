@@ -144,7 +144,8 @@ GATES=(
   # Estora AI tahap 1 — 5 invarian AI (aksi hanya lewat ai_actions executed + audit, tak ada auto-send
   # lewat kanal tidak resmi, anggaran stop = 0 balasan otomatis, wa_self tak lintas kontak). BERBEDA dari
   # gate lain: berjalan in-process dengan FakeClaude (tanpa server hidup) dan butuh env MONGO_URL
-  # (DB `estora_ai_gate` di-drop tiap run). Tanpa MONGO_URL gate ini GAGAL dengan pesan jelas.
+  # (DB `estora_ai_gate` di-drop tiap run). Tanpa MONGO_URL gate ini DILEWATI (exit 3): tampil sebagai
+  # SKIP di ringkasan + alasannya, tidak dihitung lulus. Ekspor MONGO_URL sebelum menjalankan skrip ini.
   verify_ai.py
 )
 
@@ -154,9 +155,16 @@ fail=0
 LOGDIR="memory/gatelogs"
 mkdir -p "$LOGDIR"
 declare -a results
+skipped=0
 for g in "${GATES[@]}"; do
-  if python3 "scripts/$g" > "$LOGDIR/gate_${g}.log" 2>&1; then
+  python3 "scripts/$g" > "$LOGDIR/gate_${g}.log" 2>&1
+  rc=$?
+  if [ $rc -eq 0 ]; then
     results+=("  PASS  $g")
+  elif [ $rc -eq 3 ] && grep -q "SKIPPED" "$LOGDIR/gate_${g}.log"; then
+    # exit 3 + "SKIPPED" = gate sengaja dilewati (mis. verify_ai tanpa MONGO_URL): bukan lulus, bukan gagal.
+    results+=("  SKIP  $g — $(grep -m1 SKIPPED "$LOGDIR/gate_${g}.log")")
+    skipped=$((skipped + 1))
   else
     results+=("  FAIL  $g")
     fail=1
@@ -170,10 +178,14 @@ echo "======================================================"
 if [ $fail -ne 0 ]; then
   echo "OVERALL: FAIL — detail gate yang gagal:"
   for g in "${GATES[@]}"; do
-    if ! grep -qE "PASSED|Total temuan perlu tindakan: 0" "$LOGDIR/gate_${g}.log" 2>/dev/null; then
+    if ! grep -qE "PASSED|SKIPPED|Total temuan perlu tindakan: 0" "$LOGDIR/gate_${g}.log" 2>/dev/null; then
       echo "----- $g -----"; tail -n 15 "$LOGDIR/gate_${g}.log";
     fi
   done
   exit 1
 fi
-echo "OVERALL: PASS (${#GATES[@]} gates)"
+if [ $skipped -ne 0 ]; then
+  echo "OVERALL: PASS ($(( ${#GATES[@]} - skipped )) gates lulus, $skipped DILEWATI — lihat baris SKIP di atas)"
+else
+  echo "OVERALL: PASS (${#GATES[@]} gates)"
+fi

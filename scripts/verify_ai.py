@@ -9,7 +9,9 @@ Lima invarian yang tidak boleh rusak diam-diam:
   5. Setiap `ai_actions` yang `executed` punya entri audit (`ai_action_executed`, meta.action_id).
 
 Butuh MongoDB lokal: `MONGO_URL=mongodb://127.0.0.1:27017 python3 scripts/verify_ai.py`.
-DB `estora_ai_gate` di-drop di awal. Exit 0 = PASSED.
+DB `estora_ai_gate` di-drop di awal. Exit 0 = PASSED, 1 = FAILED.
+Tanpa MONGO_URL gate DILEWATI (bukan lulus): pesan "SKIPPED" + exit 3; `run_all_gates.sh` menampilkannya
+sebagai SKIP (tidak dihitung lulus) supaya tidak ada yang mengira invarian AI sudah diperiksa.
 """
 import asyncio
 import hashlib
@@ -19,8 +21,11 @@ import sys
 from pathlib import Path
 
 # Env harus diset SEBELUM `server`/`db` diimpor (sama seperti backend/tests_ai/conftest.py).
+SKIP_EXIT = 3
 if not os.environ.get("MONGO_URL"):
-    sys.exit("verify_ai: set MONGO_URL ke MongoDB lokal (mis. mongodb://127.0.0.1:27017).")
+    print("verify_ai: SKIPPED — MONGO_URL tidak diset, invarian AI TIDAK diperiksa. "
+          "Jalankan: MONGO_URL=mongodb://127.0.0.1:27017 python3 scripts/verify_ai.py")
+    sys.exit(SKIP_EXIT)
 DB_NAME = "estora_ai_gate"
 os.environ["DB_NAME"] = DB_NAME
 os.environ.setdefault("JWT_SECRET", "gate-secret-estora-ai-0123456789abcdef")
@@ -136,7 +141,14 @@ async def main():
         def txt(t):
             return {"content": [{"type": "text", "text": t}]}
 
+        from ai import config as ai_config
+        real_settings = ai_config.get_ai_settings
+
+        async def live_settings(org_id=ORG_ID):  # kirim otomatis hanya di mode efektif live (FakeClaude tetap dipakai)
+            return {**(await real_settings(org_id)), "effective_mode": "live"}
+
         async def auto_ready():
+            ai_config.get_ai_settings = live_settings
             await ss.set_value("ai.category_modes", {**{c: "draft" for c in ALL}, "stok_harga": "auto"},
                                actor="gate", reason="gate", org_id=ORG_ID)
             await db.ai_drafts.delete_many({"org_id": ORG_ID})
@@ -147,6 +159,13 @@ async def main():
         wa_before = await fingerprint(BUSINESS)
         # ------------------------------------------------ 2: tidak ada auto-send lewat kanal tidak resmi
         print("Invarian 2 — balasan otomatis tidak pernah lewat kanal tidak resmi")
+        await auto_ready()
+        ai_config.get_ai_settings = real_settings  # mode simulasi: syarat lain terpenuhi tetap hanya draf
+        conv0, job0 = await wa_job(channel="cloud")
+        set_override(FakeClaude([tri("stok_harga"), txt("Tipe 36 tersedia.")]))
+        r0 = await wa_agent.process_job(job0)
+        check(2, r0["status"] == "draft" and not await db.messages.count_documents({"conversation_id": conv0["id"], "direction": "out"}),
+              "mode simulasi -> tidak pernah kirim otomatis ke pelanggan")
         await auto_ready()
         conv1, job1 = await wa_job(channel="cloud")
         set_override(FakeClaude([tri("stok_harga"), txt("Tipe 36 tersedia.")]))

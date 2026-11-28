@@ -4,7 +4,9 @@ import re
 _EMAIL = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
 _PHONE = r"(?<!\d)(?:\+?62|0)8\d{8,11}(?!\d)"
 _LONG = r"(?<!\d)\d{10,18}(?!\d)"
-_RX = re.compile(f"(?P<email>{_EMAIL})|(?P<phone>{_PHONE})|(?P<long>{_LONG})")
+_UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+# UUID dicocokkan lebih dulu dan dibiarkan utuh: segmen id yang kebetulan semua angka bukan nomor rekening.
+_RX = re.compile(f"(?P<uuid>{_UUID})|(?P<email>{_EMAIL})|(?P<phone>{_PHONE})|(?P<long>{_LONG})")
 _KEY_RX = re.compile(r"nik|rekening|no_rek|account|^va$|va_number|virtual", re.I)
 
 
@@ -14,6 +16,8 @@ def _mask_digits(d: str) -> str:
 
 def _mask_text(s: str, mask_phone: bool) -> str:
     def rep(m):
+        if m.group("uuid"):
+            return m.group("uuid")
         if m.group("email"):
             e = m.group("email")
             name, _, dom = e.partition("@")

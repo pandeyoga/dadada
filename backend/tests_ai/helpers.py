@@ -1,11 +1,9 @@
 """Pembantu uji: konteks alat dari pengguna demo, data lead lewat API."""
-import itertools
+import uuid
 
 from ai.tools import internal_api
 from ai.tools.registry import ToolContext
 from db import db, ORG_ID
-
-_n = itertools.count(1)
 
 
 async def user_of(email: str) -> dict:
@@ -18,8 +16,8 @@ async def ctx_for(email: str, token: str, **kw) -> ToolContext:
 
 
 async def make_lead(client, auth, token: str, name: str = "Calon Pembeli") -> dict:
-    i = next(_n) + hash(name) % 1000
-    r = await client.post("/api/leads", headers=auth(token), json={
-        "name": name, "phone": f"0812{9000000 + i * 7919 % 999999:07d}", "source": "manual"})
+    # Nomor unik per panggilan (uuid, bukan hash(name) yang bisa bertabrakan -> lead dedup ke lead lain).
+    phone = f"0819{uuid.uuid4().int % 10**8:08d}"
+    r = await client.post("/api/leads", headers=auth(token), json={"name": name, "phone": phone, "source": "manual"})
     assert r.status_code == 200, r.text
     return r.json()["data"]
