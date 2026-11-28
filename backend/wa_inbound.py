@@ -126,7 +126,8 @@ async def _conversation_for(org_id: str, phone: str, name: str, lead: dict) -> d
     return conv
 
 
-async def _handle_message(org_id: str, m: dict, profile_names: dict, adapter, mode: str) -> dict:
+async def _handle_message(org_id: str, m: dict, profile_names: dict, adapter, mode: str,
+                          channel: str = "cloud") -> dict:
     wamid = m.get("id")
     if wamid and await db.messages.find_one({"provider_message_id": wamid}, {"_id": 1}):
         return {"skipped": "duplicate"}
@@ -141,7 +142,8 @@ async def _handle_message(org_id: str, m: dict, profile_names: dict, adapter, mo
     media = await _store_media(org_id, adapter, desc["media"], conv["id"])
     msg = {"id": new_id(), "org_id": org_id, "conversation_id": conv["id"], "direction": "in",
            "body": desc["body"], "sender": "contact", "kind": "inbox", "mtype": desc["mtype"],
-           "media": media, "provider_message_id": wamid, "mode": mode, "status": "received",
+           "media": media, "provider_message_id": wamid, "mode": mode, "channel": channel,
+           "status": "received",
            "context": (m.get("context") or {}).get("id"), "created_at": ts}
     await db.messages.insert_one(dict(msg))
     await db.conversations.update_one({"id": conv["id"]}, {
@@ -187,16 +189,50 @@ async def _handle_status(org_id: str, s: dict) -> dict:
     return {"matched": r.matched_count, "status": status}
 
 
-async def process_meta_payload(raw: dict, org_id: str = ORG_ID, *, mode: str = None) -> dict:
-    """Satu pintu: dipakai webhook nyata & simulasi (payload berbentuk SAMA)."""
+async def _handle_echo(org_id: str, m: dict) -> dict:
+    """Coexistence — pesan yang dikirim sales dari aplikasi WhatsApp Business di HP (`smb_message_echoes`)."""
+    wamid = m.get("id")
+    if wamid and await db.messages.find_one({"provider_message_id": wamid}, {"_id": 1}):
+        return {"skipped": "duplicate"}
+    phone = gw.valid_phone("+" + str(m.get("to") or "").lstrip("+"))
+    if not phone:
+        return {"skipped": "invalid_phone", "to": m.get("to")}
+    desc = describe_message(m)
+    lead = await db.leads.find_one({"org_id": org_id, "phone": phone}, {"_id": 0})
+    conv = await _conversation_for(org_id, phone, None, lead)
+    ts = _ts(m)
+    await db.messages.insert_one({
+        "id": new_id(), "org_id": org_id, "conversation_id": conv["id"], "direction": "out",
+        "body": desc["body"], "sender": "sales-phone", "kind": "inbox", "mtype": desc["mtype"],
+        "media": desc["media"], "to": phone, "provider_message_id": wamid, "mode": "live",
+        "channel": "coexistence", "status": "sent", "status_at": ts, "created_at": ts})
+    await db.conversations.update_one({"id": conv["id"]}, {"$set": {
+        "last_message_at": ts, "last_direction": "out", "updated_at": ts}})
+    return {"conversation_id": conv["id"], "echo": True}
+
+
+async def process_meta_payload(raw: dict, org_id: str = ORG_ID, *, mode: str = None, channel: str = None) -> dict:
+    """Satu pintu: dipakai webhook nyata & simulasi (payload berbentuk SAMA).
+
+    `channel="unofficial"` → pesan dari gateway tidak resmi (tanpa unduh media Meta)."""
+    import wa_channels
     adapter, cfg = await gw.adapter_for(org_id)
     mode = mode or cfg["effective_mode"]
+    channel = channel or wa_channels.official_channel_name(cfg)
+    if channel == "unofficial":
+        adapter = None
     summary = {"messages": 0, "statuses": 0, "duplicates": 0, "leads_linked": 0, "captured": 0,
                "unknown": 0, "results": []}
     for entry in raw.get("entry") or []:
         for change in entry.get("changes") or []:
             value = change.get("value") or {}
             field = change.get("field")
+            if field == "smb_message_echoes":
+                for m in value.get("message_echoes") or []:
+                    res = await _handle_echo(org_id, m)
+                    summary["results"].append(res)
+                    summary["echoes"] = summary.get("echoes", 0) + (1 if res.get("echo") else 0)
+                continue
             if field in ACCOUNT_FIELDS:
                 summary["account_events"] = summary.get("account_events", 0) + 1
                 summary["results"].append(await _handle_account_event(org_id, field, value))
@@ -208,7 +244,7 @@ async def process_meta_payload(raw: dict, org_id: str = ORG_ID, *, mode: str = N
                 continue
             names = {c.get("wa_id"): (c.get("profile") or {}).get("name") for c in (value.get("contacts") or [])}
             for m in value.get("messages") or []:
-                res = await _handle_message(org_id, m, names, adapter, mode)
+                res = await _handle_message(org_id, m, names, adapter, mode, channel)
                 summary["results"].append(res)
                 if res.get("skipped") == "duplicate":
                     summary["duplicates"] += 1
