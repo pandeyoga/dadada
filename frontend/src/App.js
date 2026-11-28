@@ -15,6 +15,8 @@ import LeadsPage from "@/pages/LeadsPage";
 import LeadProfilePage from "@/pages/LeadProfilePage";
 import AppointmentsPage from "@/pages/AppointmentsPage";
 import InboxPage from "@/pages/InboxPage";
+import AiCopilotPage from "@/pages/AiCopilotPage";
+import AiSettingsPage from "@/pages/AiSettingsPage";
 import WaCapturePage from "@/pages/WaCapturePage";
 import OmnichannelPage from "@/pages/OmnichannelPage";
 import CampaignsPage from "@/pages/CampaignsPage";
@@ -110,6 +112,13 @@ function RequireAdmin({ children }) {
   return children;
 }
 
+function RequirePerm({ resource, action, children }) {
+  const { can, permsKnown } = useAuth();
+  if (!permsKnown) return null;
+  if (!can(resource, action)) return <Navigate to="/" replace />;
+  return children;
+}
+
 function LoginRoute() {
   const { user, loading } = useAuth();
   // Fase 54 — tujuan kembali dihitung SEKALI per pemasangan komponen dan disimpan di ref.
@@ -155,6 +164,8 @@ export default function App() {
             <Route path="/leads/:id" element={<LeadProfilePage />} />
             <Route path="/appointments" element={<AppointmentsPage />} />
             <Route path="/inbox" element={<InboxPage />} />
+            <Route path="/ai" element={<RequirePerm resource="ai_copilot" action="use"><AiCopilotPage /></RequirePerm>} />
+            <Route path="/ai/settings" element={<RequirePerm resource="ai_settings" action="manage"><AiSettingsPage /></RequirePerm>} />
             <Route path="/wa-capture" element={<WaCapturePage />} />
             <Route path="/automation" element={<OmnichannelPage />} />
             {/* Fase 43 — dua menu yang sebelumnya "Segera Hadir" kini punya halaman nyata. */}
