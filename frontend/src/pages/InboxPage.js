@@ -17,6 +17,11 @@ import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import { fromNow } from "@/utils/formatters";
 import api from "@/services/apiClient";
+import { AiLabelPill, useAiLabels } from "@/components/ai/inbox/AiInboxLabels";
+import AiDraftCard from "@/components/ai/inbox/AiDraftCard";
+import AiInsightsPanel from "@/components/ai/inbox/AiInsightsPanel";
+import AiSampleReview from "@/components/ai/inbox/AiSampleReview";
+import useAiInbox, { channelText } from "@/components/ai/inbox/useAiInbox";
 import { INBOX, P94, P97, CONTACT_EDIT } from "@/constants/testIds";
 
 const FILTERS = [
@@ -41,6 +46,9 @@ export default function InboxPage() {
   const [tmplCode, setTmplCode] = useState("");
   const [waMode, setWaMode] = useState("simulation");
   const endRef = useRef(null);
+  const aiOn = can("ai_inbox", "use");
+  const aiLabels = useAiLabels(convs.map((c) => c.id), aiOn);
+  const [ai, reloadAi] = useAiInbox(activeId, aiOn);
 
   const loadConvs = useCallback(async () => {
     setLoading(true); setError("");
@@ -72,7 +80,7 @@ export default function InboxPage() {
 
   const windowOpen = thread?.conversation?.window_open;
 
-  const refresh = () => { loadThread(activeId); loadConvs(); };
+  const refresh = () => { loadThread(activeId); loadConvs(); reloadAi(); };
 
   const send = async (direction) => {
     if (!text.trim() || !activeId) return;
@@ -139,6 +147,7 @@ export default function InboxPage() {
                     {c.unread ? <span className="rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">{c.unread}</span> : null}
                   </div>
                   <p className="text-xs text-muted-foreground">{c.contact_phone}</p>
+                  {aiLabels[c.id] ? <div className="mt-1"><AiLabelPill label={aiLabels[c.id]} /></div> : null}
                   <div className="mt-1 flex items-center gap-2">
                     <span className={cn("inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
                       c.window_open ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>
@@ -170,6 +179,7 @@ export default function InboxPage() {
                         </Button>
                       ) : null}
                     </div>
+                    {ai?.channel ? <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-foreground">Kanal: {channelText(ai.channel)}</span> : null}
                     <span data-testid={INBOX.windowBadge} className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
                       windowOpen ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>
                       <Clock className="h-3.5 w-3.5" /> {windowOpen ? "Sesi 24 jam aktif" : "Sesi tertutup"}
@@ -182,6 +192,12 @@ export default function InboxPage() {
                   </div>
                   <div className="flex-1 space-y-2.5 overflow-y-auto p-4">
                     {thread.messages.map((m) => <MessageBubble key={m.id} m={m} />)}
+                    {ai?.draft && ["ready", "edited", "rewritten"].includes(ai.draft.status || "ready") ? (
+                      <AiDraftCard draft={ai.draft} windowOpen={!!windowOpen} onSent={refresh} onDiscarded={refresh} />
+                    ) : null}
+                    {ai?.draft?.status === "auto_sent" && ai.draft.sampled && !ai.draft.sample_review ? (
+                      <AiSampleReview draft={ai.draft} onDone={reloadAi} />
+                    ) : null}
                     <div ref={endRef} />
                   </div>
                   <div className="border-t p-3">
@@ -225,7 +241,8 @@ export default function InboxPage() {
             </div>
 
             {/* Context panel (lead + NBA) */}
-            <div className="md:col-span-1">
+            <div className="space-y-3 md:col-span-1">
+              {ai?.insights ? <AiInsightsPanel insights={ai.insights} channel={channelText(ai.channel)} /> : null}
               {thread ? (
                 <InboxContextPanel leadId={thread.conversation.lead_id}
                   conversationId={thread.conversation.id}
