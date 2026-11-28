@@ -547,6 +547,8 @@ DEFAULTS: dict = {d["key"]: d for d in [
 
 from settings_p88 import DEFAULTS_P88  # noqa: E402
 DEFAULTS.update(DEFAULTS_P88)
+from ai.settings_defs import DEFAULTS_AI  # noqa: E402
+DEFAULTS.update(DEFAULTS_AI)
 
 GROUP_LABELS = {
     "reservasi": "Reservasi & Keep Unit", "lead": "Lead & Lifecycle",
@@ -562,7 +564,7 @@ GROUP_LABELS = {
     "garansi": "Serah Terima & Garansi",
     "pengingat": "Pengingat Otomatis (WhatsApp)",
     "whatsapp": "WhatsApp — Jam Kirim, Batas Laju & Biaya",
-    "tampilan": "Tampilan",
+    "tampilan": "Tampilan", "ai": "Estora AI",
 }
 
 

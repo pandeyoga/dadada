@@ -24,6 +24,8 @@ ALL_ROLES = [
     "dm_supervisor", "dm_staff", "finance_manager",
     # Legal & kepatuhan: halaman legal publik, permintaan penghapusan data (UU PDP / Meta).
     "legal_admin",
+    # Estora AI: akun layanan agen (tidak bisa login lewat form; dipakai backend saja).
+    "ai_agent",
 ]
 
 # Fase 29: peran baru MEWARISI matriks peran yang paling dekat supaya tidak perlu
@@ -41,6 +43,14 @@ ROLE_DENY = {
 # Tambahan izin khusus peran baru (supervisor keuangan boleh menyetujui, supervisor
 # digital marketing mengelola otomasi/template/showroom).
 ROLE_GRANTS = {
+    # Estora AI: agen layanan hanya MEMBACA data bisnis + membuat janji temu & catatan (activities).
+    # Tidak ada delete/approve/manage — semua aksi berisiko lewat antrean persetujuan manusia.
+    "ai_agent": {
+        "leads": ["view_all"], "deals": ["view_all"], "projects": ["view_all"],
+        "units": ["view_all"], "pricing": ["view_all"], "financing": ["view_all"],
+        "complaints": ["view_all"], "appointments": ["view_all", "create"],
+        "activities": ["view", "create"],
+    },
     # Fase 39b: verifikasi dokumen syarat. Ditulis sebagai grant eksplisit (bukan hanya di
     # DEFAULT_PERMISSIONS) karena matriks RBAC organisasi yang sudah tersimpan di DB
     # MENIMPA daftar izin per peran — tanpa ini, aksi `verify` tidak akan pernah aktif pada
@@ -224,6 +234,12 @@ def _permitted(perms, action) -> bool:
 # migrasi ini peran yang barisnya pernah disimpan tidak akan pernah mendapat aksi baru.
 # Idempoten: kunci migrasi dicatat di dokumen matriks (`migrations`).
 MATRIX_MIGRATIONS = {
+    # Estora AI: resource baru sudah ikut dari DEFAULT_PERMISSIONS (get_matrix menggabungkan);
+    # migrasi ini menambah aksi `use` pada baris tersimpan bila peran sudah punya barisnya.
+    "2026-11-ai-use": [("ai_copilot", "sales_manager", "use"), ("ai_copilot", "marketing_admin", "use"),
+                       ("ai_copilot", "sales", "use"), ("ai_copilot", "finance", "use"),
+                       ("ai_inbox", "sales_manager", "use"), ("ai_inbox", "marketing_admin", "use"),
+                       ("ai_inbox", "sales", "use")],
     "2026-09-delete-master": [("projects", "project_manager", "delete"),
                               ("units", "project_manager", "delete"),
                               ("units", "project_manager", "create"),
@@ -277,7 +293,7 @@ def _role_perms(matrix: dict, resource: str, role: str) -> list:
 # Aksi yang dikenal mesin RBAC. Dipakai layar Hak Akses untuk menawarkan pilihan yang
 # BENAR-BENAR berarti (bukan kotak centang karangan) dan untuk menolak aksi asing.
 KNOWN_ACTIONS = ["view", "view_all", "view_own", "create", "update", "delete", "assign",
-                 "approve", "verify", "sign", "override", "cancel", "manage", "all"]
+                 "approve", "verify", "sign", "override", "cancel", "manage", "use", "all"]
 
 
 def _role_perms_detail(matrix: dict, resource: str, role: str) -> dict:

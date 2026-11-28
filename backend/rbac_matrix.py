@@ -527,4 +527,14 @@ DEFAULT_PERMISSIONS = {
         "sales_manager": ["view_all"], "marketing_admin": ["view_all"],
         "dm_supervisor": ["view_all"], "finance_manager": ["view_all"],
     },
+    # Estora AI (tahap 1)
+    "ai_copilot": {
+        "sales_manager": ["use"], "marketing_admin": ["use"], "sales": ["use"], "finance": ["use"],
+    },
+    "ai_inbox": {
+        "sales_manager": ["use"], "marketing_admin": ["use"], "sales": ["use"],
+    },
+    "ai_settings": {
+        "super_admin": ["manage"], "owner": ["manage"],
+    },
 }

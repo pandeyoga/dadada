@@ -99,6 +99,8 @@ async def login(payload: LoginRequest, response: Response):
         raise HTTPException(status_code=401, detail="Email atau kata sandi salah")
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Akun nonaktif, hubungi admin")
+    if user.get("role") == "ai_agent":  # akun layanan Estora AI: tidak boleh login lewat form
+        raise HTTPException(status_code=403, detail="Akun layanan tidak dapat login")
     # EPIC M4 — block login for users of a suspended tenant (super_admin exempt).
     if user.get("role") != "super_admin":
         org = await db.orgs.find_one({"id": user.get("org_id")}, {"_id": 0, "status": 1})
