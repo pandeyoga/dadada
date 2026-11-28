@@ -15,6 +15,7 @@ from ai.tools.registry import Tool, ToolContext, ToolError, register
 from db import db
 
 S = {"type": "string"}
+TOPICS = ("umum", "diskon_nego", "pembatalan_refund", "janji_komitmen")
 NOT_MINE = "Unit itu tidak terdaftar atas nama Anda. Pilih salah satu unit dari ringkasan_saya."
 
 
@@ -138,9 +139,10 @@ def _complaint_row(r: dict) -> dict:
 
 async def komplain_saya(ctx, inp):
     _own_, ids, want = await _scope(ctx, inp)
-    cid = (ctx.user or {}).get("customer_id")
+    cid, pid = (ctx.user or {}).get("customer_id"), (ctx.user or {}).get("id")
     rows = [r for r in _rows(await _pget(ctx, "/portal/complaints"))
-            if r.get("deal_id") in ids or (cid and r.get("customer_id") == cid)]
+            if r.get("deal_id") in ids or (cid and r.get("customer_id") == cid)
+            or (pid and r.get("portal_user_id") == pid)]
     rows = [r for r in rows if (not want or r.get("deal_id") == want) and (not inp.get("status") or r.get("status") == inp["status"])]
     return {"komplain": [_complaint_row(r) for r in rows][:20], "jumlah": len(rows), "summary": f"{len(rows)} komplain"}
 
@@ -261,9 +263,11 @@ async def serahkan_ke_cs(ctx, inp):
     deal_id = inp.get("deal_id") or None
     if deal_id:
         await _scope(ctx, {"deal_id": deal_id})
+    topik = inp.get("topik") if inp.get("topik") in TOPICS else "umum"
+    sensitive = topik != "umum"  # topik sensitif -> Manajer Penjualan (§9.1), bukan sales pemegang unit
     q = await _last_question(ctx.conversation_id) if ctx.conversation_id else ""
-    t = await portal_handoff.create_ticket(ctx, reason=alasan, question=q or alasan, summary=inp["ringkasan"],
-                                           sensitive=False, deal_id=deal_id)
+    t = await portal_handoff.create_ticket(ctx, reason=topik if sensitive else alasan, question=q or alasan,
+                                           summary=inp["ringkasan"], sensitive=sensitive, deal_id=deal_id)
     return {"tiket": t, "pesan": f"Tiket {t['number']} dibuat; CS menghubungi paling lambat {portal_handoff.due_text(t['due_at'])}.",
             "summary": f"Diteruskan ke CS (tiket {t['number']})"}
 
@@ -306,6 +310,9 @@ def register_all():
                  "description": S}, ["unit_id", "category", "title"]), "propose", P, ajukan_klaim_garansi,
            "Menyiapkan klaim garansi"))
     R(Tool("serahkan_ke_cs", "Teruskan ke CS manusia sebagai tiket (tenggat 1x24 jam): bila pembeli minta staf, bila data tidak "
-           "tersedia dari alat, atau pertanyaan di luar kewenangan AI. ringkasan = ringkasan percakapan untuk CS.",
-           _obj({"alasan": S, "ringkasan": S, "deal_id": S}, ["alasan", "ringkasan"]), "handoff", P, serahkan_ke_cs,
+           "tersedia dari alat, atau pertanyaan di luar kewenangan AI. ringkasan = ringkasan percakapan untuk CS. topik: "
+           "diskon_nego / pembatalan_refund / janji_komitmen bila menyangkut diskon/nego, pembatalan/refund, atau janji/"
+           "komitmen (diteruskan ke Manajer Penjualan); selain itu umum.",
+           _obj({"alasan": S, "ringkasan": S, "deal_id": S, "topik": {"type": "string", "enum": list(TOPICS)}},
+                ["alasan", "ringkasan"]), "handoff", P, serahkan_ke_cs,
            "Meneruskan ke CS"))

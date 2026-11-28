@@ -28,11 +28,11 @@ async def owner(pu: dict) -> dict:
 
 
 async def owner_query(pu: dict) -> dict:
-    """Saringan pemilik yang sama sebagai potongan kueri Mongo."""
+    """Saringan pemilik komplain sebagai potongan kueri Mongo: kunci di atas, ditambah baris yang dibuat akun
+    portal ini sendiri (`portal_user_id`: tiket chat Tanya Estora tanpa deal, mis. pembeli reservasi > 1 unit)."""
     own = await owner(pu)
-    if own.get("customer_id"):
-        return {"customer_id": own["customer_id"]}
-    return {"deal_id": {"$in": own["deal_ids"]}}
+    key = {"customer_id": own["customer_id"]} if own.get("customer_id") else {"deal_id": {"$in": own["deal_ids"]}}
+    return {"$or": [key, {"portal_user_id": pu["id"]}]} if pu.get("id") else key
 
 
 async def active_deals(pu: dict) -> list:

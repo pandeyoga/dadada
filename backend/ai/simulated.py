@@ -32,6 +32,7 @@ SAMPLE_REPORT = {
 TRIAGE_KEYWORDS = (
     ("komplain", ("komplain", "rusak", "bocor")),
     ("diskon_nego", ("nego", "diskon")),
+    ("pembatalan_refund", ("batal", "refund", "uang kembali")),
     ("tagihan_pembayaran", ("tagihan", "va ", "bayar")),
     ("simulasi_kpr", ("cicil", "kpr", "gaji")),
     ("jadwal_survei", ("survei", "survey", "jadwal")),

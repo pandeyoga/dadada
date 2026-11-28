@@ -9,8 +9,7 @@ import pytest
 
 import complaint_intake
 import settings_store as ss
-from ai import actions, conversations, portal_handoff
-from ai.agent import BUDGET_MSG
+from ai import actions, conversations, portal_agent, portal_handoff
 from ai.client import set_override
 from ai.fake import FakeClaude
 from ai.tools import catalog, registry  # noqa: F401
@@ -195,7 +194,8 @@ async def test_portal_quota_and_budget(client, auth):
         set_override(fake2)
         evs = _events(await client.post(f"/api/portal/ai/conversations/{cid}/messages", headers=auth(tok),
                                         json={"text": "Tagihan saya berapa?"}))
-        assert [e["type"] for e in evs] == ["error"] and evs[0]["message"] == BUDGET_MSG and fake2.calls == []
+        # teks untuk pembeli, bukan "Hubungi pemilik/admin untuk menambah anggaran" (staf)
+        assert [e["type"] for e in evs] == ["error"] and evs[0]["message"] == portal_agent.BUYER_ERR and fake2.calls == []
         st = (await client.get("/api/portal/ai/status", headers=auth(tok))).json()["data"]
         assert st["budget_state"] == "stop" and st["quota"]["used"] == 2  # pesan yang ditolak anggaran tidak memakan kuota
     finally:
@@ -246,3 +246,54 @@ async def test_portal_cs_button_text_hands_off_deterministically(client, auth):
     evs = _events(r)
     assert [e["type"] for e in evs] == ["handoff", "text_delta", "done"], evs
     assert evs[0]["ticket"]["number"] and not fake.calls
+    assert portal_agent._wants_human("Saya ingin bicara dengan CS")  # 5 kata: frasa, bukan aturan <= 4 kata
+    assert not portal_agent._wants_human("Siapa sales saya?")  # pertanyaan, bukan minta staf
+
+
+async def test_portal_sensitive_backstop_when_triage_unsure(client, auth):
+    """Pemilah ragu pada "batal / uang kembali": penahan kata kunci tetap meneruskan ke Manajer Penjualan tanpa model
+    jawaban; `serahkan_ke_cs` dengan topik sensitif juga ke Manajer, bukan sales pemegang unit."""
+    await _enable()
+    pu, tok, _ = await _buyer("Hotel")
+    fake = FakeClaude([_tri("lainnya_tidak_yakin")])
+    set_override(fake)
+    cid = await _new_conv(client, auth, tok)
+    evs = _events(await client.post(f"/api/portal/ai/conversations/{cid}/messages", headers=auth(tok),
+                                    json={"text": "Saya mau batal, uang kembali?"}))
+    assert [e["type"] for e in evs] == ["handoff", "text_delta", "done"] and len(fake.calls) == 1, evs
+    mgr = await db.users.find_one({"org_id": ORG_ID, "role": "sales_manager", "is_active": {"$ne": False}},
+                                  {"_id": 0}, sort=[("created_at", 1)])
+    t = await db.complaints.find_one({"id": evs[0]["ticket"]["id"]}, {"_id": 0})
+    assert t["assigned_to"] == mgr["email"] and t["sensitive"] and t["handoff_reason"] == "pembatalan_refund"
+    assert "pembatalan atau pengembalian dana" in evs[1]["text"]
+    ctx = await _ctx(pu, tok)
+    res = await registry.run(ctx, "serahkan_ke_cs", {"alasan": "Pembeli menanyakan potongan harga",
+                                                     "ringkasan": "Pembeli minta potongan.", "topik": "diskon_nego"})
+    t2 = await db.complaints.find_one({"id": res["data"]["tiket"]["id"]}, {"_id": 0})
+    assert res["ok"] and t2["assigned_to"] == mgr["email"] and t2["assigned_role"] == "sales_manager" and t2["sensitive"]
+
+
+async def test_reservation_buyer_sees_own_chat_ticket_without_deal(client, auth):
+    """Pembeli reservasi (tanpa customer_id) dengan dua deal: tiket chat tanpa deal tetap terlihat olehnya sendiri
+    (`portal_user_id`), di `/portal/complaints` maupun `komplain_saya`, dan tidak oleh pembeli lain."""
+    lead_id, phone = new_id(), f"+62814{uuid.uuid4().int % 10**8:08d}"
+    await db.leads.insert_one({"id": lead_id, "org_id": ORG_ID, "name": "Pembeli India", "phone": phone, "created_at": now_iso()})
+    for i in range(2):
+        await db.deals.insert_one({"id": new_id(), "org_id": ORG_ID, "lead_id": lead_id, "customer_id": None,
+                                   "unit_id": new_id(), "project_id": "proj-portal-uji", "status": "reserved",
+                                   "assigned_to": f"sales{i}@sipro.co.id", "created_at": now_iso()})
+    pu = {"id": new_id(), "org_id": ORG_ID, "is_active": True, "customer_id": None, "lead_id": lead_id,
+          "name": "Pembeli India", "phone": phone, "email": None, "created_at": now_iso()}
+    await db.portal_users.insert_one(dict(pu))
+    tok = create_portal_token(pu)
+    ctx = await _ctx(pu, tok)
+    t = await portal_handoff.create_ticket(ctx, reason="minta_staf", question="Tolong hubungi saya soal reservasi",
+                                           summary="Pembeli minta dihubungi.", sensitive=False, deal_id=None)
+    doc = await db.complaints.find_one({"id": t["id"]}, {"_id": 0})
+    assert doc["deal_id"] is None and doc["customer_id"] is None and doc["portal_user_id"] == pu["id"]
+    mine = (await client.get("/api/portal/complaints", headers=auth(tok))).json()["data"]
+    assert t["id"] in [x["id"] for x in mine]
+    k = await registry.run(ctx, "komplain_saya", {})
+    assert k["ok"] and t["id"] in [x.get("id") for x in k["data"]["komplain"]], k
+    _o, other, _d = await _buyer("Juliet")
+    assert t["id"] not in [x["id"] for x in (await client.get("/api/portal/complaints", headers=auth(other))).json()["data"]]

@@ -76,6 +76,7 @@ async def create_ticket(ctx, *, reason: str, question: str, summary: str, sensit
         org_id=org, portal_user=pu, deal=deal, category="layanan", subject=subject, message=message,
         priority="high" if sensitive else "medium", sla_hours=SLA_HOURS, assigned_to=assignee,
         extra={"kind": ci.CHAT_KIND, "source": "ai_portal", "ai_conversation_id": ctx.conversation_id,
-               "handoff_reason": reason, "sensitive": bool(sensitive), "assigned_role": role},
+               "handoff_reason": reason, "sensitive": bool(sensitive), "assigned_role": role,
+               "portal_user_id": pu.get("id")},  # tiket tanpa deal/customer tetap terlihat oleh pembeli ini (portal_scope)
         notify_buyer_wa=False)
     return ticket_view(doc)

@@ -1,9 +1,10 @@
 """Agen CS pembeli di portal ("Tanya Estora", peran `buyer_cs`, kanal `portal`).
 
 Urutan satu pesan (`handle_message`): nonaktif -> berhenti -> kuota harian (`$inc` atomik `ai_portal_quota`) -> minta staf
-(kata `consent.HUMAN_WORDS`, <= 4 kata: tiket tanpa model; tidak memakan anggaran AI) -> anggaran `stop` -> pemilah
-(Haiku) -> topik terkunci (diskon/nego, janji/komitmen, pembatalan/refund: tiket ke Manajer Penjualan tanpa memanggil
-model jawaban) -> selain itu `agent.run_turn` dengan token portal pembeli (tanpa token staf / `ai_agent`).
+(kata manusia/staf/cs, <= 4 kata, atau frasa "bicara/hubungi/minta ... CS/staf": tiket tanpa model; tidak memakan anggaran
+AI) -> anggaran `stop` -> pemilah (Haiku) -> topik terkunci (diskon/nego, janji/komitmen, pembatalan/refund, menurut
+pemilah ATAU penahan kata kunci: tiket ke Manajer Penjualan tanpa memanggil model jawaban) -> selain itu `agent.run_turn`
+dengan token portal pembeli (tanpa token staf / `ai_agent`). Galat berorientasi staf diganti teks untuk pembeli.
 Privasi (UU PDP): pemberitahuan & "berhenti" dicatat di `ai_consents` (kunci `phone = "portal:<portal_user_id>"`,
 `channel: "portal"`) supaya tidak bertabrakan dengan indeks unik nomor WA.
 """
@@ -14,7 +15,7 @@ from typing import AsyncIterator
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
-from ai import agent, api_views, budget, config, consent, conversations, portal_handoff, triage
+from ai import agent, api_views, budget, config, conversations, portal_handoff, triage
 from ai.tools.registry import ToolContext
 from complaint_intake import CHAT_KIND
 from core_utils import WIB, new_id, now, now_iso
@@ -27,7 +28,19 @@ TOPIC = {"diskon_nego": "diskon atau negosiasi harga", "janji_komitmen": "janji 
          "pembatalan_refund": "pembatalan atau pengembalian dana"}
 DISABLED_MSG = "Asisten Tanya Estora belum tersedia. Silakan hubungi CS kami lewat menu Komplain."
 STOPPED_MSG = "Anda sudah berhenti memakai asisten. Pilih \"Aktifkan lagi\" di menu bila ingin memakainya kembali."
+BUYER_ERR = "Asisten sedang tidak bisa menjawab saat ini. Tekan \"Bicara dengan CS\" agar tim kami menghubungi Anda."
+_STAFF_ERR = re.compile(r"admin|pemilik|anggaran|kunci api|putaran alat", re.I)  # teks galat untuk staf, bukan pembeli
 _WORD = re.compile(r"[a-zA-Z]+")
+# Portal: tanpa "sales" ("Siapa sales saya?" adalah pertanyaan, bukan minta staf); frasa panjang lewat _HUMAN_PHRASE.
+HUMAN_WORDS = frozenset({"manusia", "staf", "staff", "cs"})
+_HUMAN_PHRASE = re.compile(r"(?:bicara|hubungi|sambungkan|minta).{0,20}\b(?:cs|staf|staff|manusia|admin|petugas)\b", re.I)
+# Penahan setelah pemilah: pemilah bisa ragu (< 0,6), menolak karena pola injeksi, atau salah kelas. Topik sensitif
+# tetap ke Manajer Penjualan (§9.1) tanpa model jawaban. Awalan kata (\b) + akhiran bebas: "dibatalkan", "bernego".
+SENSITIVE_RX = (
+    ("pembatalan_refund", re.compile(r"\b(?:di|mem|pem)?batal|\brefund|\buang\s+kembali", re.I)),
+    ("diskon_nego", re.compile(r"\bdiskon|\b(?:ber)?nego|\bpotongan", re.I)),
+    ("janji_komitmen", re.compile(r"\b(?:di|men)?(?:janji|jamin)", re.I)),
+)
 
 
 def _org(pu: dict) -> str:
@@ -142,7 +155,15 @@ async def conversation_view(conv_id: str, pu: dict) -> dict:
 # ---------------------------------------------------------------- serah ke CS deterministik
 def _wants_human(text: str) -> bool:
     words = [w.lower() for w in _WORD.findall(text or "")]
-    return bool(words) and len(words) <= 4 and bool(set(words) & consent.HUMAN_WORDS)
+    return (bool(words) and len(words) <= 4 and bool(set(words) & HUMAN_WORDS)) or bool(_HUMAN_PHRASE.search(text or ""))
+
+
+def _sensitive_topic(text: str):
+    return next((cat for cat, rx in SENSITIVE_RX if rx.search(text or "")), None)
+
+
+def _buyer_error(msg: str) -> str:
+    return BUYER_ERR if not msg or _STAFF_ERR.search(msg) else msg
 
 
 async def _recent(conv_id: str, n: int = 10) -> list:
@@ -212,11 +233,12 @@ async def handle_message(portal_user: dict, token: str, conv_id: str, text: str)
         return
     if (await budget.budget_state(org))["state"] == "stop":
         await _release_quota(pu)
-        yield {"type": "error", "message": agent.BUDGET_MSG}
+        yield {"type": "error", "message": BUYER_ERR}
         return
     tri = await triage.classify(org, text, hist, channel="portal")
-    if tri["category"] in SENSITIVE:
-        async for ev in _handoff(ctx, text, hist, sensitive=True, reason=tri["category"]):
+    topic = tri["category"] if tri["category"] in SENSITIVE else _sensitive_topic(text)
+    if topic:
+        async for ev in _handoff(ctx, text, hist, sensitive=True, reason=topic):
             yield ev
         return
     handoff_steps, ticket = set(), None
@@ -226,6 +248,8 @@ async def handle_message(portal_user: dict, token: str, conv_id: str, text: str)
             handoff_steps.add(ev.get("id"))
         elif kind == "action_proposed":
             ev = {**ev, "action": action_view(ev.get("action"))}
+        elif kind == "error":
+            ev = {**ev, "message": _buyer_error(ev.get("message"))}
         elif kind == "done" and ticket and ev.get("message_id"):
             await db.ai_messages.update_one({"id": ev["message_id"]}, {"$set": {"ticket": ticket}})
         yield ev
