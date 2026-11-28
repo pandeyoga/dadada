@@ -196,7 +196,7 @@ async def revert_verification(org: str, intake_id: str, actor: str, reason: str)
 
 
 async def listing(org: str = ORG_ID, *, state: str = None, customer_id: str = None,
-                  deal_id: str = None, skip: int = 0, limit: int = 50) -> dict:
+                  deal_id: str = None, deal_ids: list = None, skip: int = 0, limit: int = 50) -> dict:
     q = {"org_id": org}
     if state:
         q["state"] = state
@@ -204,6 +204,8 @@ async def listing(org: str = ORG_ID, *, state: str = None, customer_id: str = No
         q["customer_id"] = customer_id
     if deal_id:
         q["deal_id"] = deal_id
+    if deal_ids is not None:  # daftar KOSONG = tidak ada baris, BUKAN "tanpa saringan" (portal lead)
+        q["deal_id"] = {"$in": [i for i in deal_ids if not deal_id or i == deal_id]}
     total = await db.payment_intakes.count_documents(q)
     rows = await db.payment_intakes.find(q, {"_id": 0}).sort("created_at", -1) \
         .skip(skip).limit(limit).to_list(limit)

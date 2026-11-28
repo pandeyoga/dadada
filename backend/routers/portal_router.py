@@ -24,6 +24,7 @@ from engine import build_s_curve, create_notification
 from pdf_utils import build_document_pdf
 import booking_fee as bf
 from portal_security import create_portal_token, get_portal_user
+import portal_scope as scope
 import complaint_intake as ci
 from complaint_intake import buyer_customer as _customer, buyer_deals as _deals
 from notifications import send_whatsapp, gen_otp
@@ -315,8 +316,7 @@ async def submit_payment_proof(payload: PaymentProofIn,
 @router.get("/payments/submissions")
 async def my_payment_submissions(pu: dict = Depends(get_portal_user)):
     """Riwayat bukti transfer + statusnya (termasuk ALASAN bila ditolak)."""
-    out = await intake.listing(pu.get("org_id", ORG_ID), customer_id=pu.get("customer_id"),
-                               limit=100)
+    out = await intake.listing(pu.get("org_id", ORG_ID), limit=100, **await scope.owner(pu))
     return {"data": serialize_doc(out["data"]), "total": out["total"],
             "summary": out["summary"]}
 
@@ -428,7 +428,7 @@ async def portal_file(file_id: str, request: Request, variant: str = Query(None)
     if not allowed:
         # Fase 47B: bukti transfer yang DIUNGGAH pelanggan itu sendiri juga harus bisa
         # dilihat kembali olehnya (tanpa ini, riwayat bukti hanya berisi nama berkas).
-        allowed = await db.files.count_documents(
+        allowed = cust.get("id") and await db.files.count_documents(
             {"org_id": org, "id": file_id, "owner_type": "payment_proof",
              "portal_customer_id": cust.get("id"), "is_deleted": False})
     if not allowed:
@@ -522,7 +522,7 @@ async def portal_reference(_pu: dict = Depends(get_portal_user)):
 @router.get("/complaints")
 async def list_complaints(pu: dict = Depends(get_portal_user)):
     org = pu.get("org_id", ORG_ID)
-    rows = await db.complaints.find({"org_id": org, "customer_id": pu.get("customer_id")},
+    rows = await db.complaints.find({"org_id": org, **await scope.owner_query(pu)},
                                     {"_id": 0}).sort("created_at", -1).to_list(100)
     return {"data": serialize_doc(rows)}
 
@@ -611,7 +611,7 @@ async def portal_create_claim(payload: PortalWarrantyClaim,
 @router.get("/warranty/claims")
 async def portal_claims(pu: dict = Depends(get_portal_user)):
     org = pu.get("org_id", ORG_ID)
-    out = await we.list_claims(org, customer_id=pu.get("customer_id"))
+    out = await we.list_claims(org, **await scope.owner(pu))
     return {"data": serialize_doc(out["rows"]), "total": out["total"],
             "detail": out["detail"]}
 
@@ -625,9 +625,9 @@ async def portal_claims(pu: dict = Depends(get_portal_user)):
 async def _my_handovers(pu: dict) -> list:
     org = pu.get("org_id", ORG_ID)
     unit_ids = [u["id"] for u in await _my_units(pu)]
-    q = {"org_id": org, "$or": [{"customer_id": pu.get("customer_id")}]}
-    if unit_ids:
-        q["$or"].append({"unit_id": {"$in": unit_ids}})
+    own_cid = pu.get("customer_id")  # kosong (akun reservasi) cocok ke BAST orang lain: jangan disaring
+    q = {"org_id": org, "$or": [{"unit_id": {"$in": unit_ids}}]
+         + ([{"customer_id": own_cid}] if own_cid else [])}
     return await db.unit_handovers.find(q, {"_id": 0}).sort("handed_over_at", -1).to_list(50)
 
 
@@ -718,8 +718,9 @@ async def _my_claim(pu: dict, cid: str) -> dict:
     org = pu.get("org_id", ORG_ID)
     doc = await db.warranty_claims.find_one({"id": cid, "org_id": org}, {"_id": 0})
     unit_ids = {u["id"] for u in await _my_units(pu)}
-    if not doc or (doc.get("customer_id") != pu.get("customer_id")
-                   and doc.get("unit_id") not in unit_ids):
+    own_cid = pu.get("customer_id")  # null == null BUKAN bukti milik (akun reservasi tanpa customer)
+    if not doc or not ((own_cid and doc.get("customer_id") == own_cid)
+                       or doc.get("unit_id") in unit_ids):
         raise HTTPException(status_code=404,
                             detail="Klaim garansi tidak ditemukan atas nama Anda.")
     return doc

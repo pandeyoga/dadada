@@ -278,12 +278,14 @@ async def close(org: str, cid: str, *, actor: str, ack_by: str = None,
 # ======================================================================== laporan
 async def list_claims(org: str, *, unit_id: str = None, project_id: str = None,
                       state: str = None, category: str = None,
-                      customer_id: str = None) -> dict:
+                      customer_id: str = None, deal_ids: list = None) -> dict:
     q = {"org_id": org}
     for key, val in (("unit_id", unit_id), ("project_id", project_id), ("state", state),
                      ("category", category), ("customer_id", customer_id)):
         if val:
             q[key] = val
+    if deal_ids is not None:  # daftar KOSONG = tidak ada baris, BUKAN "tanpa saringan" (portal lead)
+        q["deal_id"] = {"$in": list(deal_ids)}
     rows = await db.warranty_claims.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     return {"rows": rows, "total": len(rows),
             "summary": _tally(rows),

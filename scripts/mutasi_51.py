@@ -299,8 +299,8 @@ MUTATIONS = [
          '        {"org_id": pu.get("org_id", ORG_ID)}, {"_id": 0}).to_list(500)}')]),
     ("M42 klaim garansi orang lain bisa dibuka & diakui pembeli ini", G_C, [
         ("backend/routers/portal_router.py",
-         '    if not doc or (doc.get("customer_id") != pu.get("customer_id")\n'
-         '                   and doc.get("unit_id") not in unit_ids):',
+         '    if not doc or not ((own_cid and doc.get("customer_id") == own_cid)\n'
+         '                       or doc.get("unit_id") in unit_ids):',
          "    if not doc:")]),
     ("M43 klaim yang belum diperiksa mutu bisa langsung ditutup atas pengakuan", G_C, [
         ("backend/warranty_engine.py",
