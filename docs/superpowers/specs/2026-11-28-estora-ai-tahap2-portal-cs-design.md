@@ -81,7 +81,7 @@ Tambahan:
   `ai.budget` (konteks `channel: "portal"`).
 - `ToolContext`: kanal `portal`, `token` = token portal pembeli, `user` = portal user, `verified = True` (login OTP), tanpa alat staf.
 - Klasifikasi topik terkunci memakai pemilah tahap 1 (`ai.triage`) atau aturan di prompt + alat `serahkan_ke_cs`; pilihan di builder,
-  asalkan topik terkunci tidak pernah dijawab substansinya (ada uji). Arah dan pemisahan tiket: lihat §10.
+  asalkan topik terkunci tidak pernah dijawab substansinya (ada uji). Arah dan pemisahan tiket: lihat §9.
 - Frontend: `components/portal/ai/` (tombol, panel, pesan, kartu konfirmasi, stream SSE dengan token portal), label "Mode simulasi"
   bila tanpa kunci, pemberitahuan privasi pada pembukaan pertama, tombol "Bicara dengan CS".
 - Koleksi: memakai `ai_conversations`/`ai_messages`/`ai_actions`/`ai_usage` (kanal `portal`); kuota harian di `ai_usage` atau
@@ -91,7 +91,7 @@ Tambahan:
   (5) agen mati di Pengaturan → widget menampilkan "belum tersedia", (6) sisa tahap 1: biaya web dihitung, ringkasan WA dibuat,
   lampiran sebagai berkas. Gate `scripts/verify_ai.py` ditambah invarian portal (tidak ada token staf/`ai_agent` di giliran portal).
 
-## 10. Keputusan setelah tinjauan builder (28 Nov 2026)
+## 9. Keputusan setelah tinjauan builder (28 Nov 2026)
 Keputusan pemilik:
 1. **Arah tiket serah-ke-CS**: pertanyaan biasa / "minta staf" → **sales pemegang unit** pembeli; topik sensitif (diskon/nego,
    pembatalan/refund, janji/komitmen) → **Manajer Penjualan** (pengguna aktif ber-peran `sales_manager` di org; bila tidak ada →
@@ -120,6 +120,6 @@ Keputusan builder (bisa dikoreksi pemilik):
    `portal_user.id`.
 10. Model: Opus 5.5 effort `medium` untuk jawaban (perkiraan Rp500–800 per pertanyaan), Haiku 5.5 untuk ringkasan WA.
 
-## 11. Diserahkan ke builder
+## 10. Diserahkan ke builder
 Nama berkas/komponen persis, bentuk respons API, desain visual widget (mengikuti gaya portal), cara deteksi topik terkunci,
 penyimpanan kuota harian, model per tugas (default: Opus 5.5 effort `medium` untuk jawaban, Haiku 5.5 untuk ringkasan WA).
