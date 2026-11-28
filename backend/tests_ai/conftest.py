@@ -5,7 +5,8 @@ from pathlib import Path
 
 # Env harus diset SEBELUM `server`/`db` diimpor.
 DB_NAME = os.environ.get("AI_TEST_DB", "estora_ai_test")
-os.environ["MONGO_URL"] = os.environ.get("AI_TEST_MONGO_URL", "mongodb://localhost:27017")
+if not os.environ.get("MONGO_URL"):
+    raise SystemExit("Set MONGO_URL ke MongoDB lokal uji (lihat tests_ai/README.md) sebelum menjalankan tests_ai.")
 os.environ["DB_NAME"] = DB_NAME
 os.environ.setdefault("JWT_SECRET", "test-secret-estora-ai-0123456789abcdef")
 os.environ["SEED_DEMO_USERS"] = "true"

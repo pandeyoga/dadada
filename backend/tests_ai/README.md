@@ -31,3 +31,15 @@ pip install --ignore-installed pyparsing -r /tmp/req.txt
 cd backend && python -m pytest tests_ai -q
 ```
 `tests_ai/pytest.ini` menggantikan `backend/pytest.ini` (tanpa xdist, event loop sesi tunggal).
+
+## Variabel lingkungan wajib
+
+`MONGO_URL` harus diset sebelum pytest (conftest tidak menyimpan URI di kode, sesuai gate kepatuhan):
+
+```bash
+export MONGO_URL=mongodb://127.0.0.1:27017
+cd backend && python -m pytest tests_ai -q
+```
+
+`AI_TEST_DB` (opsional, default `estora_ai_test`) memilih nama DB uji, berguna bila beberapa proses uji berbagi satu mongod.
+
