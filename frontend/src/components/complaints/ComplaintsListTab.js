@@ -28,7 +28,7 @@ export default function ComplaintsListTab({ onChanged }) {
   const { labelOf, options } = useReference();
   const { query, setQuery, reset, apiParams, activeCount } = useListQuery({
     filters: {
-      status: [], priority: [], category: [], sla: "", created_from: "", created_to: "",
+      status: [], priority: [], category: [], sla: "", kind: "", created_from: "", created_to: "",
     },
     sort: "created_at", direction: "desc", limit: 25,
   });
@@ -54,7 +54,15 @@ export default function ComplaintsListTab({ onChanged }) {
       key: "subject", header: "Subjek", sortable: true, width: "28%",
       render: (c) => (
         <div className="min-w-0">
-          <p className="truncate font-medium text-primary">{c.subject}</p>
+          <p className="truncate font-medium text-primary">
+            {c.kind === "pertanyaan_chat" ? (
+              <span data-testid="complaint-chat-label"
+                className="mr-1.5 rounded bg-indigo-100 px-1.5 py-0.5 text-[11px] font-semibold text-indigo-700">
+                Pertanyaan dari chat
+              </span>
+            ) : null}
+            {c.subject}
+          </p>
           <p className="text-xs text-muted-foreground">
             {labelOf("complaint_category", c.category)}
           </p>
@@ -123,6 +131,8 @@ export default function ComplaintsListTab({ onChanged }) {
         options: options("complaint_category") },
       slaFilter(options("sla_state"),
         [{ value: "breached", label: "Lewat SLA penyelesaian komplain" }]),
+      { key: "kind", label: "Jenis", type: "select",
+        options: [{ value: "pertanyaan_chat", label: "Pertanyaan dari chat" }] },
       { key: "created", label: "Tanggal masuk", type: "daterange",
         fromKey: "created_from", toKey: "created_to" },
     ]} />

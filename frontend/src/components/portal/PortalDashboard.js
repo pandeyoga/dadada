@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { LayoutDashboard, Wallet, HardHat, FileText, MessageSquareWarning, LogOut, Building2, Map, ShieldCheck, Ban, CreditCard } from "lucide-react";
 import { usePortalAuth } from "@/context/PortalAuthContext";
 import { PORTAL, P50, P56 } from "@/constants/testIds";
+import PortalAiButton from "@/components/portal/ai/PortalAiButton";
 import OverviewPanel from "@/components/portal/panels/OverviewPanel";
 import PaymentsPanel from "@/components/portal/panels/PaymentsPanel";
 import KprPanel from "@/components/portal/panels/KprPanel";
@@ -68,6 +69,7 @@ export default function PortalDashboard() {
       <main className="mx-auto max-w-5xl px-4 py-6">
         <Active />
       </main>
+      <PortalAiButton />
     </div>
   );
 }

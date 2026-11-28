@@ -4,11 +4,12 @@ import { ArrowLeft } from "lucide-react";
 import AutonomyTable, { normalizeCategories } from "@/components/ai/settings/AutonomyTable";
 import ChannelCards from "@/components/ai/settings/ChannelCards";
 import BudgetCard from "@/components/ai/settings/BudgetCard";
+import PortalAgentCard from "@/components/ai/settings/PortalAgentCard";
 import ApiKeyCard from "@/components/ai/settings/ApiKeyCard";
 import PrivacyCard from "@/components/ai/settings/PrivacyCard";
 import { getSettings, getAccuracy, getChannels, getUsage, saveSettings, friendlyError } from "@/components/ai/aiApi";
 
-const NAV = [["otonomi", "Kemandirian agen"], ["kanal", "Kanal WhatsApp"], ["biaya", "Batas biaya"],
+const NAV = [["otonomi", "Kemandirian agen"], ["kanal", "Kanal WhatsApp"], ["portal", "Asisten portal"], ["biaya", "Batas biaya"],
   ["kunci", "Kunci API"], ["privasi", "Privasi & data"]];
 
 export default function AiSettingsPage() {
@@ -55,6 +56,7 @@ export default function AiSettingsPage() {
         <AutonomyTable categories={cats} threshold={settings?.accuracy_threshold ?? 0.95}
           onThreshold={setThreshold} onChanged={load} />
         {channels ? <ChannelCards channels={channels} onChanged={load} /> : null}
+        <PortalAgentCard settings={settings} usage={usage} onChanged={load} />
         <BudgetCard settings={settings} usage={usage} onChanged={load} />
         <ApiKeyCard settings={settings} onChanged={load} />
         <PrivacyCard settings={settings} onChanged={load} />
