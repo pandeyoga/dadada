@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """verify_ai.py — gate invarian Estora AI tahap 1 (in-process, FakeClaude, tanpa jaringan/kunci API).
 
-Lima invarian yang tidak boleh rusak diam-diam:
+Delapan invarian yang tidak boleh rusak diam-diam:
   1. AI tidak mengubah koleksi bisnis tanpa `ai_actions` berstatus `executed` (usulan hanya pending).
   2. Tidak ada pesan `channel: "unofficial"` dari AI otomatis (`ai-auto` / ai_generated).
   3. Anggaran `stop` -> 0 balasan otomatis (dan 0 panggilan model).
   4. Data `wa_self` tidak pernah lintas kontak (pembeli lain ditolak; tak terverifikasi tak punya alatnya).
   5. Setiap `ai_actions` yang `executed` punya entri audit (`ai_action_executed`, meta.action_id).
+  6. Setiap `ai_actions` kanal `portal` yang `executed` dieksekusi pemiliknya (owner_id == executed_by),
+     bukan staf, dan audit-nya mencatat pembeli (bukan token staf).
+  7. Tidak ada `ai_usage` kanal `portal` saat `ai.portal_enabled` mati.
+  8. Tiket `kind: "pertanyaan_chat"` tidak terhitung di statistik komplain.
 
 Butuh MongoDB lokal: `MONGO_URL=mongodb://127.0.0.1:27017 python3 scripts/verify_ai.py`.
 DB `estora_ai_gate` di-drop di awal. Exit 0 = PASSED, 1 = FAILED.
@@ -243,6 +247,76 @@ async def main():
         check(4, rr["ok"] is False, "alat wa_self ditolak saat belum terverifikasi")
 
         check(1, await fingerprint(BUSINESS) == wa_before, "alur agen WA (draf/otomatis/anggaran) tidak mengubah koleksi bisnis")
+        # ------------------------------------------------ 6-8: agen portal (Tanya Estora)
+        print("Invarian 6-8 — agen portal: aksi oleh pemilik, saklar mati = tanpa biaya, tiket chat di luar statistik")
+        from portal_security import create_portal_token
+        phone = "+628139990001"
+        lead_id, cust_id, deal_id, unit_id = new_id(), new_id(), new_id(), new_id()
+        await db.leads.insert_one({"id": lead_id, "org_id": ORG_ID, "name": "Pembeli Gate", "phone": phone, "created_at": now_iso()})
+        await db.customers.insert_one({"id": cust_id, "org_id": ORG_ID, "name": "Pembeli Gate", "phone": phone, "lead_id": lead_id,
+                                       "created_at": now_iso()})
+        await db.units.insert_one({"id": unit_id, "org_id": ORG_ID, "code": "GATE-1", "type": "36", "project_id": "proj-gate",
+                                   "status": "sold", "price": 500_000_000})
+        await db.deals.insert_one({"id": deal_id, "org_id": ORG_ID, "lead_id": lead_id, "customer_id": cust_id, "unit_id": unit_id,
+                                   "project_id": "proj-gate", "status": "booked", "price": 500_000_000,
+                                   "assigned_to": "sales@sipro.co.id", "created_at": now_iso()})
+        pu = {"id": new_id(), "org_id": ORG_ID, "is_active": True, "customer_id": cust_id, "lead_id": None,
+              "name": "Pembeli Gate", "phone": phone, "email": None, "created_at": now_iso()}
+        await db.portal_users.insert_one(dict(pu))
+        ptok = create_portal_token(pu)
+        phdr = {"Authorization": f"Bearer {ptok}"}
+        portal_usage = {"org_id": ORG_ID, "context.channel": "portal"}
+
+        await ss.set_value("ai.portal_enabled", False, actor="gate", reason="gate", org_id=ORG_ID)
+        rr = await http.post("/api/portal/ai/conversations", headers=phdr)
+        check(7, rr.status_code == 403, "saklar portal mati -> percakapan baru ditolak (403)")
+        set_override(FakeClaude([]))
+        check(7, await db.ai_usage.count_documents(portal_usage) == 0, "saklar mati -> 0 baris ai_usage kanal portal")
+
+        await ss.set_value("ai.portal_enabled", True, actor="gate", reason="gate", org_id=ORG_ID)
+        pc = (await http.post("/api/portal/ai/conversations", headers=phdr)).json()["data"]["id"]
+        on_fake = FakeClaude([tri("lainnya_tidak_yakin"), txt("Halo, ada yang bisa dibantu?")])
+        set_override(on_fake)
+        await http.post(f"/api/portal/ai/conversations/{pc}/messages", headers=phdr, json={"text": "Halo apa kabar hari ini"})
+        check(7, len(on_fake.calls) > 0, "kontrol: saklar menyala -> model dipanggil (sumber biaya nyata; gate tidak hampa)")
+        await ss.set_value("ai.portal_enabled", False, actor="gate", reason="gate", org_id=ORG_ID)
+        n_usage = await db.ai_usage.count_documents(portal_usage)
+        off_fake = FakeClaude([tri("lainnya_tidak_yakin"), txt("tidak boleh")])
+        set_override(off_fake)
+        rr = await http.post(f"/api/portal/ai/conversations/{pc}/messages", headers=phdr, json={"text": "Halo lagi"})
+        check(7, rr.status_code == 403 and not off_fake.calls and await db.ai_usage.count_documents(portal_usage) == n_usage,
+              "saklar dimatikan lagi -> pesan ditolak, 0 panggilan model, tidak ada baris ai_usage portal baru")
+        await ss.set_value("ai.portal_enabled", True, actor="gate", reason="gate", org_id=ORG_ID)
+
+        pctx = ToolContext(org_id=ORG_ID, user=pu, token=ptok, channel="portal", conversation_id=pc, verified=True, role="buyer_cs")
+        prop = await registry.run(pctx, "buat_komplain", {"deal_id": deal_id, "kategori": "konstruksi", "subjek": "Atap bocor gate",
+                                                          "pesan": "Atap bocor saat hujan deras."})
+        aid = prop["data"]["action_id"]
+        cf = await http.post(f"/api/portal/ai/actions/{aid}/confirm", headers=phdr)
+        check(6, cf.status_code == 200, "pembeli mengonfirmasi usulan komplain miliknya")
+        staff_ids = {u["id"] for u in await db.users.find({"org_id": ORG_ID}, {"id": 1}).to_list(500)}
+        pexec = await db.ai_actions.find({"channel": "portal", "status": "executed"}, {"_id": 0}).to_list(500)
+        check(6, len(pexec) >= 1, "ada aksi portal executed untuk diperiksa")
+        for a in pexec:
+            audit = await db.audit_logs.find_one({"action": "ai_action_executed", "meta.action_id": a["id"]}) or {}
+            meta = audit.get("meta", {})
+            check(6, a.get("owner_id") == a.get("executed_by") and a["executed_by"] not in staff_ids
+                  and meta.get("portal_user_id") == a.get("owner_id"),
+                  f"aksi portal {a['id'][:8]} dieksekusi pemiliknya (bukan staf), audit mencatat pembeli")
+
+        chat_before = await db.complaints.count_documents({"org_id": ORG_ID, "kind": "pertanyaan_chat"})
+        set_override(FakeClaude([]))
+        await http.post(f"/api/portal/ai/conversations/{pc}/messages", headers=phdr, json={"text": "Bicara dengan CS"})
+        chat_after = await db.complaints.count_documents({"org_id": ORG_ID, "kind": "pertanyaan_chat"})
+        non_chat = await db.complaints.count_documents({"org_id": ORG_ID, "kind": {"$ne": "pertanyaan_chat"}})
+        check(8, chat_after > chat_before, "kontrol: serah ke CS melahirkan tiket pertanyaan_chat (gate tidak hampa)")
+        st = (await http.get("/api/complaints/stats", headers=hdr)).json()["data"]
+        lst = (await http.get("/api/complaints", headers=hdr, params={"limit": 200})).json()
+        check(8, st["total"] == non_chat and lst["counts"]["total"] == non_chat,
+              f"statistik komplain ({st['total']}) hanya menghitung komplain asli ({non_chat}), bukan {chat_after} tiket chat")
+        await ss.set_value("ai.portal_enabled", False, actor="gate", reason="gate", org_id=ORG_ID)
+        set_override(None)
+
         await http.aclose()
     try:
         import engine

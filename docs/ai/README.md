@@ -181,9 +181,9 @@ cd backend && python -m pytest tests_ai -q
 
 Uji frontend: `cd frontend && yarn test --watchAll=false src/components/ai`.
 Gerbang invarian AI: `MONGO_URL=mongodb://127.0.0.1:27017 python3 scripts/verify_ai.py` (in-process, DB `estora_ai_gate`
-di-drop tiap run). Memeriksa lima hal: (1) AI tidak mengubah data bisnis tanpa aksi `executed`, (2) tidak ada balasan
+di-drop tiap run). Memeriksa delapan hal: (1) AI tidak mengubah data bisnis tanpa aksi `executed`, (2) tidak ada balasan
 otomatis lewat kanal tidak resmi, (3) anggaran 100% menghentikan balasan otomatis, (4) data pembeli tidak lintas kontak,
-(5) setiap aksi `executed` punya entri Audit. Gerbang ini juga terdaftar di `scripts/run_all_gates.sh`. Tanpa `MONGO_URL`
+(5) setiap aksi `executed` punya entri Audit, (6) aksi kanal portal hanya dieksekusi pemiliknya (pembeli, bukan staf), (7) saklar portal mati berarti nol panggilan model dan nol biaya kanal portal, (8) tiket chat portal tidak masuk statistik komplain. Gerbang ini juga terdaftar di `scripts/run_all_gates.sh`. Tanpa `MONGO_URL`
 gerbang ini **dilewati** (mencetak `SKIPPED`, exit 3) dan `run_all_gates.sh` menampilkannya sebagai `SKIP`, bukan lulus:
 ekspor `MONGO_URL` sebelum menjalankan semua gerbang.
 
@@ -192,3 +192,33 @@ Tangkapan layar mode simulasi ada di `docs/ai/screens/` (Copilot, persetujuan, I
 **Uji manual live** (hanya setelah kunci diisi): jalankan Tes koneksi, tanya satu pertanyaan stok di Copilot, minta satu aksi
 dan cek kartu persetujuan serta entri Audit, lalu kirim satu pesan uji dari nomor sendiri ke nomor resmi dan lihat drafnya
 di Inbox. Biarkan semua kategori di Draf sampai akurasi terbukti.
+
+## 13. Agen portal (Tanya Estora)
+
+Asisten AI untuk pembeli di Portal Pembeli (tombol "Tanya Estora"). Ia menjawab tagihan, progres rumah, dokumen, dan status
+komplain, dan hanya membaca data pembeli yang sedang login (dipaksa ulang per transaksi/unit, bukan hanya oleh model).
+
+- **Saklar**: Pengaturan AI > "Asisten portal pembeli" (`ai.portal_enabled`). **Default mati.** Saat mati, portal menampilkan
+  "Asisten belum tersedia", tidak ada panggilan model dan tidak ada biaya. Mengubahnya meminta alasan (tercatat di Audit).
+- **Batas harian**: 30 pesan per pembeli per hari (`ai.portal_daily_limit`, 1-500, hitungan hari WIB). Sisa kuota tampil di
+  panel. Pesan "Bicara dengan CS" tetap dihitung agar tiket tidak bisa dibanjiri.
+- **Anggaran bersama**: biaya portal masuk anggaran AI bulanan yang sama dengan Copilot dan WhatsApp (kartu Anggaran;
+  rincian per kanal web/wa/portal di `GET /api/ai/usage` > `by_channel`, dalam rupiah). Di 100% asisten berhenti menjawab,
+  tetapi permintaan bicara dengan CS tetap membuat tiket (tanpa model, tanpa biaya).
+- **Serah ke CS (tiket chat)**: pertanyaan biasa atau permintaan bicara dengan staf menjadi tiket untuk sales unit tersebut
+  (sales pemilik transaksi). Topik sensitif (diskon/negosiasi harga, janji/komitmen, pembatalan/pengembalian dana) tidak
+  dijawab AI dan diteruskan ke Manajer Penjualan, atau owner bila tidak ada manajer. Pembeli menerima nomor tiket dan batas
+  balasan **24 jam**; satu tugas SM-09 dan notifikasi staf dibuat. Tiket ini berjenis `pertanyaan_chat` (lencana "Pertanyaan
+  dari chat" di Komplain, filter Jenis) dan **tidak dihitung** di statistik/hitungan komplain maupun pengingat SLA komplain.
+- **Konfirmasi pembeli**: membuat komplain atau mengajukan klaim garansi selalu lewat kartu "Kirim ... ini?" dan baru
+  berjalan saat pembeli menekan Kirim (sekali saja, memakai token pembeli sendiri; staf tidak bisa menyetujuinya).
+- **Privasi**: pemberitahuan penggunaan AI tampil sekali pada pembukaan pertama (teksnya bisa diubah di kartu pengaturan).
+  Pembeli dapat memilih "Berhenti pakai asisten" (dan "Pakai asisten lagi"), serta "Hapus riwayat chat" untuk menghapus semua
+  percakapan portalnya. Persetujuan disimpan di `ai_consents` dengan kunci `portal:<id pengguna portal>`.
+
+Sisa pekerjaan tahap 1 yang sudah ditutup bersamaan: biaya riset web (model sonnet + pencarian web dihitung dan
+memicu peringatan anggaran), ringkasan percakapan WhatsApp, dan lampiran Copilot diperlakukan sebagai rujukan (tiga lampiran
+terakhir diperluas, berkas > 8 MB ditolak 413).
+
+Tangkapan layar (mode simulasi, saklar portal dinyalakan): `screens/05-portal-tanya-estora.png`, `05b-portal-ponsel.png`,
+`06-portal-konfirmasi.png`, `07-portal-tiket-cs.png`, `08-pengaturan-portal.png`.
