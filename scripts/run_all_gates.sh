@@ -141,6 +141,11 @@ GATES=(
   # `balanced`), dan saldo GL dicocokkan dengan buku pembantu AP/retensi/kewajiban kontrak/
   # komisi/kas-bank; selisih sah (tagihan vendor belum disetujui) disebut sampai rupiahnya.
   verify_gl_reconciliation.py
+  # Estora AI tahap 1 — 5 invarian AI (aksi hanya lewat ai_actions executed + audit, tak ada auto-send
+  # lewat kanal tidak resmi, anggaran stop = 0 balasan otomatis, wa_self tak lintas kontak). BERBEDA dari
+  # gate lain: berjalan in-process dengan FakeClaude (tanpa server hidup) dan butuh env MONGO_URL
+  # (DB `estora_ai_gate` di-drop tiap run). Tanpa MONGO_URL gate ini GAGAL dengan pesan jelas.
+  verify_ai.py
 )
 
 fail=0

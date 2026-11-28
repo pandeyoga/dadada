@@ -19,7 +19,7 @@ Semua pengaturan ada di **Estora AI → Pengaturan AI** (`/ai/settings`). Halama
 | Mode | Perilaku |
 |---|---|
 | Mati | Semua fitur AI berhenti. |
-| Simulasi | Tanpa kunci. Jawaban berskrip, bertanda "Data contoh" / "mode simulasi". Alat dan kartu persetujuan tetap berjalan sehingga alur bisa dicoba. Tidak ada biaya. |
+| Simulasi | Tanpa kunci. Jawaban berskrip, bertanda "Data contoh" / "mode simulasi". Alat dan kartu persetujuan tetap berjalan sehingga alur bisa dicoba. Di WhatsApp, pemilah memakai kata kunci sederhana (bukan AI) dan draf diawali "[Draf simulasi, bukan AI sungguhan]"; semua tetap berupa draf, tidak ada balasan otomatis. Tidak ada biaya. |
 | Live | Memanggil Claude sungguhan. Perlu kunci API valid. |
 
 Tanpa kunci, mode efektif tetap simulasi walau dipilih live. Mulai dari simulasi untuk melatih tim, pindah ke live setelah
@@ -175,8 +175,12 @@ cd backend && python -m pytest tests_ai -q
 ```
 
 Uji frontend: `cd frontend && yarn test --watchAll=false src/components/ai`.
-Gerbang invarian AI: `python3 scripts/verify_ai.py` (AI tidak menulis tanpa aksi tereksekusi, kanal tidak resmi tidak
-pernah otomatis, anggaran 100% menghentikan balasan otomatis).
+Gerbang invarian AI: `MONGO_URL=mongodb://127.0.0.1:27017 python3 scripts/verify_ai.py` (in-process, DB `estora_ai_gate`
+di-drop tiap run). Memeriksa lima hal: (1) AI tidak mengubah data bisnis tanpa aksi `executed`, (2) tidak ada balasan
+otomatis lewat kanal tidak resmi, (3) anggaran 100% menghentikan balasan otomatis, (4) data pembeli tidak lintas kontak,
+(5) setiap aksi `executed` punya entri Audit. Gerbang ini juga terdaftar di `scripts/run_all_gates.sh`.
+
+Tangkapan layar mode simulasi ada di `docs/ai/screens/` (Copilot, persetujuan, Inbox, Pengaturan AI).
 
 **Uji manual live** (hanya setelah kunci diisi): jalankan Tes koneksi, tanya satu pertanyaan stok di Copilot, minta satu aksi
 dan cek kartu persetujuan serta entri Audit, lalu kirim satu pesan uji dari nomor sendiri ke nomor resmi dan lihat drafnya
