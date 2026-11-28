@@ -262,6 +262,8 @@ async def refresh(request: Request, response: Response):
                             detail="Akun Anda tidak ditemukan lagi. Hubungi admin.")
     if not user.get("is_active", True):
         raise session_error(SESSION_REVOKED, status_code=403)
+    if user.get("role") == "ai_agent":  # akun layanan Estora AI: tidak punya sesi yang bisa diperpanjang
+        raise session_error(SESSION_REVOKED, status_code=403)
     user["home_org_id"] = user.get("org_id")
     await _tenant_gate(user)
 

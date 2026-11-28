@@ -336,7 +336,7 @@ GROUPS: dict = {
             _o("dm_staff", "Staf Digital Marketing"),
             _o("finance_manager", "Supervisor Keuangan"),
             _o("legal_admin", "Admin Legal & Kepatuhan"),
-            _o("ai_agent", "Estora AI (layanan)"),
+            # `ai_agent` sengaja TIDAK ada di sini: khusus akun layanan Estora AI, tidak boleh diberikan ke manusia.
         ],
     },
     # ================= Fase 26 — sisa vocabulary yang tadinya tercecer =================

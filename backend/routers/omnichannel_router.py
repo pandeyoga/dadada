@@ -309,7 +309,11 @@ async def delete_template(tmpl_id: str,
 @router.get("/channels")
 async def list_channels(user: dict = Depends(require_permission("channels", "view"))):
     org = user.get("org_id", ORG_ID)
-    rows = await db.channel_accounts.find({"org_id": org}, {"_id": 0}).sort("created_at", 1).to_list(100)
+    # Baris rahasia (kunci API Anthropic, gateway WA tidak resmi) punya endpoint sendiri dan tidak pernah
+    # dikembalikan di sini; bidang terenkripsi/hash juga dibuang dari baris lain.
+    rows = await db.channel_accounts.find({"org_id": org, "code": {"$nin": ["anthropic", "wa_unofficial"]}},
+                                          {"_id": 0}).sort("created_at", 1).to_list(100)
+    rows = [{k: v for k, v in r.items() if not k.endswith(("_enc", "_hash"))} for r in rows]
     return {"data": serialize_doc(rows), "total": len(rows)}
 
 

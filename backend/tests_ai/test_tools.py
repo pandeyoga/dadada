@@ -26,6 +26,26 @@ async def test_wa_self_tool_scoped_to_contact(app):
         assert r["ok"] is False and "terverifikasi" in r["error"], tool
 
 
+async def test_wa_cari_unit_never_leaks_buyer(app):
+    """Unit yang sudah dipesan: nama/id pembeli tidak pernah sampai ke model lewat WA, juga tidak bisa dicari."""
+    from ai.tools import internal_api
+    from core_utils import new_id
+    from db import db, ORG_ID
+    await db.units.insert_one({"id": new_id(), "org_id": ORG_ID, "code": "ZQ-77", "type": "36", "status": "reserved",
+                               "price": 450_000_000, "lead_name": "Budi Rahasia", "lead_id": "lead-x",
+                               "customer_id": "cust-x", "deal_id": "deal-x", "contract_id": "ctr-x"})
+    ctx = ToolContext(org_id=ORG_ID, user=await internal_api.service_user(ORG_ID),
+                      token=await internal_api.service_token(ORG_ID), channel="wa", verified=False,
+                      contact={"phone": "+6281100000077", "lead_id": None, "buyer_customer_id": None})
+    by_name = await registry.run(ctx, "cari_unit", {"q": "Budi Rahasia"})
+    assert by_name["ok"] and by_name["data"]["unit"] == [] and by_name["data"]["total"] == 0
+    by_code = await registry.run(ctx, "cari_unit", {"q": "ZQ-77"})
+    assert by_code["ok"] and [u["code"] for u in by_code["data"]["unit"]] == ["ZQ-77"]
+    for r in (by_name, by_code):
+        dump = str(r["data"])
+        assert "Budi Rahasia" not in dump and "cust-x" not in dump and "lead-x" not in dump and "deal-x" not in dump
+
+
 async def test_staff_rbac_respected(client, login, auth):
     t1, t2 = await login("sales@sipro.co.id"), await login("sales2@sipro.co.id")
     mine = await make_lead(client, auth, t1, "Lead Milik Andi")

@@ -221,6 +221,10 @@ async def list_users(skip: int = 0, limit: int = 50,
     return {"data": serialize_doc(rows), "total": total}
 
 
+SERVICE_ROLE = "ai_agent"
+SERVICE_ROLE_MSG = "Peran 'ai_agent' khusus akun layanan Estora AI dan tidak bisa diberikan atau diubah lewat sini."
+
+
 @router.post("/users")
 async def create_user(payload: UserCreate,
                       user: dict = Depends(require_permission("users", "create"))):
@@ -228,6 +232,8 @@ async def create_user(payload: UserCreate,
     await load_custom_roles(force=True)
     if not is_known_role(payload.role):
         raise HTTPException(status_code=400, detail="Peran tidak valid")
+    if payload.role == SERVICE_ROLE:
+        raise HTTPException(status_code=400, detail=SERVICE_ROLE_MSG)
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email sudah terdaftar")
     ts = now_iso()
@@ -256,6 +262,8 @@ async def update_user(user_id: str, payload: UserUpdate,
         await load_custom_roles(force=True)
         if not is_known_role(payload.role):
             raise HTTPException(status_code=400, detail="Peran tidak valid")
+        if payload.role == SERVICE_ROLE or target.get("role") == SERVICE_ROLE:
+            raise HTTPException(status_code=400, detail=SERVICE_ROLE_MSG)
         updates["role"] = payload.role
     if payload.phone is not None:
         updates["phone"] = payload.phone

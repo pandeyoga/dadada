@@ -16,6 +16,16 @@ def flat(row: dict, extra: tuple = ()) -> dict:
             if k not in _DROP and (not isinstance(v, (dict, list)) or k in extra)}
 
 
+def wrap_fields(row: dict, keys: tuple) -> dict:
+    """Bungkus teks bebas tulisan pihak luar (catatan, isi komplain, aktivitas) sebagai data tak tepercaya."""
+    return {k: (wrap_untrusted(v) if k in keys and isinstance(v, str) and v else v) for k, v in (row or {}).items()}
+
+
+LEAD_TEXT = ("notes", "note", "description")
+ACTIVITY_TEXT = ("body", "note")
+COMPLAINT_TEXT = ("subject", "message", "description", "last_message")
+
+
 async def _get(ctx: ToolContext, path: str, params: dict = None):
     st, data = await api.call(ctx.token, "GET", path, params={k: v for k, v in (params or {}).items() if v not in (None, "")})
     if st >= 400:
@@ -50,34 +60,49 @@ def customer_for(ctx: ToolContext, inp: dict) -> str:
 # ------------------------------------------------------------------ handlers
 async def cari_lead(ctx, inp):
     d = await _get(ctx, "/leads", {"q": inp.get("q"), "stage": inp.get("tahap"), "limit": _lim(inp)})
-    rows = [flat(r) for r in d.get("data", [])]
+    rows = [wrap_fields(flat(r), LEAD_TEXT) for r in d.get("data", [])]
     return {"leads": rows, "total": d.get("total"), "counts": d.get("counts"),
             "summary": f"Ditemukan {d.get('total', len(rows))} lead"}
 
 
 async def detail_lead(ctx, inp):
     d = (await _get(ctx, f"/leads/{inp['lead_id']}")).get("data") or {}
-    out = {"lead": flat(d, extra=("stage_history",))}
+    out = {"lead": wrap_fields(flat(d, extra=("stage_history",)), LEAD_TEXT)}
     try:
         acts = await _get(ctx, "/activities", {"entity_type": "lead", "entity_id": inp["lead_id"], "limit": 10})
-        out["aktivitas_terakhir"] = [flat(a) for a in acts.get("data", [])]
+        out["aktivitas_terakhir"] = [wrap_fields(flat(a), ACTIVITY_TEXT) for a in acts.get("data", [])]
     except ToolError:
         pass
     return out
 
 
+# Bidang unit yang aman untuk siapa pun (tanpa lead_name/lead_id/customer_id/deal_id/contract_id pembeli).
+UNIT_PUBLIC = ("id", "code", "type", "status", "price", "project_id", "project_name", "block", "cluster_code")
+_UNIT_SEARCH = ("code", "type", "block", "cluster_code")
+
+
+def _public_unit(r: dict) -> dict:
+    return {k: r.get(k) for k in UNIT_PUBLIC if k in r}
+
+
 async def cari_unit(ctx, inp):
     d = await _get(ctx, "/units", {"project_id": inp.get("project_id"), "status": inp.get("status"),
                                     "q": inp.get("q"), "type": inp.get("tipe"), "limit": _lim(inp, 15, 30)})
-    rows = [flat(r) for r in d.get("data", [])]
-    return {"unit": rows, "total": d.get("total"), "summary": f"Ditemukan {d.get('total', len(rows))} unit"}
+    if ctx.channel != "wa":
+        rows = [flat(r) for r in d.get("data", [])]
+        return {"unit": rows, "total": d.get("total"), "summary": f"Ditemukan {d.get('total', len(rows))} unit"}
+    # WA: endpoint juga mencari `q` di nama pembeli -> buang baris yang cocok hanya lewat nama itu,
+    # dan kembalikan bidang publik saja (identitas pembeli lain tidak pernah sampai ke model).
+    q = (inp.get("q") or "").strip().lower()
+    raw = [r for r in d.get("data", []) if not q or any(q in str(r.get(k) or "").lower() for k in _UNIT_SEARCH)]
+    rows = [_public_unit(r) for r in raw]
+    return {"unit": rows, "total": len(rows), "summary": f"Ditemukan {len(rows)} unit"}
 
 
 async def daftar_harga(ctx, inp):
     d = await _get(ctx, "/units", {"project_id": inp.get("project_id"), "type": inp.get("tipe"),
                                     "status": inp.get("status") or "available", "limit": 30})
-    keys = ("id", "code", "type", "status", "price", "project_id", "block", "cluster_code")
-    rows = [{k: r.get(k) for k in keys if k in r} for r in d.get("data", [])]
+    rows = [_public_unit(r) for r in d.get("data", [])]
     out = {"harga_unit": rows, "total": d.get("total")}
     try:
         promos = await _get(ctx, "/pricing/promos", {"active": "true"})
@@ -154,7 +179,7 @@ async def daftar_komplain(ctx, inp):
     cid = customer_for(ctx, inp) if ctx.channel == "wa" else inp.get("customer_id")
     d = await _get(ctx, "/complaints", {"customer_id": cid, "status": inp.get("status"), "q": inp.get("q"),
                                          "limit": _lim(inp)})
-    return {"komplain": [flat(r) for r in d.get("data", [])], "total": d.get("total"),
+    return {"komplain": [wrap_fields(flat(r), COMPLAINT_TEXT) for r in d.get("data", [])], "total": d.get("total"),
             "summary": f"{d.get('total', 0)} komplain"}
 
 
@@ -173,7 +198,13 @@ async def funnel_penjualan(ctx, inp):
 
 
 # ------------------------------------------------------------------ katalog endpoint (api_get)
-_DENY = re.compile(r"^/api/(admin|auth|webhooks|portal|public)(/|$)|\.(xlsx|csv|pdf|zip)$|/(export|download|pdf)(/|$)|/files/", re.I)
+# Hanya GET bisnis yang hanya-baca. Di luar daftar ini (ai, channels, inbox, wa, settings, users/admin, auth,
+# webhooks, ekspor, berkas) tidak pernah masuk katalog: ada yang berefek samping atau memuat rahasia.
+_ALLOW = re.compile(r"^/api/(leads|deals|units|projects|masterplan|site-plan|pricing|payment-schemes|allin-schemes|kpr|"
+                    r"kpr-products|financing|corp-financing|complaints|appointments|surveys|construction|build|handover|"
+                    r"contracts|customers|activities|analytics|aging|drilldown|targets)(/|$)", re.I)
+_DENY = re.compile(r"^/api/(admin|auth|webhooks|portal|public|ai|channels|inbox|wa|settings|users)(/|$)"
+                   r"|\.(xlsx|csv|pdf|zip)$|/(export|exports|download|pdf)(/|$)|/files/|/wa(/|$)", re.I)
 _catalog_cache: list = []
 
 
@@ -183,7 +214,7 @@ def endpoint_catalog() -> list:
     import server
     for path, ops in server.app.openapi().get("paths", {}).items():
         g = ops.get("get")
-        if not g or _DENY.search(path):
+        if not g or not _ALLOW.match(path) or _DENY.search(path):
             continue
         params = [p["name"] for p in g.get("parameters", []) if p.get("in") == "query"]
         _catalog_cache.append({"path": path, "ringkasan": g.get("summary") or "", "query": params,

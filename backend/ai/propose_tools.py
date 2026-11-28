@@ -21,6 +21,23 @@ async def _lead(ctx, lead_id):
     return (await _get(ctx, f"/leads/{lead_id}")).get("data") or {}
 
 
+def _lead_id(ctx: ToolContext, inp: dict) -> str:
+    """WA: id dari model DIABAIKAN — usulan hanya untuk lead milik kontak ini."""
+    if ctx.channel == "wa":
+        own = (ctx.contact or {}).get("lead_id")
+        if not own:
+            raise ToolError("Nomor ini belum terhubung ke lead. Serahkan ke sales untuk ditindaklanjuti.")
+        return own
+    return inp["lead_id"]
+
+
+def _wa_customer(ctx: ToolContext) -> str:
+    own = (ctx.contact or {}).get("buyer_customer_id")
+    if not (ctx.verified and own):
+        raise ToolError("Komplain hanya bisa diusulkan untuk pembeli yang nomornya sudah terverifikasi.")
+    return own
+
+
 async def ubah_tahap_lead(ctx: ToolContext, inp: dict) -> dict:
     lead = await _lead(ctx, inp["lead_id"])
     cur, new = lead.get("stage"), inp["tahap_baru"]
@@ -46,8 +63,9 @@ async def ubah_tahap_lead(ctx: ToolContext, inp: dict) -> dict:
 
 
 async def jadwalkan_survei(ctx, inp):
-    lead = await _lead(ctx, inp["lead_id"])
-    body = {"lead_id": inp["lead_id"], "title": f"Survei: {lead.get('name')}", "scheduled_at": inp["waktu"],
+    lead_id = _lead_id(ctx, inp)
+    lead = await _lead(ctx, lead_id)
+    body = {"lead_id": lead_id, "title": f"Survei: {lead.get('name')}", "scheduled_at": inp["waktu"],
             "type": "survey", "notes": inp.get("catatan")}
     checks = []
     if inp.get("petugas_id"):
@@ -61,17 +79,18 @@ async def jadwalkan_survei(ctx, inp):
             "changes": [f"Waktu: {inp['waktu']}"] + ([f"Petugas: {u['name']}"] if inp.get("petugas_id") else [])
             + ([f"Catatan: {inp['catatan']}"] if inp.get("catatan") else []), "checks": checks}
     a = await actions.create_pending(ctx, tool="jadwalkan_survei", resource="appointments", permission="create",
-                                     method="POST", path="/appointments", json=body, preview=prev, entity_id=inp["lead_id"])
+                                     method="POST", path="/appointments", json=body, preview=prev, entity_id=lead_id)
     return _result(a, "Mengusulkan jadwal survei")
 
 
 async def catat_catatan_lead(ctx, inp):
-    lead = await _lead(ctx, inp["lead_id"])
+    lead_id = _lead_id(ctx, inp)
+    lead = await _lead(ctx, lead_id)
     prev = {"title": f"Catatan untuk {lead.get('name')}", "changes": [inp["catatan"]], "checks": []}
     a = await actions.create_pending(ctx, tool="catat_catatan_lead", resource="activities", permission="create",
                                      method="POST", path="/activities",
-                                     json={"entity_type": "lead", "entity_id": inp["lead_id"], "body": inp["catatan"], "type": "comment"},
-                                     preview=prev, entity_id=inp["lead_id"])
+                                     json={"entity_type": "lead", "entity_id": lead_id, "body": inp["catatan"], "type": "comment"},
+                                     preview=prev, entity_id=lead_id)
     return _result(a, "Mengusulkan catatan lead")
 
 
@@ -97,16 +116,20 @@ async def kirim_pesan_wa(ctx, inp):
     body = {"body": inp.get("teks") or "", "template_code": inp.get("template")}
     prev = {"title": f"Kirim WhatsApp ke {lead.get('name')}",
             "changes": [f"Isi: {inp.get('teks') or '(template ' + inp['template'] + ')'}"], "checks": checks}
+    # Dijalankan lewat gateway WA RESMI atas nama penyetuju (bukan endpoint simulasi `/leads/{id}/wa`).
     a = await actions.create_pending(ctx, tool="kirim_pesan_wa", resource="leads", permission="update", method="POST",
-                                     path=f"/leads/{lead_id}/wa", json=body, preview=prev, entity_id=lead_id)
+                                     path=f"/ai/inbox/leads/{lead_id}/wa", json=body, preview=prev, entity_id=lead_id)
     return _result(a, "Mengusulkan pesan WhatsApp")
 
 
 async def buat_komplain_atau_balasan(ctx, inp):
+    own = _wa_customer(ctx) if ctx.channel == "wa" else None
     if inp["mode"] == "balas":
         if not (inp.get("komplain_id") and inp.get("pesan")):
             raise ToolError("komplain_id dan pesan wajib untuk membalas.")
         c = (await _get(ctx, f"/complaints/{inp['komplain_id']}")).get("data") or {}
+        if own and c.get("customer_id") != own:
+            raise ToolError("Komplain ini bukan milik nomor yang terverifikasi.")
         body = {"message": inp["pesan"], "resolve": bool(inp.get("selesai"))}
         prev = {"title": f"Balas komplain: {c.get('subject')}",
                 "changes": [f"Balasan: {inp['pesan']}"] + (["Tandai selesai"] if inp.get("selesai") else []), "checks": []}
@@ -114,14 +137,15 @@ async def buat_komplain_atau_balasan(ctx, inp):
                                          method="POST", path=f"/complaints/{inp['komplain_id']}/respond", json=body,
                                          preview=prev, entity_id=inp["komplain_id"])
     else:
-        if not (inp.get("customer_id") and inp.get("subjek") and inp.get("pesan")):
+        customer_id = own or inp.get("customer_id")
+        if not (customer_id and inp.get("subjek") and inp.get("pesan")):
             raise ToolError("customer_id, subjek, dan pesan wajib untuk membuat komplain.")
-        body = {"customer_id": inp["customer_id"], "subject": inp["subjek"], "message": inp["pesan"],
+        body = {"customer_id": customer_id, "subject": inp["subjek"], "message": inp["pesan"],
                 "channel": "whatsapp"}
         prev = {"title": f"Catat komplain: {inp['subjek']}", "changes": [inp["pesan"]], "checks": []}
         a = await actions.create_pending(ctx, tool="buat_komplain_atau_balasan", resource="complaints", permission="create",
                                          method="POST", path="/complaints", json=body, preview=prev,
-                                         entity_id=inp["customer_id"])
+                                         entity_id=customer_id)
     return _result(a, "Mengusulkan komplain/balasan")
 
 

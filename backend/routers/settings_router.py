@@ -52,9 +52,19 @@ async def setting_history(key: str,
     return {"data": await cfg.history(key, org_id=user.get("org_id", ORG_ID))}
 
 
+AI_ONLY = "Pengaturan Estora AI hanya bisa diubah di halaman Pengaturan Estora AI (izin ai_settings)."
+
+
+def _block_ai(key: str) -> None:
+    """`ai.*` punya validasi & gerbang sendiri (mode, effort, mode kategori) di `/api/ai/settings`."""
+    if str(key).startswith("ai."):
+        raise HTTPException(status_code=403, detail=AI_ONLY)
+
+
 @router.put("/{key}")
 async def update_setting(key: str, payload: SettingUpdate,
                          user: dict = Depends(require_permission("settings", "manage"))):
+    _block_ai(key)
     org = user.get("org_id", ORG_ID)
     try:
         res = await cfg.set_value(key, payload.value, actor=user.get("email"),
@@ -79,6 +89,9 @@ async def bulk_update(payload: SettingBulk,
     org = user.get("org_id", ORG_ID)
     done, failed = [], []
     for item in payload.items:
+        if str(item.key).startswith("ai."):
+            failed.append({"key": item.key, "reason": AI_ONLY})
+            continue
         try:
             res = await cfg.set_value(item.key, item.value, actor=user.get("email"),
                                       reason=item.reason, org_id=org, scope=item.scope,
@@ -97,6 +110,7 @@ async def bulk_update(payload: SettingBulk,
 @router.post("/{key}/reset")
 async def reset_setting(key: str, scope: str = "org", scope_id: str = None,
                         user: dict = Depends(require_permission("settings", "manage"))):
+    _block_ai(key)
     try:
         res = await cfg.reset(key, actor=user.get("email"), org_id=user.get("org_id", ORG_ID),
                               scope=scope, scope_id=scope_id)

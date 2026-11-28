@@ -1,6 +1,7 @@
 """Registri alat Estora AI: spesifikasi strict, validasi skema, lingkup (staf / WA terverifikasi), masking PII."""
 import json
 import logging
+import re
 import secrets
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
@@ -82,9 +83,14 @@ def api_specs(tools: list) -> list:
             for t in tools]
 
 
+_TAG = re.compile(r"<\s*(/?)\s*data_tak_tepercaya", re.I)
+
+
 def wrap_untrusted(text: str, nonce: str = None) -> str:
+    """Bungkus teks pihak luar. Tag pembungkus yang ditulis pengirim sendiri dinetralkan (tidak bisa 'menutup' data)."""
     nonce = nonce or secrets.token_hex(4)
-    return f'<data_tak_tepercaya id="{nonce}">{text}</data_tak_tepercaya>'
+    safe = _TAG.sub(lambda m: f"‹{m.group(1)}data_tak_tepercaya", str(text or ""))
+    return f'<data_tak_tepercaya id="{nonce}">{safe}</data_tak_tepercaya>'
 
 
 def _cap(data):
