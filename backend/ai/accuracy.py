@@ -36,7 +36,7 @@ async def record_outcome(draft_id: str, final_text, *, status: str = None) -> di
     else:
         sim = similarity(d.get("original_text") or d["text"], final_text)
         correct = sim >= SIMILAR
-        st = status or ("sent" if sim == 1.0 else "edited")
+        st = status or ("sent" if sim == 1.0 else "sent_edited")
         if d["status"] == "rewritten" or d.get("correct") is False:
             correct = False  # sudah dinilai salah saat ditulis ulang
     upd = {"status": st, "final_text": final_text, "similarity": sim, "correct": correct, "outcome_at": now_iso()}
@@ -49,7 +49,7 @@ async def stats(org_id: str, category: str) -> dict:
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     rows = await db.ai_drafts.aggregate([
         {"$match": {"org_id": org_id, "category": category, "correct": {"$in": [True, False]}, "outcome_at": {"$gte": since},
-                    "basis": {"$ne": TEMPLATE_BASIS}}},
+                    "basis": {"$ne": TEMPLATE_BASIS}, "simulated": {"$ne": True}}},  # hanya bukti dari mode live
         {"$group": {"_id": "$correct", "n": {"$sum": 1}}}]).to_list(2)
     n = {bool(r["_id"]): r["n"] for r in rows}
     total = n.get(True, 0) + n.get(False, 0)
@@ -81,7 +81,9 @@ config.set_auto_validator(auto_gate)
 
 
 async def maybe_sample(draft: dict, rate: float = None) -> bool:
-    """Pilih balasan otomatis untuk ditinjau manusia; deterministik per id draf."""
+    """Pilih balasan otomatis untuk ditinjau manusia; deterministik per id draf. Draf simulasi tidak pernah jadi sampel."""
+    if draft.get("simulated"):
+        return False
     if rate is None:
         rate = float(await ss.get("ai.auto_sample_rate", org_id=draft.get("org_id", ORG_ID)))
     h = int(hashlib.sha256(str(draft["id"]).encode()).hexdigest()[:8], 16) / 0xFFFFFFFF

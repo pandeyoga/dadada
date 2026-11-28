@@ -153,7 +153,7 @@ async def test_first_reply_has_privacy_notice():
     assert d2["text"] == "Siap."
 
 
-async def test_unverified_billing_question_offers_verification():
+async def test_unverified_billing_question_offers_verification(live):
     conv, job = await _job("Tagihan saya bulan ini berapa?")
     fake = FakeClaude([_tri("tagihan_pembayaran")])
     set_override(fake)
@@ -188,3 +188,46 @@ async def test_refusal_or_api_error_hands_off_to_sales(live):
         assert (await db.conversations.find_one({"id": conv["id"]}))["ai_label"]["status"] == "needs_sales"
         assert await db.ai_drafts.count_documents({"conversation_id": conv["id"]}) == 0
         assert await db.messages.count_documents({"conversation_id": conv["id"], "direction": "out"}) == 0
+
+
+async def test_sent_draft_is_closed_and_stuck_send_released():
+    """Draf yang terkirim (juga setelah diedit) tertutup: tidak tampil lagi & tidak bisa dikirim ulang; `sending` basi dilepas."""
+    conv, job = await _job()
+    set_override(FakeClaude([_tri("stok_harga"), _txt("Tipe 36 tersedia.")]))
+    d = await db.ai_drafts.find_one({"id": (await wa_agent.process_job(job))["draft_id"]})
+    out = await drafts.send(d["id"], ORG, {"email": "sales@estora.id"}, "Tipe 36 masih tersedia, Kak.")
+    assert out["status"] == "sent_edited"
+    assert (await drafts.inbox_view(ORG, await db.conversations.find_one({"id": conv["id"]}, {"_id": 0})))["draft"] is None
+    with pytest.raises(drafts.DraftError) as e:
+        await drafts.send(d["id"], ORG, {"email": "sales@estora.id"})
+    assert e.value.status == 409
+    assert await db.messages.count_documents({"conversation_id": conv["id"], "direction": "out"}) == 1
+    # proses mati di tengah kirim: `sending` tidak tertahan selamanya, kembali ke draf dengan peringatan
+    _, job2 = await _job()
+    set_override(FakeClaude([_tri("stok_harga"), _txt("Siap.")]))
+    d2 = (await wa_agent.process_job(job2))["draft_id"]
+    await db.ai_drafts.update_one({"id": d2}, {"$set": {"status": "sending", "sending_at": "2000-01-01T00:00:00+00:00"}})
+    assert await drafts.release_stale_sending() >= 1
+    back = await db.ai_drafts.find_one({"id": d2})
+    assert back["status"] == "ready" and "terputus" in back["send_error"]
+
+
+async def test_simulation_drafts_not_counted_and_no_real_side_effects(client, login, auth):
+    """Mode simulasi: draf ditandai & tidak masuk gerbang akurasi, ringkasan lead ditandai, verifikasi tidak dimulai."""
+    from tests_ai.helpers import make_lead
+    before = await accuracy.stats(ORG, "stok_harga")
+    conv, job = await _job()
+    lead = await make_lead(client, auth, await login("owner@sipro.co.id"), "Lead Simulasi")
+    await db.conversations.update_one({"id": conv["id"]}, {"$set": {"lead_id": lead["id"]}})
+    job["lead_id"] = lead["id"]
+    set_override(FakeClaude([_tri("stok_harga"), _txt("Tipe 36 tersedia.")]))
+    d = await db.ai_drafts.find_one({"id": (await wa_agent.process_job(job))["draft_id"]})
+    assert d["simulated"] is True
+    await drafts.send(d["id"], ORG, {"email": "sales@estora.id"})  # terkirim tanpa diubah = "benar" bila dihitung
+    assert await accuracy.stats(ORG, "stok_harga") == before
+    assert (await db.ai_lead_insights.find_one({"org_id": ORG, "lead_id": lead["id"]}))["simulated"] is True
+    conv2, job2 = await _job("Tagihan saya bulan ini berapa?")
+    set_override(FakeClaude([_tri("tagihan_pembayaran")]))
+    res = await wa_agent.process_job(job2)
+    assert res["status"] == "handoff" and "simulasi" in res["reason"]
+    assert not (await db.conversations.find_one({"id": conv2["id"]})).get("ai_pending_verify")

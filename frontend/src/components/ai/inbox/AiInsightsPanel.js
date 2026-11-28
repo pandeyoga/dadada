@@ -20,6 +20,7 @@ export default function AiInsightsPanel({ insights, channel }) {
       className="flex flex-col gap-3 rounded-xl border border-[#D5E0DC] bg-white p-4 shadow-[var(--shadow-card)]">
       <h2 className="m-0 flex items-center gap-1.5 font-['Space_Grotesk',Inter,sans-serif] text-base">
         <Sparkles className="h-4 w-4 text-[#006284]" aria-hidden="true" /> Ringkasan AI
+        {insights.simulated ? <span className="ml-auto rounded-md bg-[#FFF4E5] px-2 py-0.5 font-[Inter,sans-serif] text-xs font-semibold text-[#7A3E00]">Data simulasi</span> : null}
       </h2>
       {insights.score != null || insights.stage ? (
         <div className="grid grid-cols-2 gap-2 text-[13px]">

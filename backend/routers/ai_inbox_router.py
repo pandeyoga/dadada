@@ -158,7 +158,7 @@ class ModeIn(BaseModel):
 async def send_draft(draft_id: str, body: SendIn, user: dict = Depends(_use)):
     await _guard(draft_id, user)
     out = await _run(drafts.send(draft_id, _org(user), user, body.text))
-    await audit_log(user, "send", "ai_drafts", draft_id, {"edited": out["status"] == "edited", "similarity": out["similarity"]})
+    await audit_log(user, "send", "ai_drafts", draft_id, {"edited": out["status"] == "sent_edited", "similarity": out["similarity"]})
     return {"data": drafts.public(out)}
 
 

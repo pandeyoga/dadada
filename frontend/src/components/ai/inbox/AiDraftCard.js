@@ -5,10 +5,11 @@ import { sendDraft, rewriteDraft, discardDraft, friendlyError } from "../aiApi";
 const MODE = { draft: "Draf", auto: "Otomatis", off: "Mati" };
 
 /**
- * Kartu draf (garis putus-putus). draft: {id, text, category, category_label, mode, basis[], status}.
+ * Kartu draf (garis putus-putus). draft: {id, text, category, category_label, mode, basis[], status, simulated, send_error}.
  * "Kirim" memanggil send; teks hanya dikirim bila diedit (backend mencatat edit = teks berbeda).
+ * `canSend`/`blockReason` dari backend per kanal: jendela 24 jam hanya aturan kanal resmi; kanal tidak resmi butuh opt-in.
  */
-export default function AiDraftCard({ draft, windowOpen = true, onSent, onDiscarded }) {
+export default function AiDraftCard({ draft, canSend = true, blockReason = "", onSent, onDiscarded }) {
   const [text, setText] = useState(draft.text || "");
   const [editing, setEditing] = useState(false);
   const [rewriting, setRewriting] = useState(false);
@@ -37,7 +38,7 @@ export default function AiDraftCard({ draft, windowOpen = true, onSent, onDiscar
       className="flex flex-col gap-2.5 rounded-xl border-[1.5px] border-dashed border-[#006284] bg-[#F1F8F6] p-3.5">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
         <span className="font-semibold text-[#00454D]">Draf AI · menunggu sales</span>
-        <span className="text-[#3E5653]">Kategori: {cat || "—"} · mode {MODE[draft.mode] || "Draf"}</span>
+        <span className="text-[#3E5653]">Kategori: {cat || "—"} · mode {MODE[draft.mode] || "Draf"}{draft.simulated ? " · simulasi (tidak dihitung akurasi)" : ""}</span>
       </div>
       {editing ? (
         <textarea aria-label="Edit draf balasan" rows={5} value={text} onChange={(e) => setText(e.target.value)}
@@ -46,7 +47,8 @@ export default function AiDraftCard({ draft, windowOpen = true, onSent, onDiscar
         <p className="m-0 whitespace-pre-wrap text-sm leading-relaxed text-[#12312F]">{text}</p>
       )}
       {basis.length ? <span className="text-xs text-[#3E5653]">Dasar: {basis.map((b) => (typeof b === "string" ? b : b.label || b.source)).join(" · ")}</span> : null}
-      {!windowOpen ? <span className="text-xs text-[#7A3E00]">Jendela 24 jam tertutup: draf tidak bisa dikirim bebas, gunakan template.</span> : null}
+      {draft.send_error ? <span role="status" className="text-xs text-[#9B1C1C]">{draft.send_error}</span> : null}
+      {!canSend ? <span className="text-xs text-[#7A3E00]">{blockReason || "Draf belum bisa dikirim dari kanal ini."}</span> : null}
       {rewriting ? (
         <div className="flex flex-wrap gap-2">
           <input aria-label="Instruksi tulis ulang" value={instr} onChange={(e) => setInstr(e.target.value)}
@@ -57,7 +59,7 @@ export default function AiDraftCard({ draft, windowOpen = true, onSent, onDiscar
         </div>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={send} disabled={busy || !windowOpen || !text.trim()} data-testid="ai-draft-send"
+        <button type="button" onClick={send} disabled={busy || !canSend || !text.trim()} data-testid="ai-draft-send"
           className="min-h-[40px] rounded-lg bg-[#006284] px-4 text-sm font-semibold text-white hover:bg-[#00454D] disabled:opacity-60">Kirim</button>
         <button type="button" onClick={() => setEditing((v) => !v)} disabled={busy}
           className="min-h-[40px] rounded-lg border border-[#B9CFC8] bg-white px-4 text-sm font-semibold text-[#12312F]">{editing ? "Selesai edit" : "Edit"}</button>

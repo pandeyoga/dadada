@@ -52,6 +52,7 @@ async def _claim():
 async def tick() -> int:
     """Satu putaran worker: proses semua job yang antre. Dipanggil penjadwal tiap 5 detik."""
     n = 0
+    await drafts.release_stale_sending()  # draf yang tertahan di `sending` dilepas ke `ready` + peringatan
     while (job := await _claim()):
         try:
             res = await process_job(job)
@@ -159,23 +160,28 @@ async def _auto_allowed(org_id: str, conv_id: str, category: str, mode: str, fla
 
 
 async def _finish(org_id: str, conv: dict, tri: dict, mode: str, text: str, *, basis, flags, actions, with_notice, ai_conv_id,
-                  source_message_id: str = None) -> dict:
+                  source_message_id: str = None, simulated: bool = False) -> dict:
     cat = tri["category"]
     channel = await drafts.last_inbound_channel(conv["id"])
     flags = list(flags) + (["ada_usulan_aksi"] if actions else [])
     d = await drafts.create(org_id, conv, category=cat, mode=mode, text=text, basis=basis, flags=flags,
                             with_notice=with_notice, channel=channel, ai_conversation_id=ai_conv_id,
-                            source_message_id=source_message_id)
+                            source_message_id=source_message_id, simulated=simulated)
     ok, why = await _auto_allowed(org_id, conv["id"], cat, mode, flags, actions)
     if ok:  # klaim draf dulu (ready -> sending): job yang diulang setelah galat tidak mengirim balasan kedua
-        ok = bool(await db.ai_drafts.find_one_and_update({"id": d["id"], "status": "ready"}, {"$set": {"status": "sending"}}))
+        ok = bool(await db.ai_drafts.find_one_and_update(
+            {"id": d["id"], "status": "ready"}, {"$set": {"status": "sending", "sending_at": now_iso(), "auto_attempted": True}}))
         why = "" if ok else "draf sudah diproses"
     if ok:
         try:
             await drafts.dispatch(org_id, conv["id"], text, actor="ai-auto", with_notice=with_notice)
-        except drafts.DraftError as e:
-            ok, why = False, e.message
-            await db.ai_drafts.update_one({"id": d["id"], "status": "sending"}, {"$set": {"status": "ready"}})
+        except Exception as e:  # noqa: BLE001 — tidak dilempar ulang: job tidak diulang, jadi tidak ada kirim kedua
+            ok = False
+            why = e.message if isinstance(e, drafts.DraftError) else f"Kirim otomatis gagal ({type(e).__name__})."
+            if not isinstance(e, drafts.DraftError):
+                logger.exception("Kirim otomatis draf %s gagal", d["id"])
+            await db.ai_drafts.update_one({"id": d["id"], "status": "sending"},
+                                          {"$set": {"status": "ready", "send_error": f"Kirim otomatis tidak terlaksana: {why}"}})
     if ok:
         sampled = await accuracy.maybe_sample(d)
         await db.ai_drafts.update_one({"id": d["id"]}, {"$set": {"status": "auto_sent", "sampled": sampled, "final_text": text,
@@ -194,12 +200,15 @@ async def process_job(job: dict) -> dict:
         return {"status": "skipped", "reason": "percakapan tidak ada"}
     phone = conv["contact_phone"]
     if job.get("message_id") and await db.ai_drafts.find_one(
-            {"conversation_id": conv["id"], "source_message_id": job["message_id"], "status": {"$in": ["sending", "auto_sent"]}}):
+            {"conversation_id": conv["id"], "source_message_id": job["message_id"],
+             "$or": [{"status": {"$in": ["sending", "auto_sent"]}}, {"auto_attempted": True}]}):
         return {"status": "skipped", "reason": "balasan otomatis untuk pesan ini sudah dikirim"}  # job diulang: jangan kirim dua kali
     msg = await db.messages.find_one({"id": job.get("message_id")}, {"_id": 0}) or {}
     text = job.get("text") or msg.get("body") or ""
-    if (await config.get_ai_settings(org))["effective_mode"] == "off":
+    eff = (await config.get_ai_settings(org))["effective_mode"]
+    if eff == "off":
         return {"status": "off"}
+    simulated = eff != "live"  # simulasi: draf ditandai & tak dihitung akurasi; tanpa verifikasi identitas sungguhan
     if (await consent.state(org, phone))["stopped"]:
         return {"status": "stopped"}  # STOP: tidak ada AI sama sekali
     if (await budget.budget_state(org))["state"] == "stop":
@@ -210,6 +219,8 @@ async def process_job(job: dict) -> dict:
     pending = conv.get("ai_pending_verify")
     if pending and VERIFY_ANSWER.fullmatch(text):  # jawaban verifikasi: 4 digit tidak dikirim ke model
         await db.conversations.update_one({"id": conv["id"]}, {"$set": {"ai_pending_verify": None}})
+        if simulated:
+            return await _handoff(org, conv, pending["category"], "Jawaban verifikasi masuk saat mode simulasi; verifikasi tidak dijalankan")
         if await identity.check(org, phone, text):
             text, tri = pending["text"], {"category": pending["category"], "intent": "", "objections": [], "sentiment": "netral", "confidence": 1.0}
         elif await identity.is_locked(org, phone):
@@ -220,7 +231,7 @@ async def process_job(job: dict) -> dict:
             modes = await ss.get("ai.category_modes", org_id=org)
             return await _finish(org, conv, tri, (modes or {}).get(tri["category"], "draft"), DEFAULT_ANSWER_FAIL,
                                  basis=[accuracy.TEMPLATE_BASIS], flags=[], actions=[], with_notice=False, ai_conv_id=None,
-                                 source_message_id=job.get("message_id"))
+                                 source_message_id=job.get("message_id"), simulated=simulated)
     else:
         hist = await db.messages.find({"conversation_id": conv["id"], "id": {"$ne": job.get("message_id")}}, {"_id": 0, "direction": 1, "body": 1}) \
             .sort("created_at", -1).limit(8).to_list(8)
@@ -229,7 +240,7 @@ async def process_job(job: dict) -> dict:
         tri = await triage.classify(org, text, list(reversed(hist)))
 
     cat = tri["category"]
-    await insights.update(org, lead_id, tri, conv)
+    await insights.update(org, lead_id, tri, conv, simulated=simulated)
     if tri["sentiment"] == "negatif":  # sinyal negatif setelah balasan otomatis -> turunkan kategorinya
         await demote_after_negative(org, conv["id"])
     if cat in triage.LOCKED:
@@ -247,13 +258,15 @@ async def process_job(job: dict) -> dict:
         return f"{notice}\n\n{t}" if notice else t
 
     if (cat in PERSONAL or (cat == "berkas_kpr" and KPR_STATUS.search(text))) and not verified:  # tawarkan verifikasi
+        if simulated:  # verifikasi identitas sungguhan tidak dimulai dari giliran simulasi
+            return await _handoff(org, conv, cat, "Butuh verifikasi identitas (mode simulasi: verifikasi tidak dijalankan)")
         if await identity.is_locked(org, phone):
             return await _handoff(org, conv, cat, "Verifikasi identitas terkunci")
         q = (await identity.start(org, phone))["question"]
         await db.conversations.update_one({"id": conv["id"]}, {"$set": {"ai_pending_verify": {"category": cat, "text": text}}})
         return await _finish(org, conv, tri, mode, prefixed(f"Untuk menjaga keamanan data Anda, kami perlu verifikasi dulu. {q}"),
                              basis=[accuracy.TEMPLATE_BASIS], flags=[], actions=[], with_notice=bool(notice), ai_conv_id=ai_conv["id"],
-                             source_message_id=job.get("message_id"))
+                             source_message_id=job.get("message_id"), simulated=simulated)
 
     ctx = ToolContext(org_id=org, user=svc, token=await internal_api.service_token(org), channel="wa", conversation_id=ai_conv["id"],
                       contact={"phone": phone, "lead_id": lead_id, "buyer_customer_id": await identity.verified_customer_id(org, phone)},
@@ -264,4 +277,4 @@ async def process_job(job: dict) -> dict:
         return {"status": "error", "category": cat, "error": gen["error"]}
     return await _finish(org, conv, tri, mode, prefixed(gen["text"]), basis=gen["basis"], flags=_risky(gen["text"], phone),
                          actions=gen["actions"], with_notice=bool(notice), ai_conv_id=ai_conv["id"],
-                         source_message_id=job.get("message_id"))
+                         source_message_id=job.get("message_id"), simulated=simulated)

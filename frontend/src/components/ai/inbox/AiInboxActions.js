@@ -14,7 +14,8 @@ export default function AiInboxActions({ ai, conversationId, windowOpen, onChang
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   if (!ai) return null;
-  const actions = ai.actions || [];
+  const actions = ai.actions || [];  // pending + beberapa yang terakhir diputuskan (status & alasan gagal)
+  const anyPending = actions.some((a) => a.status === "pending");
   const showOptin = ai.unofficial_enabled && !ai.optin_unofficial;
   if (!actions.length && !showOptin) return null;
 
@@ -36,7 +37,7 @@ export default function AiInboxActions({ ai, conversationId, windowOpen, onChang
           <h2 className="m-0 flex items-center gap-1.5 font-['Space_Grotesk',Inter,sans-serif] text-base">
             <ShieldCheck className="h-4 w-4 text-[#006284]" aria-hidden="true" /> Usulan agen WhatsApp
           </h2>
-          <p className="m-0 text-xs text-[#3E5653]">Belum ada yang dijalankan. Periksa lalu setujui atau tolak.</p>
+          {anyPending ? <p className="m-0 text-xs text-[#3E5653]">Usulan baru belum dijalankan. Periksa lalu setujui atau tolak.</p> : null}
           {actions.map((a) => <AiActionCard key={a.id} action={a} onChanged={() => onChanged?.()} />)}
         </>
       ) : null}

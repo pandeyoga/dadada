@@ -193,8 +193,9 @@ export default function InboxPage() {
                   </div>
                   <div className="flex-1 space-y-2.5 overflow-y-auto p-4">
                     {thread.messages.map((m) => <MessageBubble key={m.id} m={m} />)}
-                    {ai?.draft && ["ready", "edited", "rewritten"].includes(ai.draft.status || "ready") ? (
-                      <AiDraftCard draft={ai.draft} windowOpen={!!windowOpen} onSent={refresh} onDiscarded={refresh} />
+                    {ai?.draft && ["ready", "rewritten"].includes(ai.draft.status || "ready") ? (
+                      <AiDraftCard draft={ai.draft} canSend={ai.can_send ?? !!windowOpen} blockReason={ai.send_block_reason}
+                        onSent={refresh} onDiscarded={refresh} />
                     ) : null}
                     {ai?.draft?.status === "auto_sent" && ai.draft.sampled && !ai.draft.sample_review ? (
                       <AiSampleReview draft={ai.draft} onDone={reloadAi} />

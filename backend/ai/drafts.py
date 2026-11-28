@@ -1,5 +1,6 @@
 """Draf balasan AI (`ai_drafts`): pembuatan, pengiriman (manual/otomatis), tulis ulang, buang, label & tampilan Inbox."""
 import logging
+from datetime import datetime, timedelta, timezone
 
 import wa_channels
 import wa_gateway as gw
@@ -10,8 +11,12 @@ from db import db
 
 logger = logging.getLogger("estora.ai.drafts")
 OFFICIAL = ("cloud", "coexistence")
-OPEN_STATES = ("ready", "edited", "rewritten")
+# Draf yang masih bisa ditindaklanjuti. Kirim yang berhasil selalu berakhir di status TERTUTUP
+# (`sent` / `sent_edited` / `auto_sent`); `sending` = sedang diklaim, tidak bisa diklaim lagi.
+OPEN_STATES = ("ready", "rewritten")
 WINDOW_CLOSED = "Sesi 24 jam tertutup. Gunakan template WA (pra-approved) untuk memulai percakapan."
+SENDING_STALE_MIN = 10
+INTERRUPTED = "Pengiriman sebelumnya terputus. Periksa riwayat pesan sebelum mengirim ulang."
 
 
 class DraftError(Exception):
@@ -44,14 +49,15 @@ async def last_inbound_channel(conv_id: str) -> str:
 # ---------------------------------------------------------------- buat & kirim
 async def create(org_id: str, conv: dict, *, category: str, mode: str, text: str, basis: list, flags: list = None,
                  with_notice: bool = False, channel: str = "simulation", ai_conversation_id: str = None,
-                 source_message_id: str = None) -> dict:
+                 source_message_id: str = None, simulated: bool = False) -> dict:
     # draf lama yang belum diputuskan diganti draf baru (tidak dihitung dalam akurasi)
     await db.ai_drafts.update_many({"conversation_id": conv["id"], "status": "ready"}, {"$set": {"status": "superseded"}})
     d = {"id": new_id(), "org_id": org_id, "conversation_id": conv["id"], "lead_id": conv.get("lead_id"),
          "phone": conv.get("contact_phone"), "category": category, "mode": mode, "text": text, "original_text": text,
          "basis": basis, "flags": flags or [], "status": "ready", "final_text": None, "similarity": None,
          "sampled": False, "sample_review": None, "correct": None, "outcome_at": None, "with_notice": with_notice,
-         "channel": channel, "ai_conversation_id": ai_conversation_id, "source_message_id": source_message_id, "at": now_iso()}
+         "channel": channel, "ai_conversation_id": ai_conversation_id, "source_message_id": source_message_id,
+         "simulated": simulated, "at": now_iso()}  # simulated: dibuat di luar mode live -> tidak dihitung akurasi
     await db.ai_drafts.insert_one(dict(d))
     return d
 
@@ -97,19 +103,33 @@ async def send(draft_id: str, org_id: str, user: dict, text: str = None) -> dict
     if not final:
         raise DraftError(400, "Teks balasan kosong.")
     # Klaim atomik (terbuka -> sending): dua sales/klik ganda tidak bisa mengirim draf yang sama dua kali.
-    if not await db.ai_drafts.find_one_and_update({"id": draft_id, "status": d["status"]}, {"$set": {"status": "sending"}}):
+    if not await db.ai_drafts.find_one_and_update({"id": draft_id, "status": d["status"]},
+                                                  {"$set": {"status": "sending", "sending_at": now_iso()}}):
         raise DraftError(409, "Draf ini sudah diproses.")
     try:
         msg = await dispatch(org_id, d["conversation_id"], final, actor=user.get("email"), with_notice=d.get("with_notice", False))
-    except Exception:
+    except Exception:  # belum terkirim: lepaskan klaim agar bisa dicoba lagi
         await db.ai_drafts.update_one({"id": draft_id, "status": "sending"}, {"$set": {"status": d["status"]}})
         raise
-    from routers.inbox_router import log_lead_activity  # jalur yang sama dengan balasan Inbox biasa
-    conv = await db.conversations.find_one({"id": d["conversation_id"]}, {"_id": 0})
-    await log_lead_activity(conv, msg, final, "out", user.get("email"), org_id)
-    out = await accuracy.record_outcome(draft_id, final, status="sent" if final == d["text"] else "edited")
+    # Terkirim: langsung tutup (status akhir) SEBELUM efek samping lain, supaya draf tidak pernah terkirim dua kali.
+    out = await accuracy.record_outcome(draft_id, final, status="sent" if final == d["text"] else "sent_edited")
     await set_label(d["conversation_id"], None)
+    try:
+        from routers.inbox_router import log_lead_activity  # jalur yang sama dengan balasan Inbox biasa
+        conv = await db.conversations.find_one({"id": d["conversation_id"]}, {"_id": 0})
+        await log_lead_activity(conv, msg, final, "out", user.get("email"), org_id)
+    except Exception:  # noqa: BLE001 — pesan sudah terkirim; aktivitas lead tidak boleh membuka draf lagi
+        logger.exception("Gagal mencatat aktivitas lead untuk draf %s", draft_id)
     return out
+
+
+async def release_stale_sending(minutes: int = SENDING_STALE_MIN) -> int:
+    """Draf yang tertahan di `sending` (proses mati di tengah kirim) dikembalikan ke `ready` dengan peringatan.
+    Tidak dikirim ulang otomatis: manusia memeriksa riwayat lalu memutuskan."""
+    stale = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    res = await db.ai_drafts.update_many({"status": "sending", "sending_at": {"$lt": stale}},
+                                         {"$set": {"status": "ready", "send_error": INTERRUPTED}})
+    return res.modified_count
 
 
 async def discard(draft_id: str, org_id: str) -> dict:
@@ -153,7 +173,7 @@ async def rewrite(draft_id: str, org_id: str, instruction: str) -> dict:
 # ---------------------------------------------------------------- tampilan Inbox
 def public(d: dict) -> dict:
     keys = ("id", "conversation_id", "lead_id", "category", "mode", "text", "basis", "status", "final_text", "similarity",
-            "sampled", "sample_review", "flags", "at")
+            "sampled", "sample_review", "flags", "at", "simulated", "send_error")
     out = {k: d.get(k) for k in keys}
     out["category_label"] = triage.CATEGORY_INFO.get(d.get("category"), (d.get("category"),))[0]
     return out
@@ -178,25 +198,43 @@ async def inbox_view(org_id: str, conv: dict) -> dict:
                    "next_step_prompt": f"Bantu saya menyiapkan langkah berikutnya untuk lead ini: {ins.get('next_step')}"}
     phone = conv.get("contact_phone")
     label = conv.get("ai_label")
-    cs = await consent.state(org_id, phone) if phone else None
+    cs = await consent.state(org_id, phone) if phone else {}
+    channel = await last_inbound_channel(conv["id"])
+    uo_enabled = bool((await db.channel_accounts.find_one(
+        {"org_id": org_id, "code": wa_channels.UNOFFICIAL_CODE}, {"_id": 0, "enabled": 1}) or {}).get("enabled"))
+    optin = bool((cs.get("optins") or {}).get("unofficial"))
+    can_send, why = _send_rule(channel, conv, uo_enabled, optin, bool(cs.get("stopped")))
     return {"draft": public(d) if d else None, "label": label, "insights": ins,
-            "channel": await last_inbound_channel(conv["id"]), "window_open": gw.window_open(conv),
+            "channel": channel, "window_open": gw.window_open(conv), "can_send": can_send, "send_block_reason": why,
             "verified": bool(phone) and await identity.is_verified(org_id, phone),
-            "actions": await pending_actions(org_id, phone),
-            "optin_unofficial": (cs or {}).get("optins", {}).get("unofficial", False),
-            "optin_pending": (cs or {}).get("pending_optin") == "unofficial",
-            "unofficial_enabled": bool((await db.channel_accounts.find_one(
-                {"org_id": org_id, "code": wa_channels.UNOFFICIAL_CODE}, {"_id": 0, "enabled": 1}) or {}).get("enabled"))}
+            "actions": await recent_actions(org_id, phone),
+            "optin_unofficial": optin, "optin_pending": cs.get("pending_optin") == "unofficial",
+            "unofficial_enabled": uo_enabled}
 
 
-async def pending_actions(org_id: str, phone: str) -> list:
-    """Usulan aksi agen WA untuk kontak ini (percakapan AI milik akun layanan) — disetujui/ditolak dari Inbox."""
+def _send_rule(channel: str, conv: dict, uo_enabled: bool, optin: bool, stopped: bool) -> tuple:
+    """Boleh kirim draf secara manual? Jendela 24 jam hanya aturan kanal RESMI; kanal tidak resmi butuh gateway aktif +
+    opt-in (batas per jam & tombol Matikan tetap ditegakkan saat kirim; balasan otomatis AI tidak pernah lewat sini)."""
+    if channel == "unofficial":
+        if stopped:
+            return False, "Kontak meminta berhenti (STOP)."
+        if not uo_enabled:
+            return False, "Gateway WhatsApp tidak resmi dimatikan."
+        if not optin:
+            return False, "Kontak belum memberi izin (YA) untuk dihubungi lewat nomor kedua."
+        return True, ""
+    return (True, "") if gw.window_open(conv) else (False, "Jendela 24 jam tertutup: draf tidak bisa dikirim bebas, gunakan template.")
+
+
+async def recent_actions(org_id: str, phone: str, decided: int = 5) -> list:
+    """Usulan aksi agen WA untuk kontak ini: semua yang pending + beberapa yang terakhir diputuskan (status & alasan gagal)."""
     if not phone:
         return []
     from ai.api_views import action_view
     ai_conv = await db.ai_conversations.find_one({"org_id": org_id, "channel": "wa", "contact.phone": phone}, {"_id": 0, "id": 1})
     if not ai_conv:
         return []
-    rows = await db.ai_actions.find({"org_id": org_id, "conversation_id": ai_conv["id"], "status": "pending"},
-                                    {"_id": 0}).sort("created_at", -1).to_list(20)
-    return [action_view(a) for a in rows]
+    q = {"org_id": org_id, "conversation_id": ai_conv["id"]}
+    pending = await db.ai_actions.find({**q, "status": "pending"}, {"_id": 0}).sort("created_at", -1).to_list(20)
+    done = await db.ai_actions.find({**q, "status": {"$ne": "pending"}}, {"_id": 0}).sort("updated_at", -1).to_list(decided)
+    return [action_view(a) for a in pending + done]

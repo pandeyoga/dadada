@@ -30,12 +30,15 @@ def _merge(old: list, new: list) -> list:
     return out[-MAX_LIST:]
 
 
-async def update(org_id: str, lead_id: str, triage: dict, conversation: dict = None) -> dict:
-    """-> dokumen insight (tanpa _id); {} bila percakapan belum terkait lead."""
+async def update(org_id: str, lead_id: str, triage: dict, conversation: dict = None, *, simulated: bool = False) -> dict:
+    """-> dokumen insight (tanpa _id); {} bila percakapan belum terkait lead.
+    `simulated`: dibuat dari pemilah simulasi -> ditandai (UI menyebutnya data simulasi) dan tidak diwarisi giliran live."""
     if not lead_id:
         return {}
     lead = await db.leads.find_one({"id": lead_id, "org_id": org_id}, {"_id": 0}) or {}
     prev = await db.ai_lead_insights.find_one({"org_id": org_id, "lead_id": lead_id}, {"_id": 0}) or {}
+    if prev.get("simulated") and not simulated:
+        prev = {}  # niat/keberatan hasil simulasi tidak dibawa ke ringkasan live
     known = []
     if lead.get("interest_unit_type"):
         known.append(f"Minat tipe unit: {lead['interest_unit_type']}")
@@ -49,6 +52,6 @@ async def update(org_id: str, lead_id: str, triage: dict, conversation: dict = N
            "known": _merge(prev.get("known"), known), "intent": triage.get("intent") or prev.get("intent") or "",
            "objections": _merge(prev.get("objections"), triage.get("objections")), "category": cat,
            "sentiment": triage.get("sentiment"), "next_step": step, "suggested_score_delta": delta,
-           "updated_at": now_iso()}
+           "simulated": simulated, "updated_at": now_iso()}
     await db.ai_lead_insights.update_one({"org_id": org_id, "lead_id": lead_id}, {"$set": doc}, upsert=True)
     return doc
