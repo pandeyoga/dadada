@@ -11,19 +11,24 @@ logger = logging.getLogger("estora.ai.budget")
 # model -> (input, output, cache_read) USD/MTok. Cache write = 1.25x input (5 menit).
 PRICES = {
     "claude-opus-5-5": (4.0, 20.0, 0.20),
+    "claude-sonnet-5-5": (2.0, 10.0, 0.10),  # model fallback sisi server
     "claude-haiku-5-5": (0.10, 0.50, 0.01),
 }
 WARN_PCT, STOP_PCT = 80.0, 100.0
+WEB_SEARCH_USD_PER_1000 = 10.0
 
 
 def cost_usd(model: str, usage: dict) -> float:
+    if model not in PRICES:
+        logger.warning("Model %r tak dikenal; memakai tarif Opus", model)
     p_in, p_out, p_cr = PRICES.get(model) or PRICES["claude-opus-5-5"]
     u = usage or {}
+    web = ((u.get("server_tool_use") or {}).get("web_search_requests") or 0)
     inp = u.get("input_tokens") or 0
     out = u.get("output_tokens") or 0
     cr = u.get("cache_read_input_tokens") or 0
     cw = u.get("cache_creation_input_tokens") or 0
-    return (inp * p_in + out * p_out + cr * p_cr + cw * p_in * 1.25) / 1_000_000
+    return (inp * p_in + out * p_out + cr * p_cr + cw * p_in * 1.25) / 1_000_000 + web * WEB_SEARCH_USD_PER_1000 / 1000
 
 
 def _month() -> str:
