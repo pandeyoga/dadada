@@ -18,7 +18,7 @@ import {
   Headset, Calculator, Wrench, ShoppingCart, BookOpen, Scale,
   CalendarDays, Landmark, Workflow, Database, History, Map as MapIcon,
   Building, Banknote, Coins, SlidersHorizontal, BarChart3, Handshake, Megaphone, Target, FileSignature,
-  DatabaseBackup, } from "lucide-react";
+  DatabaseBackup, Sparkles, } from "lucide-react";
 
 export const PAGE_META = {
   "/": { kicker: "Work Hub", title: "Beranda" },
@@ -67,6 +67,8 @@ export const PAGE_META = {
   "/profile": { kicker: "Akun", title: "Profil Saya" },
   "/projects/:id": { kicker: "Proyek", title: "Struktur Proyek & Unit" },
   "/units/:id": { kicker: "Proyek", title: "Unit 360" },
+  "/ai": { kicker: "Estora AI", title: "Copilot" },
+  "/ai/settings": { kicker: "Estora AI", title: "Pengaturan AI" },
   "/admin/users": { kicker: "Admin", title: "Pengguna" },
   "/admin/permissions": { kicker: "Admin", title: "Hak Akses (RBAC)" },
   "/admin/organizations": { kicker: "Admin", title: "Organisasi (Tenant)" },
@@ -114,6 +116,9 @@ export const NAV_STRUCTURE = [
   {
     type: "group", groupId: "work", label: "Kerja", roles: ALL,
     items: [
+      // Estora AI tahap 1: terlihat bila izin `ai_copilot.use` ada (tanpa izin = tanpa menu).
+      { id: "ai-copilot", label: "Estora AI", icon: Sparkles, path: "/ai", roles: ALL,
+        resource: "ai_copilot", action: "use" },
       { id: "tasks", label: "Tugas & Papan Divisi", icon: ListChecks, path: "/tasks", roles: ALL,
         resource: "work_tasks" },
       { id: "notifications", label: "Notifikasi", icon: Bell, path: "/notifications", roles: ALL },
