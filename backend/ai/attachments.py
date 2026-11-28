@@ -10,6 +10,7 @@ MAX_TEXT_CHARS = 20000
 TEXT_TYPES = ("text/", "application/json", "application/csv")
 MARKER = "[Lampiran: "
 EXPAND_LAST = 3  # hanya N pesan berlampiran terakhir yang dikembangkan jadi blok; yang lebih lama tetap teks
+MAX_EXPAND_BYTES = 16 * 1024 * 1024  # total per PERMINTAAN (base64 ~1,33x): batas ukuran permintaan Messages API
 
 
 async def resolve(file_ids: list, org_id: str, owner_id: str) -> list:
@@ -27,9 +28,9 @@ def marker(rec: dict) -> dict:
     return {"type": "text", "text": f"{MARKER}{rec.get('original_filename') or 'berkas'}]"}
 
 
-async def blocks_for(file_ids: list, org_id: str, owner_id: str) -> list:
+async def blocks_for(file_ids: list, org_id: str, owner_id: str, recs: list = None) -> list:
     blocks = []
-    for rec in await resolve(file_ids, org_id, owner_id):
+    for rec in (await resolve(file_ids, org_id, owner_id)) if recs is None else recs:
         name, ct = rec.get("original_filename") or "berkas", rec.get("content_type") or ""
         if (rec.get("size") or 0) > MAX_ATTACH_BYTES:
             blocks.append({"type": "text", "text": f"[Lampiran '{name}' terlalu besar dan tidak dibaca.]"})
@@ -56,11 +57,20 @@ def is_marker(b: dict) -> bool:
 
 
 async def expand(msgs: list, org_id: str, owner_id: str) -> list:
-    """Kembangkan blok penanda `[Lampiran: ...]` pada EXPAND_LAST pesan berlampiran terakhir menjadi blok isi."""
+    """Kembangkan blok penanda `[Lampiran: ...]` pada EXPAND_LAST pesan berlampiran terakhir menjadi blok isi.
+
+    Terbaru dulu, total maks MAX_EXPAND_BYTES per permintaan: begitu satu pesan tidak muat, pesan berlampiran yang lebih
+    lama tetap berupa penanda teks (tiga pesan 8 MB tidak lagi membuat setiap giliran berikutnya ditolak API)."""
     idx = [i for i, m in enumerate(msgs) if m.get("attachment_ids")][-EXPAND_LAST:]
-    for i in idx:
+    used = 0
+    for i in reversed(idx):
         m = msgs[i]
-        real = await blocks_for(m["attachment_ids"], org_id, owner_id)
+        recs = await resolve(m["attachment_ids"], org_id, owner_id)
+        size = sum(int(r.get("size") or 0) for r in recs if int(r.get("size") or 0) <= MAX_ATTACH_BYTES)
+        if used + size > MAX_EXPAND_BYTES:
+            break
+        used += size
+        real = await blocks_for(m["attachment_ids"], org_id, owner_id, recs)
         if not real:
             continue
         old = m["content"] if isinstance(m["content"], list) else [{"type": "text", "text": m["content"] or ""}]

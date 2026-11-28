@@ -271,15 +271,14 @@ async def process_job(job: dict) -> dict:
     ctx = ToolContext(org_id=org, user=svc, token=await internal_api.service_token(org), channel="wa", conversation_id=ai_conv["id"],
                       contact={"phone": phone, "lead_id": lead_id, "buyer_customer_id": await identity.verified_customer_id(org, phone)},
                       verified=verified, role="sales")
+    try:  # ringkasan dulu (giliran ini memakai ringkasan terbaru); hanya pelengkap: gagal tidak menggagalkan job
+        await summarize.update_wa_summary(ai_conv["id"])
+    except Exception:  # noqa: BLE001
+        logger.warning("Ringkasan WA gagal", exc_info=True)
     gen = await _generate(ctx, ai_conv["id"], text)
     if not gen["text"]:
         await drafts.set_label(conv["id"], "needs_sales", "AI belum bisa membuat draf")
         return {"status": "error", "category": cat, "error": gen["error"]}
-    res = await _finish(org, conv, tri, mode, prefixed(gen["text"]), basis=gen["basis"], flags=_risky(gen["text"], phone),
+    return await _finish(org, conv, tri, mode, prefixed(gen["text"]), basis=gen["basis"], flags=_risky(gen["text"], phone),
                          actions=gen["actions"], with_notice=bool(notice), ai_conv_id=ai_conv["id"],
                          source_message_id=job.get("message_id"), simulated=simulated)
-    try:  # ringkasan hanya pelengkap: gagal tidak boleh menggagalkan job
-        await summarize.update_wa_summary(ai_conv["id"])
-    except Exception:  # noqa: BLE001
-        logger.warning("Ringkasan WA gagal", exc_info=True)
-    return res

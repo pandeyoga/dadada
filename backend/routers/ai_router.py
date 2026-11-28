@@ -314,6 +314,6 @@ async def usage(month: Optional[str] = None, user: dict = Depends(_manage)):
                                                   "t": {"$sum": "$cost_idr"}}}]).to_list(100)
     b["by_channel"] = {"web": 0, "wa": 0, "portal": 0}  # IDR; pemilah/draf tanpa kanal = WA (tahap 1)
     for r in ch:
-        c = r["_id"].get("c") or ("wa" if r["_id"].get("p") in ("triage", "rewrite", "summary") else "web")
+        c = r["_id"].get("c") or ("wa" if r["_id"].get("p") in ("triage", "rewrite", "summary", "wa_summary") else "web")
         b["by_channel"][c if c in b["by_channel"] else "web"] += int(r["t"])
     return {"data": b}

@@ -1,16 +1,19 @@
-"""Ringkasan percakapan WhatsApp: pesan di luar jendela 30 diringkas (Haiku) supaya konteks lama tidak hilang."""
+"""Ringkasan percakapan WhatsApp: pesan di luar jendela 30 diringkas (Haiku) supaya konteks lama tidak hilang.
+
+Batas jendela sama persis dengan yang dikirim `history_for_api` (`conversations.wa_window_start`); dipanggil SEBELUM
+jawaban dibuat (`wa_agent.process_job`) supaya giliran yang melewati ambang memakai ringkasan terbaru."""
 import logging
 from typing import Optional
 
 from ai import config, pii
 from ai.client import get_claude
-from ai.conversations import WA_WINDOW
+from ai.conversations import WA_SUMMARY_MIN, wa_window_start
 from ai.tools.registry import wrap_untrusted
 from db import db
 
 logger = logging.getLogger("estora.ai.summarize")
 
-MIN_NEW = 10
+MIN_NEW = WA_SUMMARY_MIN  # penjaga biaya; pesan yang belum teringkas tetap dikirim di riwayat (jendela diperlebar)
 MAX_CHARS_PER_MSG = 400
 MAX_TOKENS = 1500  # ruang thinking adaptif + ringkasan
 SYSTEM = (
@@ -29,14 +32,15 @@ def _text(m: dict) -> str:
 
 
 async def update_wa_summary(conv_id: str) -> Optional[str]:
-    """Perbarui `summary` bila pesan di luar jendela bertambah >= 10 sejak `summary_upto_seq`. -> ringkasan baru atau None."""
+    """Ringkas SEMUA pesan di bawah awal jendela yang belum teringkas (>= MIN_NEW sejak `summary_upto_seq`).
+    -> ringkasan baru atau None."""
     conv = await db.ai_conversations.find_one({"id": conv_id}, {"_id": 0})
     if not conv or conv.get("channel") != "wa":
         return None
     msgs = await db.ai_messages.find({"conversation_id": conv_id}, {"_id": 0, "seq": 1, "role": 1, "content": 1}) \
         .sort("seq", 1).to_list(5000)
-    outside = msgs[:-WA_WINDOW] if len(msgs) > WA_WINDOW else []
     upto = conv.get("summary_upto_seq") or 0
+    outside = msgs[:wa_window_start(msgs, upto)]
     fresh = [m for m in outside if m["seq"] > upto]
     if len(fresh) < MIN_NEW:
         return None
@@ -53,7 +57,8 @@ async def update_wa_summary(conv_id: str) -> Optional[str]:
     resp = await claude.turn(
         model=s["model_triage"], system=[{"type": "text", "text": SYSTEM}],
         messages=[{"role": "user", "content": [{"type": "text", "text": body}]}], tools=[],
-        effort="low", max_tokens=MAX_TOKENS, on_text=None, context={"purpose": "wa_summary", "conversation_id": conv_id})
+        effort="low", max_tokens=MAX_TOKENS, on_text=None,
+        context={"purpose": "wa_summary", "channel": "wa", "conversation_id": conv_id})  # biaya per kanal: WA
     if resp.get("stop_reason") in ("refusal", "max_tokens"):
         return None
     summary = "".join(b.get("text", "") for b in resp.get("content") or [] if b.get("type") == "text").strip()

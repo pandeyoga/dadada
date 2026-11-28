@@ -62,8 +62,9 @@ async def test_wa_summary_written(app):
     set_override(FakeClaude([{"content": [{"type": "text", "text": "Pelanggan menanyakan tipe 36."}]}]))
     assert await summarize.update_wa_summary(conv["id"]) == "Pelanggan menanyakan tipe 36."
     c = await db.ai_conversations.find_one({"id": conv["id"]})
-    assert c["summary"] and c["summary_upto_seq"] == 15
-    assert await summarize.update_wa_summary(conv["id"]) is None  # belum ada 10 pesan baru di luar jendela
+    # jendela 30 dimulai dari giliran pengguna (seq 17): asisten seq 16 di tepinya ikut diringkas, bukan hilang
+    assert c["summary"] and c["summary_upto_seq"] == 16
+    assert await summarize.update_wa_summary(conv["id"]) is None  # tidak ada pesan baru di luar jendela
     hist = await conversations.history_for_api(conv["id"])
     assert hist[0]["role"] == "user" and "Ringkasan percakapan sebelumnya" in hist[0]["content"][0]["text"]
 

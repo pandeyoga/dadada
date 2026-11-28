@@ -8,6 +8,7 @@ from core_utils import new_id, now_iso
 from db import db
 
 WA_WINDOW = 30
+WA_SUMMARY_MIN = 10  # penjaga biaya: ringkasan WA baru dibuat bila >= 10 pesan belum teringkas di luar jendela
 
 
 async def create(org_id: str, owner_id: str, *, role: str, channel: str = "web", title: str = None,
@@ -66,6 +67,22 @@ def _blocks(m: dict) -> list:
 def _starts_clean(m: dict) -> bool:
     """Giliran pengguna sungguhan (bukan pesan yang hanya berisi tool_result)."""
     return m["role"] == "user" and any(b.get("type") != "tool_result" for b in _blocks(m))
+
+
+def wa_window_start(msgs: list, upto_seq=0) -> int:
+    """Indeks awal riwayat WA yang dikirim ke model — SATU batas untuk `history_for_api` dan `summarize`.
+
+    Jendela = WA_WINDOW pesan terakhir, mulai dari giliran pengguna yang bersih (pesan non-bersih di tepi ikut
+    "di luar jendela", jadi ikut diringkas). Selama pesan di luar jendela yang belum teringkas (`seq > upto_seq`) masih
+    < WA_SUMMARY_MIN, jendela diperlebar mundur sampai mencakupnya; mulai WA_SUMMARY_MIN, `summarize` meringkas semuanya
+    sebelum jawaban dibuat. Jadi tiap pesan ada di ringkasan ATAU di riwayat (kecuali ringkasan gagal dibuat)."""
+    start = max(0, len(msgs) - WA_WINDOW)
+    while start < len(msgs) and not _starts_clean(msgs[start]):
+        start += 1
+    pending = [i for i in range(start) if msgs[i]["seq"] > (upto_seq or 0)]
+    if pending and len(pending) < WA_SUMMARY_MIN:
+        start = next((i for i in range(pending[0], -1, -1) if _starts_clean(msgs[i])), start)
+    return start
 
 
 # ---------------------------------------------------------------- perbaikan tool_use yatim (I1)
@@ -150,10 +167,8 @@ async def history_for_api(conv_id: str) -> list:
         raise LookupError("Percakapan tidak ditemukan.")
     msgs = await db.ai_messages.find({"conversation_id": conv_id}, {"_id": 0}).sort("seq", 1).to_list(5000)
     msgs = await _repair_orphans(conv_id, msgs)
-    if conv.get("channel") == "wa":
-        msgs = msgs[-WA_WINDOW:]
-        while msgs and not _starts_clean(msgs[0]):  # jangan mulai dari tool_result yatim / pesan asisten
-            msgs = msgs[1:]
+    if conv.get("channel") == "wa":  # jangan mulai dari tool_result yatim / pesan asisten (lihat wa_window_start)
+        msgs = msgs[wa_window_start(msgs, conv.get("summary_upto_seq")):]
         if msgs and any(b.get("type") == "tool_result" for b in _blocks(msgs[0])):  # hasil perbaikan yatim di tepi jendela
             msgs[0] = {**msgs[0], "content": [b for b in _blocks(msgs[0]) if b.get("type") != "tool_result"]}
     msgs = await attachments.expand(msgs, conv["org_id"], conv["owner_id"])
