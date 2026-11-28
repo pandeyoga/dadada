@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 import settings_store as ss
 import storage
-from ai import actions, api_views, budget, config, conversations
+from ai import actions, api_views, attachments, budget, config, conversations
 from ai.agent import EXEMPT_ROLES, run_turn
 from ai.client import ClaudeError, get_claude
 from ai.tools.registry import ToolContext
@@ -142,10 +142,14 @@ async def send_message(conv_id: str, body: MessageIn, request: Request, user: di
     web = bool(body.web_research) and bool((await config.get_ai_settings(org)).get("web_research_enabled"))
     ctx = ToolContext(org_id=org, user=user, token=_token(request), conversation_id=conv_id,
                       web_research=web, role=role)
-    content = [{"type": "text", "text": text}] + await api_views.attachment_blocks(body.attachments, user)
+    recs = await attachments.resolve(body.attachments, org, user["id"])
+    if sum(r.get("size") or 0 for r in recs) > attachments.MAX_ATTACH_BYTES:
+        raise HTTPException(413, "Total lampiran terlalu besar (maksimal 8 MB per pesan).")
+    content = [{"type": "text", "text": text}] + [attachments.marker(r) for r in recs]
+    att_ids = [r["id"] for r in recs]
 
     async def stream():
-        gen = run_turn(ctx, conv_id, content)
+        gen = run_turn(ctx, conv_id, content, att_ids)
         partial, finished = [], False
         try:
             async for ev in gen:

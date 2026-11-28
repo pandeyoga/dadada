@@ -52,7 +52,7 @@ async def _budget_stopped(ctx: ToolContext) -> bool:
     return (await budget.budget_state(ctx.org_id))["state"] == "stop"
 
 
-async def run_turn(ctx: ToolContext, conv_id: str, user_content: list) -> AsyncIterator[dict]:
+async def run_turn(ctx: ToolContext, conv_id: str, user_content: list, attachment_ids: list = None) -> AsyncIterator[dict]:
     """Satu giliran. Peristiwa `done` membawa `stop`: "ok" | "refusal" | "truncated" (WA memperlakukan selain ok sebagai gagal)."""
     org = ctx.org_id
     if await _budget_stopped(ctx):
@@ -70,7 +70,8 @@ async def run_turn(ctx: ToolContext, conv_id: str, user_content: list) -> AsyncI
     if ctx.channel == "wa":  # pesan masuk WA = data tak tepercaya
         nonce = secrets.token_hex(4)
         user_content = [{**b, "text": wrap_untrusted(b["text"], nonce)} if b.get("type") == "text" else b for b in user_content]
-    await conversations.append(conv_id, {"role": "user", "content": user_content})
+    await conversations.append(conv_id, {"role": "user", "content": user_content,
+                                         **({"attachment_ids": attachment_ids} if attachment_ids else {})})
     first_text = next((b.get("text", "") for b in user_content if b.get("type") == "text"), "")
     await conversations.set_title_if_new(conv_id, first_text)
     messages = await conversations.history_for_api(conv_id)

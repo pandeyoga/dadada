@@ -3,7 +3,7 @@
 Blok konten disimpan apa adanya. Saat dikirim ulang, giliran lama tanpa thinking (lihat `history_for_api`)."""
 from typing import Optional
 
-from ai import pii
+from ai import attachments, pii
 from core_utils import new_id, now_iso
 from db import db
 
@@ -156,6 +156,7 @@ async def history_for_api(conv_id: str) -> list:
             msgs = msgs[1:]
         if msgs and any(b.get("type") == "tool_result" for b in _blocks(msgs[0])):  # hasil perbaikan yatim di tepi jendela
             msgs[0] = {**msgs[0], "content": [b for b in _blocks(msgs[0]) if b.get("type") != "tool_result"]}
+    msgs = await attachments.expand(msgs, conv["org_id"], conv["owner_id"])
     last_user = max((i for i, m in enumerate(msgs) if _starts_clean(m)), default=len(msgs))
     out = [{"role": m["role"], "content": _strip_old_turn(_blocks(m))} if m["role"] == "assistant" and i < last_user
            else _api_msg(m) for i, m in enumerate(msgs)]

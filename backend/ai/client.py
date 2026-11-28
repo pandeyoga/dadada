@@ -78,19 +78,32 @@ class LiveClaude:
             req["tools"] = tools
         return req
 
+    async def _record_partial(self, stream, model, context) -> None:
+        """Stream gagal di tengah jalan: catat usage yang sudah terkumpul (bila ada) supaya biayanya tidak hilang."""
+        try:
+            snap = stream.current_message_snapshot if stream is not None else None
+            usage = snap.usage.model_dump(exclude_none=True) if snap is not None and snap.usage else {}
+            if usage:
+                await budget.record_usage(self.org_id, model=str(snap.model or model), usage=usage,
+                                          context={**(context or {}), "partial": True})
+        except Exception:  # noqa: BLE001  (belum ada snapshot / pencatatan gagal: jangan menutupi error asli)
+            logger.debug("Usage stream gagal tak tercatat", exc_info=True)
+
     async def turn(self, *, model, system, messages, tools, effort, max_tokens, on_text, context,
                    output_format=None) -> dict:
         req = self.build_request(model=model, system=system, messages=messages, tools=tools, effort=effort,
                                  max_tokens=max_tokens, streaming=on_text is not None, output_format=output_format)
+        stream = None
         try:
             if on_text is not None:
-                async with self.client.beta.messages.stream(**req) as s:
-                    async for t in s.text_stream:
+                async with self.client.beta.messages.stream(**req) as stream:
+                    async for t in stream.text_stream:
                         await on_text(t)
-                    msg = await s.get_final_message()
+                    msg = await stream.get_final_message()
             else:
                 msg = await self.client.beta.messages.create(**req)
         except anthropic.AnthropicError as e:
+            await self._record_partial(stream, model, context)
             raise map_error(e) from e
         usage = msg.usage.model_dump(exclude_none=True) if msg.usage else {}
         out_model = str(msg.model or model)

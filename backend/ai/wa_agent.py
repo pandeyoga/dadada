@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import settings_store as ss
 import wa_gateway as gw
-from ai import accuracy, budget, config, consent, conversations, drafts, identity, insights, triage
+from ai import accuracy, budget, config, consent, conversations, drafts, identity, insights, summarize, triage
 from ai.agent import run_turn
 from ai.tools import internal_api
 from ai.tools.registry import ToolContext
@@ -275,6 +275,11 @@ async def process_job(job: dict) -> dict:
     if not gen["text"]:
         await drafts.set_label(conv["id"], "needs_sales", "AI belum bisa membuat draf")
         return {"status": "error", "category": cat, "error": gen["error"]}
-    return await _finish(org, conv, tri, mode, prefixed(gen["text"]), basis=gen["basis"], flags=_risky(gen["text"], phone),
+    res = await _finish(org, conv, tri, mode, prefixed(gen["text"]), basis=gen["basis"], flags=_risky(gen["text"], phone),
                          actions=gen["actions"], with_notice=bool(notice), ai_conv_id=ai_conv["id"],
                          source_message_id=job.get("message_id"), simulated=simulated)
+    try:  # ringkasan hanya pelengkap: gagal tidak boleh menggagalkan job
+        await summarize.update_wa_summary(ai_conv["id"])
+    except Exception:  # noqa: BLE001
+        logger.warning("Ringkasan WA gagal", exc_info=True)
+    return res
