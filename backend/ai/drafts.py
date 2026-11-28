@@ -92,7 +92,10 @@ async def send(draft_id: str, org_id: str, user: dict, text: str = None) -> dict
     final = (text if text is not None else d["text"]).strip()
     if not final:
         raise DraftError(400, "Teks balasan kosong.")
-    await dispatch(org_id, d["conversation_id"], final, actor=user.get("email"), with_notice=d.get("with_notice", False))
+    msg = await dispatch(org_id, d["conversation_id"], final, actor=user.get("email"), with_notice=d.get("with_notice", False))
+    from routers.inbox_router import log_lead_activity  # jalur yang sama dengan balasan Inbox biasa
+    conv = await db.conversations.find_one({"id": d["conversation_id"]}, {"_id": 0})
+    await log_lead_activity(conv, msg, final, "out", user.get("email"), org_id)
     out = await accuracy.record_outcome(draft_id, final, status="sent" if final == d["text"] else "edited")
     await set_label(d["conversation_id"], None)
     return out

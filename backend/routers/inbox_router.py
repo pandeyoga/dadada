@@ -126,6 +126,26 @@ async def update_conv_contact(conv_id: str, p: ContactEditIn,
     return {"data": _decorate(fresh)}
 
 
+async def log_lead_activity(conv: dict, msg: dict, body: str, direction: str, actor_email: str, org: str) -> None:
+    """Fase 29b: percakapan WA BERPENGARUH pada lifecycle lead (timeline + kontak pertama).
+    Dipakai juga oleh pengiriman draf AI dari Inbox agar sama dengan balasan biasa."""
+    lead_id = conv.get("lead_id")
+    if not lead_id:
+        return
+    import lead_lifecycle as lc
+    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    if lead:
+        arah = "terkirim" if direction == "out" else "masuk"
+        mode_lbl = "LIVE" if msg.get("mode") == "live" else "SIMULASI"
+        await add_activity(entity_type="lead", entity_id=lead_id, type="system",
+                           body=f"WhatsApp {arah} ({mode_lbl}): {body[:120]}",
+                           actor=msg["sender"], org_id=org,
+                           meta={"conversation_id": conv["id"]})
+        if direction == "out":
+            await lc.mark_first_contact(lead, actor=actor_email, channel="whatsapp",
+                                        note=f"WA: {body[:80]}")
+
+
 @router.post("/{conv_id}/messages")
 async def send_message(conv_id: str, payload: MessageCreate,
                        user: dict = Depends(require_permission("inbox", "create"))):
@@ -181,22 +201,7 @@ async def send_message(conv_id: str, payload: MessageCreate,
         conv_set["window_expires_at"] = due_in(hours=24)
     await db.conversations.update_one({"id": conv_id}, {"$set": conv_set})
 
-    # Fase 29b: percakapan WA kini BERPENGARUH pada lifecycle lead (dulu terputus:
-    # kirim/terima pesan tidak mencatat kontak pertama, tidak muncul di timeline lead).
-    lead_id = conv.get("lead_id")
-    if lead_id:
-        import lead_lifecycle as lc
-        lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
-        if lead:
-            arah = "terkirim" if direction == "out" else "masuk"
-            mode_lbl = "LIVE" if msg.get("mode") == "live" else "SIMULASI"
-            await add_activity(entity_type="lead", entity_id=lead_id, type="system",
-                               body=f"WhatsApp {arah} ({mode_lbl}): {body[:120]}",
-                               actor=msg["sender"], org_id=org,
-                               meta={"conversation_id": conv_id})
-            if direction == "out":
-                await lc.mark_first_contact(lead, actor=user.get("email"), channel="whatsapp",
-                                            note=f"WA: {body[:80]}")
+    await log_lead_activity(conv, msg, body, direction, user.get("email"), org)
 
     if direction == "in":
         await emit("message.received", "conversation", conv_id, {"body": payload.body}, org_id=org)
