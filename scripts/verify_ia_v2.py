@@ -53,7 +53,7 @@ MERGED = ["/deals", "/construction", "/build-calendar", "/build-calibration", "/
 # json bertanda `<!-- NAV_DOOR_LEDGER -->`), jadi gate menangkap dua hal yang benar-benar
 # berbahaya: pintu ASING (tak terdokumentasi) dan pintu HILANG (fitur lenyap diam-diam).
 LEDGER_DOC = ROOT / "docs" / "v2" / "40_PETA_NAV_V2.md"
-DOOR_BUDGET = 31   # anggaran anti-sprawl (30 + /legal iter149); melewatinya = IA harus dilebur jadi hub bertab
+DOOR_BUDGET = 32   # anggaran anti-sprawl (30 + /legal iter149 + /ai Estora AI tahap 1); melewatinya = IA harus dilebur jadi hub bertab
 # Daftar transaksional yang WAJIB memakai pola tabel pro.
 LISTS = {
     "pages/LeadsPage.js": "lead",

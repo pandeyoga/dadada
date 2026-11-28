@@ -14,6 +14,8 @@ def load() -> None:
         propose_tools.register_all()
     except ImportError:
         pass
+    from ai import report_tool
+    report_tool.register_all()
     _loaded = True
 
 

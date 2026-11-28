@@ -154,6 +154,7 @@ sebagai **tab di hub yang sudah ada** (`/bi`, `/boq`, `/build`), bukan pintu bar
   {"route": "/documents",            "label": "Dokumen & Perizinan",  "group": "Dokumen",      "phase": "26 (tab Perizinan 40c)"},
   {"route": "/config",               "label": "Pusat Konfigurasi",    "group": "Konfigurasi",  "phase": "39"},
   {"route": "/bi",                   "label": "Analitik & BI",        "group": "Analitik & BI","phase": "44"},
+  {"route": "/ai",                  "label": "Estora AI",            "group": "Kerja",        "phase": "Estora AI tahap 1 (Copilot; /ai/settings = halaman anak, bukan pintu)"},
   {"route": "/legal",                "label": "Legal & Privasi",      "group": "Konfigurasi",  "phase": "iter149 (halaman legal publik + tiket penghapusan data)"}
 ]
 ```

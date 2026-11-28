@@ -14,6 +14,16 @@ def _last(messages: list):
     return text, [b for b in c if b.get("type") == "tool_result"]
 
 
+SAMPLE_REPORT = {
+    "judul": "Laporan funnel penjualan (contoh simulasi)",
+    "ringkasan": "Data contoh untuk demo tampilan; bukan data sebenarnya.",
+    "bagian": [{"judul": "Funnel", "teks": "Contoh jumlah prospek per tahap.",
+                "tabel": {"kolom": ["Tahap", "Jumlah"], "baris": [["Baru", 40], ["Survei", 18], ["Booking", 6]]},
+                "grafik": {"jenis": "funnel", "label": ["Baru", "Survei", "Booking"],
+                           "seri": [{"nama": "Jumlah", "nilai": [40, 18, 6]}]}}],
+}
+
+
 def _tool(name: str, inp: dict) -> dict:
     return {"type": "tool_use", "id": "toolu_sim_" + new_id()[:12], "name": name, "input": inp}
 
@@ -34,7 +44,7 @@ class SimulatedClaude:
                  for b in m["content"] if b.get("type") == "tool_use"]
         if results:
             if "funnel_penjualan" in prior and "buat_laporan" not in prior and "buat_laporan" in names:
-                return self._resp([_tool("buat_laporan", {"judul": "Laporan funnel penjualan (simulasi)"})], "tool_use")
+                return self._resp([_tool("buat_laporan", SAMPLE_REPORT)], "tool_use")
             out = [{"type": "text", "text": NOTICE + " Laporan simulasi sudah dibuat."}]
         elif ("laporan" in text or "funnel" in text) and "funnel_penjualan" in names:
             return self._resp([_tool("funnel_penjualan", {})], "tool_use")
