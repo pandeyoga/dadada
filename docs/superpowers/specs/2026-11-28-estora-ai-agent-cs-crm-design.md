@@ -174,7 +174,35 @@ Semua dokumen membawa `org_id` (multi-tenant seperti koleksi lain).
   `auto`; biaya ≥100% menghentikan otomatis).
 - Uji manual live hanya bila pemilik mengisi kunci API (dicatat sebagai langkah serah terima, bukan syarat selesai).
 
-## 9. Diserahkan ke builder
+## 9. Keputusan setelah tinjauan builder (28 Nov 2026)
+
+**Dari pemilik produk:**
+1. **Verifikasi identitas di WhatsApp**: data pribadi pembeli (VA, tagihan, status KPR, progres unit) hanya dijawab bila nomor
+   pengirim = nomor pembeli di sistem **dan** kontak sudah lolos **OTP WhatsApp** (memakai mekanisme OTP portal pembeli yang ada),
+   berlaku 30 hari (dapat diatur). Sebelum lolos, AI menawarkan verifikasi atau tautan portal.
+2. **Jumlah nomor Tahap 1**: **1 nomor resmi** (Cloud API *atau* Coexistence — satu mode aktif) **+ opsional 1 nomor gateway tidak
+   resmi** untuk follow-up sales. Tidak ada multi-nomor; cukup penanda kanal pada pesan keluar/masuk dan rute webhook gateway sendiri.
+3. **Persetujuan (UU PDP)**: kontak yang menghubungi lebih dulu dianggap setuju diproses; **balasan AI pertama** ke kontak memuat
+   pemberitahuan singkat + cara berhenti (`STOP` / `manusia`). Persetujuan **eksplisit (balas YA)** wajib untuk: dihubungi lewat
+   nomor tidak resmi, dan pemrosesan berkas/dokumen. Penyimpanan persetujuan baru (opt-in per kontak, per jenis), opt-out yang ada
+   tetap dihormati. Rekomendasi konsultasi hukum dicatat di dokumentasi.
+4. **Kelayakan KPR**: rasio cicilan maksimum **35% dari penghasilan** (pengaturan `ai.kpr_max_installment_ratio`, bisa diubah);
+   AI selalu menyebutnya *perkiraan*, bukan keputusan bank; cicilan dari `kpr_schedule`/`simulasi_kpr`.
+
+**Keputusan builder (bisa dikoreksi pemilik):**
+5. **Identitas alat agen WhatsApp**: peran layanan baru **`ai_agent`** (bukan login manusia) dengan izin baca terbatas
+   (leads/units/pricing/kpr/projects/complaints/appointments sesuai kebutuhan alat) didaftarkan lewat `ALL_ROLES` + migrasi matriks
+   (`ROLE_GRANTS`/`MATRIX_MIGRATIONS`) agar tabel izin di DB ikut. Di giliran WhatsApp, alat data pribadi **dibatasi ke kontak itu
+   sendiri** (lead/pembeli yang cocok nomor + sudah OTP) di lapisan alat — bukan hanya lewat prompt. `api_get` generik **tidak**
+   tersedia untuk agen WhatsApp (hanya Copilot staf, dengan token staf). Usulan tulis dari WA (jadwal survei, catatan) masuk
+   `ai_actions` dan disetujui sales/pemilik lead.
+6. **Akurasi saat Otomatis**: syarat ambang dicek saat menyalakan `auto`; setelah itu **10% balasan otomatis diambil sampel**
+   untuk ditinjau di Inbox ("Tinjau sampel AI": benar/salah); akurasi bergulir 30 hari memakai draf + sampel. Turun otomatis ke
+   `draft` bila akurasi sampel < ambang atau ada sinyal negatif (kontak meminta manusia/komplain soal jawaban AI) — dengan notifikasi.
+7. **Onboarding Coexistence**: nomor didaftarkan di luar Estora (Meta Business/BSP); Estora menerima `token`, `phone_id`,
+   `waba_id` lewat formulir kredensial seperti `wa_setup` + panduan; Embedded Signup = Tahap 2.
+
+## 10. Diserahkan ke builder
 Struktur kode rinci di dalam `backend/ai/`, nama endpoint persis, desain prompt sistem (Bahasa Indonesia, gaya Estora), format SSE,
 komponen React persis (mengikuti shadcn yang ada), pilihan pustaka markdown aman yang sudah ada di frontend, detail kompaksi riwayat,
 format payload gateway tidak resmi bawaan (generik + contoh pemetaan untuk satu layanan populer bila dokumentasinya publik),
