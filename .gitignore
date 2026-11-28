@@ -112,3 +112,6 @@ deploy/instances.rollback-*/
 deploy/edge/caddy/
 deploy/edge/edge.env
 deploy/.env.legacy
+
+# Worktree subagen lokal
+.claude/worktrees/
