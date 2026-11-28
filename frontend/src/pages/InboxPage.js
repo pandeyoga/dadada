@@ -21,6 +21,7 @@ import { AiLabelPill, useAiLabels } from "@/components/ai/inbox/AiInboxLabels";
 import AiDraftCard from "@/components/ai/inbox/AiDraftCard";
 import AiInsightsPanel from "@/components/ai/inbox/AiInsightsPanel";
 import AiSampleReview from "@/components/ai/inbox/AiSampleReview";
+import AiInboxActions from "@/components/ai/inbox/AiInboxActions";
 import useAiInbox, { channelText } from "@/components/ai/inbox/useAiInbox";
 import { INBOX, P94, P97, CONTACT_EDIT } from "@/constants/testIds";
 
@@ -243,6 +244,7 @@ export default function InboxPage() {
             {/* Context panel (lead + NBA) */}
             <div className="space-y-3 md:col-span-1">
               {ai?.insights ? <AiInsightsPanel insights={ai.insights} channel={channelText(ai.channel)} /> : null}
+              {ai && activeId ? <AiInboxActions ai={ai} conversationId={activeId} windowOpen={!!windowOpen} onChanged={refresh} /> : null}
               {thread ? (
                 <InboxContextPanel leadId={thread.conversation.lead_id}
                   conversationId={thread.conversation.id}

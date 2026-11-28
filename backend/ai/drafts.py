@@ -184,7 +184,9 @@ async def inbox_view(org_id: str, conv: dict) -> dict:
             "verified": bool(phone) and await identity.is_verified(org_id, phone),
             "actions": await pending_actions(org_id, phone),
             "optin_unofficial": (cs or {}).get("optins", {}).get("unofficial", False),
-            "optin_pending": (cs or {}).get("pending_optin") == "unofficial"}
+            "optin_pending": (cs or {}).get("pending_optin") == "unofficial",
+            "unofficial_enabled": bool((await db.channel_accounts.find_one(
+                {"org_id": org_id, "code": wa_channels.UNOFFICIAL_CODE}, {"_id": 0, "enabled": 1}) or {}).get("enabled"))}
 
 
 async def pending_actions(org_id: str, phone: str) -> list:

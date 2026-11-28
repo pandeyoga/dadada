@@ -67,3 +67,4 @@ export const sendDraft = (id, text) => post(`/ai/inbox/drafts/${id}/send`, text 
 export const rewriteDraft = (id, instruction) => post(`/ai/inbox/drafts/${id}/rewrite`, { instruction });
 export const discardDraft = (id) => post(`/ai/inbox/drafts/${id}/discard`);
 export const reviewSample = (id, verdict) => post(`/ai/inbox/samples/${id}/review`, { verdict });
+export const requestUnofficialOptin = (convId) => post(`/ai/inbox/conversations/${convId}/optin-unofficial`);

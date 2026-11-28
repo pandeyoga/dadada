@@ -11,19 +11,25 @@ const STATUS_TEXT = {
 
 const asChange = (c) => (typeof c === "string" ? { title: c } : c || {});
 const asCheck = (c) => (typeof c === "string" ? { label: c, ok: true } : c || {});
+// Label bidang yang boleh diubah penyetuju (daftarnya dari backend: `action.editable`).
+const FIELD_LABEL = { body: "Isi", notes: "Catatan", scheduled_at: "Waktu (YYYY-MM-DDTHH:MM)", note: "Alasan", message: "Pesan" };
 
 /**
  * Kartu persetujuan (mockup Confirm). `action.preview` = { changes: [string | {title, detail, check}],
- * checks: [{ok, label}], on_behalf_of }. Approve dijaga `useRef` agar klik ganda cepat hanya sekali.
+ * checks: [{ok, label}], on_behalf_of }. `action.editable` = bidang payload yang boleh diubah ("Ubah").
+ * Approve dijaga `useRef` agar klik ganda cepat hanya sekali.
  */
 export default function AiActionCard({ action, onChanged }) {
   const [status, setStatus] = useState(action.status || "pending");
-  const [result, setResult] = useState(action.result || null);
+  const [failure, setFailure] = useState(action.error || "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [mode, setMode] = useState(null); // null | "edit" | "reject"
   const [note, setNote] = useState("");
   const inflight = useRef(false);
+  const current = action.payload?.json || {};
+  const fields = (action.editable || []).filter((f) => !(f === "body" && current.template_code));
+  const [edits, setEdits] = useState(() => Object.fromEntries(fields.map((f) => [f, current[f] ?? ""])));
 
   const preview = action.preview || {};
   const changes = (preview.changes || []).map(asChange);
@@ -37,15 +43,16 @@ export default function AiActionCard({ action, onChanged }) {
     try {
       const r = await fn();
       const st = r?.status || okStatus;
-      setStatus(st); setResult(r?.result || null);
+      setStatus(st); setFailure(r?.error || "");
       onChanged?.({ ...action, status: st });
     } catch (e) {
       setErr(friendlyError(e, "Aksi tidak dapat diproses."));
     } finally { inflight.current = false; setBusy(false); }
   };
 
+  const changed = Object.fromEntries(Object.entries(edits).filter(([f, v]) => v !== (current[f] ?? "")));
   const approve = () => run(
-    () => approveAction(action.id, mode === "edit" && note.trim() ? { note: note.trim() } : undefined),
+    () => approveAction(action.id, mode === "edit" && Object.keys(changed).length ? changed : undefined),
     "executed");
   const reject = () => run(() => rejectAction(action.id, note.trim()), "rejected");
 
@@ -80,11 +87,21 @@ export default function AiActionCard({ action, onChanged }) {
         </div>
       ) : null}
 
-      {pending && mode ? (
+      {pending && mode === "edit" ? (
+        <div className="flex flex-col gap-2 border-t border-[#D5E0DC] px-4 py-3">
+          {fields.map((f) => (
+            <label key={f} className="flex flex-col gap-1 text-xs font-semibold text-[#3E5653]">
+              {FIELD_LABEL[f] || f}
+              <textarea rows={f === "scheduled_at" ? 1 : 2} value={edits[f]} data-testid={`ai-edit-${f}`}
+                onChange={(e) => setEdits((x) => ({ ...x, [f]: e.target.value }))}
+                className="w-full rounded-lg border border-[#C9D8D3] p-2 text-sm font-normal text-[#12312F] outline-none focus:border-[#006284]" />
+            </label>
+          ))}
+        </div>
+      ) : null}
+      {pending && mode === "reject" ? (
         <div className="border-t border-[#D5E0DC] px-4 py-3">
-          <label className="text-xs font-semibold text-[#3E5653]" htmlFor={`note-${action.id}`}>
-            {mode === "edit" ? "Catatan perubahan sebelum disetujui" : "Alasan penolakan (opsional)"}
-          </label>
+          <label className="text-xs font-semibold text-[#3E5653]" htmlFor={`note-${action.id}`}>Alasan penolakan (opsional)</label>
           <textarea id={`note-${action.id}`} rows={2} value={note} onChange={(e) => setNote(e.target.value)}
             className="mt-1 w-full rounded-lg border border-[#C9D8D3] p-2 text-sm text-[#12312F] outline-none focus:border-[#006284]" />
         </div>
@@ -104,10 +121,12 @@ export default function AiActionCard({ action, onChanged }) {
               {mode === "edit" ? "Setujui dengan perubahan" : "Setujui"}
             </button>
           )}
-          <button type="button" disabled={busy} onClick={() => setMode(mode === "edit" ? null : "edit")}
-            className="min-h-[44px] rounded-[10px] border border-[#B9CFC8] bg-white px-4 text-sm font-semibold text-[#12312F] disabled:opacity-60">
-            Ubah
-          </button>
+          {fields.length ? (
+            <button type="button" disabled={busy} onClick={() => setMode(mode === "edit" ? null : "edit")}
+              className="min-h-[44px] rounded-[10px] border border-[#B9CFC8] bg-white px-4 text-sm font-semibold text-[#12312F] disabled:opacity-60">
+              Ubah
+            </button>
+          ) : null}
           <button type="button" disabled={busy} onClick={() => setMode(mode === "reject" ? null : "reject")}
             className="min-h-[44px] rounded-[10px] border border-[#E8C4C0] bg-white px-4 text-sm font-semibold text-[#9B1C1C] disabled:opacity-60">
             Tolak
@@ -116,7 +135,7 @@ export default function AiActionCard({ action, onChanged }) {
       ) : (
         <p className="m-0 border-t border-[#D5E0DC] px-4 py-3 text-[13px] text-[#3E5653]" role="status">
           {STATUS_TEXT[status] || status}
-          {status === "failed" && typeof result === "string" ? ` ${result}` : ""}
+          {status === "failed" && failure ? ` ${failure}` : ""}
         </p>
       )}
       {err ? <p role="alert" className="m-0 px-4 pb-3 text-[13px] text-[#9B1C1C]">{err}</p> : null}

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 import settings_store as ss
+import wa_channels
 import wa_gateway as gw
 from ai import accuracy, config, consent, drafts, triage
 from core_utils import new_id, now_iso, serialize_doc
@@ -60,7 +61,7 @@ async def inbox_labels(ids: str = "", user: dict = Depends(_use)):
 
 
 # ---------------------------------------------------------------- opt-in kanal kedua & kirim WA lead (aksi AI)
-OPTIN_QUESTION = ("Halo, tim Estora ingin juga bisa menghubungi Anda lewat nomor WhatsApp kedua kami. "
+OPTIN_QUESTION = ("Halo, tim Estora ingin juga bisa menghubungi Anda lewat nomor WhatsApp kedua kami{nomor}. "
                   "Balas YA bila Anda setuju. Abaikan pesan ini bila tidak setuju.")
 
 
@@ -76,9 +77,13 @@ async def request_unofficial_optin(conv_id: str, user: dict = Depends(_use)):
         raise HTTPException(409, "Kontak ini sudah meminta berhenti (STOP); jangan dihubungi lewat kanal lain.")
     if st["optins"]["unofficial"]:
         raise HTTPException(409, "Kontak ini sudah memberi izin kanal kedua.")
+    uo = await wa_channels.get_unofficial_config(org)
+    if not uo["enabled"]:
+        raise HTTPException(409, "Gateway WhatsApp tidak resmi belum diaktifkan di Pengaturan AI.")
     if not gw.window_open(conv):
         raise HTTPException(400, drafts.WINDOW_CLOSED)
-    msg = await gw.send(org, phone, kind="inbox", body=OPTIN_QUESTION, conversation_id=conv_id,
+    body = OPTIN_QUESTION.format(nomor=f" ({uo['phone']})" if uo.get("phone") else "")
+    msg = await gw.send(org, phone, kind="inbox", body=body, conversation_id=conv_id,
                         actor=user.get("email"), category="service")
     if msg.get("status") == "failed":
         raise HTTPException(424, f"Kirim WA gagal ({msg.get('error_code')}): {msg.get('error_detail') or ''}".strip())

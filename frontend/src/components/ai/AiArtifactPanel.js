@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Download, X } from "lucide-react";
 import { downloadArtifact, friendlyError } from "./aiApi";
+import { renderMarkdown } from "./aiMarkdown";
 
 const BAR_COLORS = ["#006284", "#007F83", "#01916F", "#209F59", "#49AE42"];
 
@@ -25,13 +26,16 @@ export default function AiArtifactPanel({ artifact, onClose, onAskAgent }) {
 
   return (
     <section aria-label="Panel laporan" data-testid="ai-artifact-panel"
-      className="box-border flex min-w-0 flex-[1_1_440px] flex-col gap-4 border-l border-[#E1EAE7] bg-white px-[22px] py-[18px]">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="flex flex-col">
+      className={"box-border flex min-w-0 flex-col gap-4 border-l border-[#E1EAE7] bg-white px-[22px] py-[18px] "
+        // < 2xl (mis. 1280–1440 px dengan sidebar aplikasi terbuka): laci di kanan menimpa chat, tidak turun ke bawah.
+        + "fixed bottom-0 right-0 top-16 z-40 w-[min(460px,100vw)] overflow-y-auto shadow-[-8px_0_24px_rgba(18,49,47,0.14)] "
+        + "2xl:static 2xl:z-auto 2xl:w-auto 2xl:flex-[1_1_440px] 2xl:overflow-visible 2xl:shadow-none"}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-col">
           <span className="text-xs font-semibold text-[#3E5653]">LAPORAN</span>
           <h2 className="m-0 font-['Space_Grotesk',Inter,sans-serif] text-xl">{artifact.title}</h2>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-none items-center gap-2">
           {artifact.is_sample ? (
             <span className="rounded-md bg-[#FFF4E5] px-2 py-1 text-xs font-semibold text-[#7A3E00]">Data contoh</span>
           ) : null}
@@ -105,7 +109,11 @@ function Block({ block }) {
     );
   }
   if (block.type === "table") return <DataTable block={block} />;
-  if (block.type === "markdown") return <p className="m-0 whitespace-pre-wrap text-sm">{block.text}</p>;
+  if (block.type === "markdown") {
+    // Teks laporan = markdown ringan: di-escape lalu disanitasi DOMPurify (tag terbatas, tanpa atribut).
+    return <div className="ai-md m-0 text-sm leading-relaxed [&_ol]:my-1.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1.5 [&_ul]:my-1.5 [&_ul]:list-disc [&_ul]:pl-5"
+      data-testid="ai-artifact-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(block.text) }} />;
+  }
   return null;
 }
 
