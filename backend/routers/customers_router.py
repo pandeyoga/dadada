@@ -231,7 +231,9 @@ async def customer_timeline(cid: str,
                                     {"_id": 0}).to_list(100)
     sources["komplain"] = len(comps)
     for c in comps:
-        add(c.get("created_at"), "message", f"Komplain: {c.get('subject') or '-'}",
+        add(c.get("created_at"), "message", (f"Pertanyaan dari chat: {c.get('subject') or '-'}"
+                                             if c.get("kind") == "pertanyaan_chat" else
+                                             f"Komplain: {c.get('subject') or '-'}"),
             c.get("description"), c.get("created_by") or c.get("assigned_to"), "complaints")
 
     subs = await db.doc_submissions.find(

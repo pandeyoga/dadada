@@ -9,7 +9,8 @@ Delapan invarian yang tidak boleh rusak diam-diam:
   5. Setiap `ai_actions` yang `executed` punya entri audit (`ai_action_executed`, meta.action_id).
   6. Setiap `ai_actions` kanal `portal` yang `executed` dieksekusi pemiliknya (owner_id == executed_by),
      bukan staf, dan audit-nya mencatat pembeli (bukan token staf).
-  7. Tidak ada `ai_usage` kanal `portal` saat `ai.portal_enabled` mati.
+  7. Tidak ada panggilan model maupun `ai_usage` kanal `portal` saat `ai.portal_enabled` mati (FakeClaude gate
+     mencatat biaya lewat `budget.record_usage` seperti LiveClaude, jadi hitungan ai_usage-nya tidak hampa).
   8. Tiket `kind: "pertanyaan_chat"` tidak terhitung di statistik komplain.
 
 Butuh MongoDB lokal: `MONGO_URL=mongodb://127.0.0.1:27017 python3 scripts/verify_ai.py`.
@@ -266,22 +267,32 @@ async def main():
         ptok = create_portal_token(pu)
         phdr = {"Authorization": f"Bearer {ptok}"}
         portal_usage = {"org_id": ORG_ID, "context.channel": "portal"}
+        from ai import budget as ai_budget
+
+        class MeteredFake(FakeClaude):
+            """FakeClaude yang mencatat biaya seperti LiveClaude (`budget.record_usage` per panggilan)."""
+            async def turn(self, **kw):
+                resp = await super().turn(**kw)
+                await ai_budget.record_usage(ORG_ID, model=kw["model"], usage={"input_tokens": 100, "output_tokens": 20},
+                                             context=kw.get("context") or {})
+                return resp
 
         await ss.set_value("ai.portal_enabled", False, actor="gate", reason="gate", org_id=ORG_ID)
         rr = await http.post("/api/portal/ai/conversations", headers=phdr)
         check(7, rr.status_code == 403, "saklar portal mati -> percakapan baru ditolak (403)")
-        set_override(FakeClaude([]))
+        set_override(MeteredFake([]))
         check(7, await db.ai_usage.count_documents(portal_usage) == 0, "saklar mati -> 0 baris ai_usage kanal portal")
 
         await ss.set_value("ai.portal_enabled", True, actor="gate", reason="gate", org_id=ORG_ID)
         pc = (await http.post("/api/portal/ai/conversations", headers=phdr)).json()["data"]["id"]
-        on_fake = FakeClaude([tri("lainnya_tidak_yakin"), txt("Halo, ada yang bisa dibantu?")])
+        on_fake = MeteredFake([tri("lainnya_tidak_yakin"), txt("Halo, ada yang bisa dibantu?")])
         set_override(on_fake)
         await http.post(f"/api/portal/ai/conversations/{pc}/messages", headers=phdr, json={"text": "Halo apa kabar hari ini"})
-        check(7, len(on_fake.calls) > 0, "kontrol: saklar menyala -> model dipanggil (sumber biaya nyata; gate tidak hampa)")
+        check(7, len(on_fake.calls) > 0 and await db.ai_usage.count_documents(portal_usage) > 0,
+              "kontrol: saklar menyala -> model dipanggil dan biayanya tercatat di ai_usage kanal portal (gate tidak hampa)")
         await ss.set_value("ai.portal_enabled", False, actor="gate", reason="gate", org_id=ORG_ID)
         n_usage = await db.ai_usage.count_documents(portal_usage)
-        off_fake = FakeClaude([tri("lainnya_tidak_yakin"), txt("tidak boleh")])
+        off_fake = MeteredFake([tri("lainnya_tidak_yakin"), txt("tidak boleh")])
         set_override(off_fake)
         rr = await http.post(f"/api/portal/ai/conversations/{pc}/messages", headers=phdr, json={"text": "Halo lagi"})
         check(7, rr.status_code == 403 and not off_fake.calls and await db.ai_usage.count_documents(portal_usage) == n_usage,

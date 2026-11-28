@@ -40,6 +40,11 @@ async def aging_policy(project_id: str = None,
             "entities": [{"value": k, "label": v["label"]} for k, v in out.items()]}
 
 
+def _query(entity: str):
+    """Tiket "Pertanyaan dari chat" (Tanya Estora) bukan komplain mutu: di luar umur tahap komplain (§9.2)."""
+    return {"kind": {"$ne": "pertanyaan_chat"}} if entity == "complaint" else None
+
+
 @router.get("/report")
 async def aging_report(entity: str = "lead", project_id: str = None,
                        user: dict = Depends(require_permission("aging", "view"))):
@@ -50,7 +55,7 @@ async def aging_report(entity: str = "lead", project_id: str = None,
                                    f"Pilihan: {', '.join(clock.ENTITIES)}")
     try:
         data = await clock.aging_report(entity, org_id=user.get("org_id", ORG_ID),
-                                       project_id=project_id)
+                                       project_id=project_id, query=_query(entity))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"data": serialize_doc(data)}
@@ -62,7 +67,7 @@ async def aging_overview(user: dict = Depends(require_permission("aging", "view"
     org = user.get("org_id", ORG_ID)
     rows = []
     for entity, spec in clock.ENTITIES.items():
-        report = await clock.aging_report(entity, org_id=org)
+        report = await clock.aging_report(entity, org_id=org, query=_query(entity))
         worst = max((r for r in report["rows"] if r["sla_hours"]),
                     key=lambda r: (r["over_sla"], r["p90_stage_age_hours"] or 0), default=None)
         rows.append({

@@ -207,9 +207,12 @@ komplain, dan hanya membaca data pembeli yang sedang login (dipaksa ulang per tr
   tetapi permintaan bicara dengan CS tetap membuat tiket (tanpa model, tanpa biaya).
 - **Serah ke CS (tiket chat)**: pertanyaan biasa atau permintaan bicara dengan staf menjadi tiket untuk sales unit tersebut
   (sales pemilik transaksi). Topik sensitif (diskon/negosiasi harga, janji/komitmen, pembatalan/pengembalian dana) tidak
-  dijawab AI dan diteruskan ke Manajer Penjualan, atau owner bila tidak ada manajer. Pembeli menerima nomor tiket dan batas
+  dijawab AI dan diteruskan ke Manajer Penjualan, atau owner bila tidak ada manajer; selain pemilah, penahan kata kunci
+  (diskon, nego, potongan, refund, batal, uang kembali, janji, jamin) ikut memastikan arah ini. Pembeli menerima nomor tiket dan batas
   balasan **24 jam**; satu tugas SM-09 dan notifikasi staf dibuat. Tiket ini berjenis `pertanyaan_chat` (lencana "Pertanyaan
   dari chat" di Komplain, filter Jenis) dan **tidak dihitung** di statistik/hitungan komplain maupun pengingat SLA komplain.
+- **Rumah pembeli**: BAST, masa garansi, dan klaim garansi hanya dari transaksi yang tidak batal. Unit dari transaksi
+  batal bisa sudah dijual ke pembeli lain; pembeli lama tetap bisa membaca refund-nya di Pembatalan.
 - **Konfirmasi pembeli**: membuat komplain atau mengajukan klaim garansi selalu lewat kartu "Kirim ... ini?" dan baru
   berjalan saat pembeli menekan Kirim (sekali saja, memakai token pembeli sendiri; staf tidak bisa menyetujuinya).
 - **Privasi**: pemberitahuan penggunaan AI tampil sekali pada pembukaan pertama (teksnya bisa diubah di kartu pengaturan).
@@ -218,7 +221,7 @@ komplain, dan hanya membaca data pembeli yang sedang login (dipaksa ulang per tr
 
 Sisa pekerjaan tahap 1 yang sudah ditutup bersamaan: biaya riset web (model sonnet + pencarian web dihitung dan
 memicu peringatan anggaran), ringkasan percakapan WhatsApp, dan lampiran Copilot diperlakukan sebagai rujukan (tiga lampiran
-terakhir diperluas, berkas > 8 MB ditolak 413).
+terakhir diperluas, maksimal 16 MB per permintaan dengan yang terbaru didahulukan; berkas > 8 MB ditolak 413).
 
 Tangkapan layar (mode simulasi, saklar portal dinyalakan): `screens/05-portal-tanya-estora.png`, `05b-portal-ponsel.png`,
 `06-portal-konfirmasi.png`, `07-portal-tiket-cs.png`, `08-pengaturan-portal.png`.
