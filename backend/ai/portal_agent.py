@@ -1,8 +1,8 @@
 """Agen CS pembeli di portal ("Tanya Estora", peran `buyer_cs`, kanal `portal`).
 
 Urutan satu pesan (`handle_message`): nonaktif -> berhenti -> kuota harian (`$inc` atomik `ai_portal_quota`) -> minta staf
-(kata manusia/staf/cs, <= 4 kata, atau frasa "bicara/hubungi/minta ... CS/staf": tiket tanpa model; tidak memakan anggaran
-AI) -> anggaran `stop` -> pemilah (Haiku) -> topik terkunci (diskon/nego, janji/komitmen, pembatalan/refund, menurut
+(kata manusia/staf/cs, <= 4 kata, atau frasa "bicara/hubungi/minta ... CS/staf/sales": tiket tanpa model; tidak memakan
+anggaran AI; topik sensitif di pesan yang sama tetap ke Manajer Penjualan) -> anggaran `stop` -> pemilah (Haiku) -> topik terkunci (diskon/nego, janji/komitmen, pembatalan/refund, menurut
 pemilah ATAU penahan kata kunci: tiket ke Manajer Penjualan tanpa memanggil model jawaban) -> selain itu `agent.run_turn`
 dengan token portal pembeli (tanpa token staf / `ai_agent`). Galat berorientasi staf diganti teks untuk pembeli.
 Privasi (UU PDP): pemberitahuan & "berhenti" dicatat di `ai_consents` (kunci `phone = "portal:<portal_user_id>"`,
@@ -31,15 +31,22 @@ STOPPED_MSG = "Anda sudah berhenti memakai asisten. Pilih \"Aktifkan lagi\" di m
 BUYER_ERR = "Asisten sedang tidak bisa menjawab saat ini. Tekan \"Bicara dengan CS\" agar tim kami menghubungi Anda."
 _STAFF_ERR = re.compile(r"admin|pemilik|anggaran|kunci api|putaran alat", re.I)  # teks galat untuk staf, bukan pembeli
 _WORD = re.compile(r"[a-zA-Z]+")
-# Portal: tanpa "sales" ("Siapa sales saya?" adalah pertanyaan, bukan minta staf); frasa panjang lewat _HUMAN_PHRASE.
+# Portal: "sales" bukan kata tunggal pemicu ("Siapa sales saya?" adalah pertanyaan) tetapi sah di dalam frasa kontak
+# ("Bicara dengan sales"). "minta" hanya bersama kata kontak/staf ("minta dihubungi", "minta CS"), bukan "minta kuitansi".
 HUMAN_WORDS = frozenset({"manusia", "staf", "staff", "cs"})
-_HUMAN_PHRASE = re.compile(r"(?:bicara|hubungi|sambungkan|minta).{0,20}\b(?:cs|staf|staff|manusia|admin|petugas)\b", re.I)
+_STAFF = r"(?:cs|staf|staff|manusia|admin|petugas|sales)\b"
+_HUMAN_PHRASE = re.compile(rf"(?:bicara|hubungi|hubungkan|sambungkan).{{0,20}}?\b{_STAFF}"
+                           rf"|\bminta\s+(?:(?:di)?(?:hubungi|telepon|telpon|sambungkan|bicara)"
+                           rf"|(?:ke\s+|dengan\s+)?{_STAFF})", re.I)
 # Penahan setelah pemilah: pemilah bisa ragu (< 0,6), menolak karena pola injeksi, atau salah kelas. Topik sensitif
 # tetap ke Manajer Penjualan (§9.1) tanpa model jawaban. Awalan kata (\b) + akhiran bebas: "dibatalkan", "bernego".
 SENSITIVE_RX = (
-    ("pembatalan_refund", re.compile(r"\b(?:di|mem|pem)?batal|\brefund|\buang\s+kembali", re.I)),
-    ("diskon_nego", re.compile(r"\bdiskon|\b(?:ber)?nego|\bpotongan", re.I)),
-    ("janji_komitmen", re.compile(r"\b(?:di|men)?(?:janji|jamin)", re.I)),
+    # bukan "batalkan komplain/klaim/kirim/pesan" (mengelola komplain/kartu sendiri), bukan "janji temu" (jadwal),
+    # bukan "dijamin garansi" (cakupan garansi), bukan "potongan per bulan" (cicilan KPR).
+    ("pembatalan_refund", re.compile(r"\b(?:di|mem|pem)?batal(?!(?:kan)?\s+(?:komplain|klaim|kirim|pesan))|\brefund"
+                                     r"|\buang\s+kembali", re.I)),
+    ("diskon_nego", re.compile(r"\bdiskon|\b(?:ber)?nego|\bpotongan\s+harga", re.I)),
+    ("janji_komitmen", re.compile(r"\b(?:di|men)?janji(?!\s*temu|an\b)", re.I)),
 )
 
 
@@ -227,8 +234,9 @@ async def handle_message(portal_user: dict, token: str, conv_id: str, text: str)
     ctx = ToolContext(org_id=org, user=pu, token=token, channel="portal", conversation_id=conv_id,
                       verified=True, role="buyer_cs")
     hist = await _recent(conv_id)
-    if _wants_human(text):  # tanpa model: tidak memakan anggaran AI
-        async for ev in _handoff(ctx, text, hist, sensitive=False, reason="minta_staf"):
+    if _wants_human(text):  # tanpa model: tidak memakan anggaran AI; topik sensitif tetap ke Manajer Penjualan (§9.1)
+        topic = _sensitive_topic(text)
+        async for ev in _handoff(ctx, text, hist, sensitive=bool(topic), reason=topic or "minta_staf"):
             yield ev
         return
     if (await budget.budget_state(org))["state"] == "stop":

@@ -271,6 +271,20 @@ async def test_portal_sensitive_backstop_when_triage_unsure(client, auth):
                                                      "ringkasan": "Pembeli minta potongan.", "topik": "diskon_nego"})
     t2 = await db.complaints.find_one({"id": res["data"]["tiket"]["id"]}, {"_id": 0})
     assert res["ok"] and t2["assigned_to"] == mgr["email"] and t2["assigned_role"] == "sales_manager" and t2["sensitive"]
+    # Frasa minta staf + topik sensitif (jalur tanpa model) tetap ke Manajer, bukan sales pemegang unit (§9.1).
+    fake2 = FakeClaude([])
+    set_override(fake2)
+    cid2 = await _new_conv(client, auth, tok)
+    evs = _events(await client.post(f"/api/portal/ai/conversations/{cid2}/messages", headers=auth(tok),
+                                    json={"text": "Tolong hubungi CS, saya minta diskon"}))
+    t3 = await db.complaints.find_one({"id": evs[0]["ticket"]["id"]}, {"_id": 0})
+    assert not fake2.calls and t3["assigned_to"] == mgr["email"] and t3["handoff_reason"] == "diskon_nego", evs
+    for text in ("Kapan bisa janji temu survei?", "Apakah dijamin garansi 1 tahun?", "Berapa potongan per bulan KPR saya?",
+                 "Saya mau batalkan komplain tadi", "Saya minta kuitansi bulan lalu"):  # pertanyaan biasa: tidak sensitif
+        assert portal_agent._sensitive_topic(text) is None and not portal_agent._wants_human(text), text
+    for text in ("Bisa diskon?", "Saya mau batal beli, uang kembali?"):
+        assert portal_agent._sensitive_topic(text), text
+    assert portal_agent._wants_human("Bicara dengan sales") and portal_agent._wants_human("hubungi sales saya")
 
 
 async def test_reservation_buyer_sees_own_chat_ticket_without_deal(client, auth):
