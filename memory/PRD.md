@@ -107,3 +107,11 @@ Lihat `/app/memory/test_credentials.md`.
 - Super Admin bawaan: superadmin@estora.id / test1234. `ensure_superadmin` me-rename akun super admin lama (SUPERADMIN_RENAME_FROM, default superadmin@sipro.co.id) → id & riwayat tetap.
 - VPS: `deploy/set_superadmin.sh` (semua instance, backup env, recreate backend, uji login). `add_instance.sh` default superadmin@estora.id/test1234, org "Estora".
 - Fix lib.sh `envget` tidak lagi menghentikan skrip saat kunci env tidak ada (set -e + pipefail).
+
+## 2026-11-28 — Estora AI Tahap 1 (Agen CS + CRM, Claude)
+- Paket `backend/ai/`: klien Claude (live/simulasi/palsu untuk uji), anggaran (peringatan 80%, berhenti 100%), registri alat (baca + usulan tulis), putaran agen dengan SSE, `ai_actions` (kartu persetujuan, dieksekusi dengan token penyetuju, tercatat di audit), laporan PDF/XLSX, peran layanan `ai_agent`.
+- API `/api/ai/*` (Copilot, aksi, artefak, pengaturan, kunci API terenkripsi, tes koneksi, penggunaan, kanal). RBAC baru: `ai_copilot.use`, `ai_inbox.use`, `ai_settings.manage`.
+- WhatsApp: adapter Coexistence (echo pesan HP) dan gateway tidak resmi (tanpa balasan otomatis AI, tanpa broadcast, batas 20/jam, hanya kontak opt-in, tombol matikan). Agen penjualan WA: draf/otomatis/mati per kategori, kategori terkunci ke sales, syarat otomatis akurasi 95%/50 sampel/30 hari, sampel 10%, turun otomatis ke draf.
+- Verifikasi identitas pembeli: nomor terdaftar + 4 digit terakhir NIK, 3 salah = kunci 24 jam + CS diberi tahu, berlaku 30 hari. Persetujuan UU PDP: pemberitahuan + STOP/manusia, opt-in YA untuk kanal tidak resmi dan berkas. Bukan klaim kepatuhan; konsultasi hukum dan DPIA disarankan.
+- Frontend: `/ai` (Copilot), `/ai/settings`, label/draf/ringkasan AI di Inbox. Ledger pintu `/ai` ditambah (anggaran pintu 32).
+- Panduan admin: `docs/ai/README.md`. Uji: `backend/tests_ai/README.md`; gate `scripts/verify_ai.py`.
