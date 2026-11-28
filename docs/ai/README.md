@@ -54,8 +54,12 @@ Tidak bisa:
 - Mengarang angka. Bila alat tidak memberi data, AI harus menjawab tidak tahu.
 
 **Kartu persetujuan.** Setiap aksi tulis muncul sebagai kartu berisi daftar perubahan dan status bukti (mis. gerbang tahap
-lead). Tidak terjadi apa-apa sebelum seseorang menekan **Setujui**. Bisa juga **Ubah** atau **Tolak** (dengan alasan).
+lead). Tidak terjadi apa-apa sebelum seseorang menekan **Setujui**. Bisa juga **Ubah** (hanya bidang yang aman diubah,
+mis. isi pesan, catatan, waktu survei, alasan) atau **Tolak** (dengan alasan).
 Aksi dijalankan dengan hak akses **penyetuju**, dan tercatat di **Audit** (pelaku AI, atas nama siapa, disetujui siapa).
+Usulan dari agen WhatsApp (mis. jadwal survei) tampil di Inbox pada percakapan kontak itu ("Usulan agen WhatsApp").
+Usulan kirim WhatsApp dijalankan lewat nomor **resmi**: teks bebas hanya di dalam sesi 24 jam, di luar itu wajib template;
+kontak pertama lead hanya tercatat bila pesan benar-benar terkirim.
 Peran yang bisa memakai Copilot diatur di Pengaturan Peran (`ai_copilot`, `ai_inbox`).
 
 ## 5. Agen Penjualan WhatsApp: kategori dan kemandirian
@@ -66,7 +70,7 @@ punya mode:
 | Mode | Arti |
 |---|---|
 | Draf | AI menyiapkan balasan di Inbox; sales memeriksa lalu Kirim, Edit, atau Tulis ulang. Bawaan semua kategori. |
-| Otomatis | AI langsung membalas. Hanya untuk kanal resmi, di dalam jendela 24 jam WhatsApp. |
+| Otomatis | AI langsung membalas. Hanya di mode **live**, lewat kanal resmi, di dalam jendela 24 jam WhatsApp. Penolakan model, jawaban terpotong, atau galat layanan selalu diserahkan ke sales. |
 | Mati | AI tidak berbuat apa-apa untuk kategori itu. |
 
 Kategori: stok dan harga, simulasi KPR, lokasi dan fasilitas, jadwal survei, berkas KPR, tagihan dan pembayaran, progres dan
@@ -105,7 +109,8 @@ ketentuan WhatsApp**: nomor bisa diblokir dan risiko ditanggung pemilik. Pengama
 - **tanpa balasan otomatis AI**; hanya pesan yang ditulis dan dikirim manusia (dari Inbox atau kartu persetujuan);
 - tanpa broadcast, playbook, atau pengingat otomatis;
 - batas kirim **20 pesan per jam** (bawaan, bisa diturunkan atau dinaikkan; pesan di atas batas ditolak dan dicatat);
-- hanya ke kontak yang sudah **opt-in** (balas YA, lihat bagian 7);
+- hanya ke kontak yang sudah **opt-in** (balas YA, lihat bagian 7). Minta izinnya dari Inbox: tombol
+  **Minta izin kanal kedua** mengirim pertanyaan lewat nomor resmi (saat sesi 24 jam aktif); balasan YA mencatat opt-in;
 - tombol **Matikan** menghentikan semua pengiriman seketika;
 - setiap pengiriman dicatat dengan penanda kanal tidak resmi.
 
@@ -178,7 +183,9 @@ Uji frontend: `cd frontend && yarn test --watchAll=false src/components/ai`.
 Gerbang invarian AI: `MONGO_URL=mongodb://127.0.0.1:27017 python3 scripts/verify_ai.py` (in-process, DB `estora_ai_gate`
 di-drop tiap run). Memeriksa lima hal: (1) AI tidak mengubah data bisnis tanpa aksi `executed`, (2) tidak ada balasan
 otomatis lewat kanal tidak resmi, (3) anggaran 100% menghentikan balasan otomatis, (4) data pembeli tidak lintas kontak,
-(5) setiap aksi `executed` punya entri Audit. Gerbang ini juga terdaftar di `scripts/run_all_gates.sh`.
+(5) setiap aksi `executed` punya entri Audit. Gerbang ini juga terdaftar di `scripts/run_all_gates.sh`. Tanpa `MONGO_URL`
+gerbang ini **dilewati** (mencetak `SKIPPED`, exit 3) dan `run_all_gates.sh` menampilkannya sebagai `SKIP`, bukan lulus:
+ekspor `MONGO_URL` sebelum menjalankan semua gerbang.
 
 Tangkapan layar mode simulasi ada di `docs/ai/screens/` (Copilot, persetujuan, Inbox, Pengaturan AI).
 
