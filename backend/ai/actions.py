@@ -8,6 +8,10 @@ from rbac import audit_log, can
 from ai.tools import internal_api
 
 logger = logging.getLogger("estora.ai.actions")
+# Bidang payload yang boleh diubah penyetuju per alat ("Ubah" di kartu persetujuan). Bidang lain (id lead, pelanggan,
+# tujuan) tidak bisa diubah agar persetujuan tidak dapat diarahkan ke data lain.
+EDITABLE = {"kirim_pesan_wa": ("body",), "catat_catatan_lead": ("body",), "jadwalkan_survei": ("scheduled_at", "notes"),
+            "ubah_tahap_lead": ("note",), "buat_komplain_atau_balasan": ("message",)}
 
 
 class ActionError(Exception):
@@ -53,8 +57,8 @@ async def approve(action_id: str, approver: dict, token: str, *, edits: dict = N
     setter = {"status": "executing", "approved_by": approver.get("email"), "approved_at": now_iso(),
               "updated_at": now_iso()}
     if edits:
-        body = a["payload"].get("json") or {}
-        bad = [k for k in edits if k not in body]
+        allowed = EDITABLE.get(a["tool"], ())
+        bad = [k for k in edits if k not in allowed or not isinstance(edits[k], str)]
         if bad:
             raise ActionError(400, f"Bidang tidak dapat diubah: {', '.join(bad)}.")
         for k, v in edits.items():

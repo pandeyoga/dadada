@@ -5,7 +5,7 @@ import logging
 import time
 from typing import AsyncIterator
 
-from ai import actions, budget, config, conversations, prompts, web_research
+from ai import actions, api_views, budget, config, conversations, prompts, web_research
 from ai.client import ClaudeError, get_claude
 from ai.tools import catalog, registry
 from ai.tools.registry import ToolContext, wrap_untrusted
@@ -41,12 +41,22 @@ def _result_block(tu: dict, res: dict) -> dict:
     return {"type": "tool_result", "tool_use_id": tu["id"], "content": res["error"] or "Gagal.", "is_error": True}
 
 
+BUDGET_MSG = "Anggaran AI bulan ini habis. Hubungi pemilik/admin untuk menambah anggaran."
+
+
+async def _budget_stopped(ctx: ToolContext) -> bool:
+    """Batas anggaran berlaku untuk SEMUA permukaan (web apa pun perannya, WA) kecuali pemilik/super admin."""
+    if (ctx.user or {}).get("role") in EXEMPT_ROLES:
+        return False
+    return (await budget.budget_state(ctx.org_id))["state"] == "stop"
+
+
 async def run_turn(ctx: ToolContext, conv_id: str, user_content: list) -> AsyncIterator[dict]:
+    """Satu giliran. Peristiwa `done` membawa `stop`: "ok" | "refusal" | "truncated" (WA memperlakukan selain ok sebagai gagal)."""
     org = ctx.org_id
-    if ctx.role == "copilot" and (ctx.user or {}).get("role") not in EXEMPT_ROLES:
-        if (await budget.budget_state(org))["state"] == "stop":
-            yield {"type": "error", "message": "Anggaran AI bulan ini habis. Hubungi pemilik/admin untuk menambah anggaran."}
-            return
+    if await _budget_stopped(ctx):
+        yield {"type": "error", "message": BUDGET_MSG}
+        return
     s = await config.get_ai_settings(org)
     if s.get("effective_mode") == "off":
         yield {"type": "error", "message": "Estora AI sedang dimatikan oleh admin."}
@@ -63,8 +73,10 @@ async def run_turn(ctx: ToolContext, conv_id: str, user_content: list) -> AsyncI
     first_text = next((b.get("text", "") for b in user_content if b.get("type") == "text"), "")
     await conversations.set_title_if_new(conv_id, first_text)
     messages = await conversations.history_for_api(conv_id)
-    tools = registry.tools_for(ctx)
-    specs = registry.api_specs(tools)
+    # system & tools dihitung SEKALI per giliran dan dipakai ulang persis untuk setiap putaran alat:
+    # blok thinking giliran ini terikat pada prefiks yang sama. Perubahan (mis. riset web dimatikan karena PII)
+    # baru berlaku pada giliran pengguna berikutnya, ketika thinking giliran lama sudah dibuang dari riwayat.
+    turn_tools = registry.api_specs(registry.tools_for(ctx)) + await web_research.extra_tools(ctx, conv_id)
     system = prompts.system_for(ctx.role, ctx)
     model = s["model_main"]
     effort = s["effort_wa"] if ctx.channel == "wa" else s["effort_copilot"]
@@ -73,13 +85,18 @@ async def run_turn(ctx: ToolContext, conv_id: str, user_content: list) -> AsyncI
     continued = False
 
     for _round in range(MAX_ROUNDS):
+        if _round and await _budget_stopped(ctx):
+            msg = "Saya berhenti karena anggaran AI bulan ini habis."
+            await conversations.append(conv_id, {"role": "assistant", "content": [{"type": "text", "text": msg}]})
+            yield {"type": "error", "message": BUDGET_MSG}
+            return
         q: asyncio.Queue = asyncio.Queue()
 
         async def on_text(t, q=q):
             await q.put(t)
 
         task = asyncio.create_task(claude.turn(
-            model=model, system=system, messages=list(messages), tools=specs + await web_research.extra_tools(ctx, conv_id), effort=effort, max_tokens=MAX_TOKENS,
+            model=model, system=system, messages=list(messages), tools=turn_tools, effort=effort, max_tokens=MAX_TOKENS,
             on_text=on_text, context={"conversation_id": conv_id, "role": ctx.role, "channel": ctx.channel}))
         while True:
             getter = asyncio.ensure_future(q.get())
@@ -105,14 +122,14 @@ async def run_turn(ctx: ToolContext, conv_id: str, user_content: list) -> AsyncI
         if stop == "refusal":
             m = await conversations.append(conv_id, {"role": "assistant", "content": [{"type": "text", "text": REFUSAL_MSG}]})
             yield {"type": "text_delta", "text": REFUSAL_MSG}
-            yield {"type": "done", "message_id": m["id"], "usage": usage_total}
+            yield {"type": "done", "message_id": m["id"], "usage": usage_total, "stop": "refusal"}
             return
         content = resp.get("content") or []
         if stop == "max_tokens" and any(b.get("type") == "tool_use" for b in content):
             msg = "Jawaban terpotong sebelum alat selesai dipanggil. Coba pertanyaan yang lebih spesifik."
             m = await conversations.append(conv_id, {"role": "assistant", "content": [{"type": "text", "text": msg}]})
             yield {"type": "text_delta", "text": msg}
-            yield {"type": "done", "message_id": m["id"], "usage": usage_total}
+            yield {"type": "done", "message_id": m["id"], "usage": usage_total, "stop": "truncated"}
             return
         await web_research.record(ctx, conv_id, content)
         m = await conversations.append(conv_id, {"role": "assistant", "content": content, "model": resp.get("model"),
@@ -131,11 +148,11 @@ async def run_turn(ctx: ToolContext, conv_id: str, user_content: list) -> AsyncI
             msg = "\n\n(Jawaban dipotong karena terlalu panjang.)"
             await conversations.append(conv_id, {"role": "assistant", "content": [{"type": "text", "text": msg.strip()}]})
             yield {"type": "text_delta", "text": msg}
-            yield {"type": "done", "message_id": last_id, "usage": usage_total}
+            yield {"type": "done", "message_id": last_id, "usage": usage_total, "stop": "truncated"}
             return
         uses = [b for b in content if b.get("type") == "tool_use"]
         if stop != "tool_use" or not uses:
-            yield {"type": "done", "message_id": last_id, "usage": usage_total}
+            yield {"type": "done", "message_id": last_id, "usage": usage_total, "stop": "ok"}
             return
         # --- alat: jalankan paralel, semua tool_result dalam SATU pesan user
         by_id = {tu["id"]: registry.get(tu["name"]) for tu in uses}
@@ -157,7 +174,7 @@ async def run_turn(ctx: ToolContext, conv_id: str, user_content: list) -> AsyncI
                 yield {"type": "step_done", "id": tu["id"], "ok": res["ok"], "summary": res["summary"], "ms": ms}
                 d = res.get("data") if res["ok"] else None
                 if isinstance(d, dict) and d.get("action_id"):
-                    yield {"type": "action_proposed", "action": await actions.get(d["action_id"])}
+                    yield {"type": "action_proposed", "action": api_views.action_view(await actions.get(d["action_id"]))}
                 if isinstance(d, dict) and d.get("artifact"):
                     yield {"type": "artifact", "artifact": d["artifact"]}
         results = [_result_block(tu, done_res[tu["id"]]) for tu in uses]

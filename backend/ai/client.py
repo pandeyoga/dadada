@@ -1,4 +1,5 @@
 """Klien Claude (Messages API). Live → anthropic.AsyncAnthropic; tanpa kunci → SimulatedClaude."""
+import hashlib
 import logging
 from typing import Awaitable, Callable, Optional, Protocol
 
@@ -10,6 +11,12 @@ from db import ORG_ID
 logger = logging.getLogger("estora.ai.client")
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+# Haiku tidak punya fallback sisi server: `fallbacks` tidak dikirim (bentuk daftar = 400, "default" = tanpa efek).
+NO_SERVER_FALLBACK = ("claude-haiku",)
+
+
+def supports_fallback(model: str) -> bool:
+    return not str(model or "").startswith(NO_SERVER_FALLBACK)
 
 
 class ClaudeError(Exception):
@@ -52,9 +59,9 @@ def _with_cache(blocks: list) -> list:
 
 
 class LiveClaude:
-    def __init__(self, org_id: str, api_key: str, *, http_client=None, max_retries: int = 2):
+    def __init__(self, org_id: str, api_key: str = None, *, http_client=None, max_retries: int = 2, client=None):
         self.org_id = org_id
-        self.client = anthropic.AsyncAnthropic(api_key=api_key, http_client=http_client, max_retries=max_retries)
+        self.client = client or anthropic.AsyncAnthropic(api_key=api_key, http_client=http_client, max_retries=max_retries)
 
     def build_request(self, *, model, system, messages, tools, effort, max_tokens, streaming, output_format=None) -> dict:
         tools = _with_cache(tools or [])
@@ -64,8 +71,9 @@ class LiveClaude:
         if output_format:
             oc["format"] = output_format
         req = {"model": model, "max_tokens": max_tokens, "system": _with_cache(system or []),
-               "messages": messages, "thinking": {"type": "adaptive"}, "output_config": oc,
-               "betas": [FALLBACK_BETA], "fallbacks": "default"}
+               "messages": messages, "thinking": {"type": "adaptive"}, "output_config": oc}
+        if supports_fallback(model):
+            req.update({"betas": [FALLBACK_BETA], "fallbacks": "default"})
         if tools:
             req["tools"] = tools
         return req
@@ -95,11 +103,27 @@ class LiveClaude:
 
 
 _override = None
+_clients: dict = {}  # org_id -> (sha256 kunci, AsyncAnthropic): satu pool koneksi per org, ditutup saat kunci diganti
 
 
 def set_override(obj) -> None:
     global _override
     _override = obj
+
+
+async def _client_for(org_id: str, key: str):
+    digest = hashlib.sha256(key.encode()).hexdigest()
+    cur = _clients.get(org_id)
+    if cur and cur[0] == digest:
+        return cur[1]
+    client = anthropic.AsyncAnthropic(api_key=key, max_retries=2)
+    _clients[org_id] = (digest, client)
+    if cur:  # kunci diganti: tutup pool lama
+        try:
+            await cur[1].close()
+        except Exception:  # noqa: BLE001
+            logger.warning("Gagal menutup klien Anthropic lama", exc_info=True)
+    return client
 
 
 async def get_claude(org_id: str = ORG_ID) -> ClaudeLike:
@@ -108,6 +132,6 @@ async def get_claude(org_id: str = ORG_ID) -> ClaudeLike:
     s = await config.get_ai_settings(org_id)
     key = await config.get_api_key(org_id) if s["effective_mode"] == "live" else None
     if key:
-        return LiveClaude(org_id, key)
+        return LiveClaude(org_id, client=await _client_for(org_id, key))
     from ai.simulated import SimulatedClaude
     return SimulatedClaude(org_id)

@@ -24,6 +24,7 @@ ROLES = ("copilot", "sales", "cs")
 MAX_UPLOAD = 8 * 1024 * 1024
 SETTING_KEYS = tuple(k for k in config._SIMPLE if k != "category_modes")
 MODES = ("off", "simulation", "live")
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 
 def _org(u: dict) -> str:
@@ -150,6 +151,8 @@ async def send_message(conv_id: str, body: MessageIn, request: Request, user: di
             async for ev in gen:
                 if ev.get("type") == "text_delta":
                     partial.append(ev.get("text", ""))
+                elif ev.get("type") == "step_started":
+                    partial.clear()  # teks putaran ini sudah tersimpan bersama tool_use-nya
                 elif ev.get("type") in ("done", "error"):
                     finished = True
                 yield _sse(ev)
@@ -237,6 +240,11 @@ async def put_settings(body: dict, user: dict = Depends(_manage)):
         raise HTTPException(400, f"Pengaturan tidak dikenal: {', '.join(bad)}.")
     if "mode" in body and body["mode"] not in MODES:
         raise HTTPException(400, "Mode harus off, simulation, atau live.")
+    bad_effort = [k for k in body if k.startswith("effort_") and body[k] not in EFFORTS]
+    if bad_effort:  # salah ketik effort = 400 di mode live; tolak di sini
+        raise HTTPException(400, f"Effort harus salah satu dari {', '.join(EFFORTS)}.")
+    if any(k.startswith("model_") and not (isinstance(body[k], str) and body[k].startswith("claude-")) for k in body):
+        raise HTTPException(400, "Model harus berupa ID model Claude (claude-...).")
     org = _org(user)
     for k, v in body.items():
         try:

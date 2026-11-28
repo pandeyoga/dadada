@@ -3,6 +3,7 @@ import pytest
 from ai import agent, budget, conversations
 from ai.client import set_override
 from ai.fake import FakeClaude
+from db import db
 from tests_ai.helpers import ctx_for
 
 
@@ -43,9 +44,36 @@ async def test_thinking_blocks_round_trip_unchanged(login):
     fake = FakeClaude([{"content": content, "stop_reason": "tool_use"}, {"content": [{"type": "text", "text": "ok"}]}])
     set_override(fake)
     conv, _ = await _run(ctx)
+    # giliran yang sama: blok dikirim ulang apa adanya, dengan system & tools yang identik di setiap putaran
     assert fake.calls[1]["messages"][1] == {"role": "assistant", "content": content}
-    again = await conversations.history_for_api(conv["id"])
-    assert again[1]["content"] == content  # tersimpan utuh
+    assert fake.calls[1]["tools"] is fake.calls[0]["tools"] and fake.calls[1]["system"] == fake.calls[0]["system"]
+    stored = await db.ai_messages.find_one({"conversation_id": conv["id"], "role": "assistant"}, sort=[("seq", 1)])
+    assert stored["content"] == content  # tersimpan utuh
+    # giliran berikutnya: thinking giliran lama dibuang secara deterministik (tool_use & hasilnya tetap)
+    nxt = FakeClaude([{"content": [{"type": "text", "text": "lagi"}]}])
+    set_override(nxt)
+    [e async for e in agent.run_turn(ctx, conv["id"], [{"type": "text", "text": "lanjut"}])]
+    sent = nxt.calls[0]["messages"]
+    assert sent[1] == {"role": "assistant", "content": [_tu(1, "cari_unit")]}
+    assert not any(b.get("type") in ("thinking", "redacted_thinking") for m in sent for b in m["content"] if isinstance(b, dict))
+
+
+async def test_orphan_tool_use_repaired_and_persisted(login):
+    """Hentikan saat langkah alat berjalan: tool_use tanpa tool_result -> hasil sintetis is_error yang disimpan."""
+    ctx = await ctx_for("owner@sipro.co.id", await login("owner@sipro.co.id"))
+    conv = await conversations.create(ctx.org_id, ctx.user["id"], role="copilot")
+    await conversations.append(conv["id"], {"role": "user", "content": [{"type": "text", "text": "cek stok"}]})
+    await conversations.append(conv["id"], {"role": "assistant", "content": [_tu(9, "cari_unit")]})
+    fake = FakeClaude([{"content": [{"type": "text", "text": "ok"}]}])
+    set_override(fake)
+    ev = [e async for e in agent.run_turn(ctx, conv["id"], [{"type": "text", "text": "lagi"}])]
+    assert ev[-1]["type"] == "done"
+    nxt = fake.calls[0]["messages"][2]
+    assert nxt["role"] == "user" and nxt["content"][0]["type"] == "tool_result"
+    assert nxt["content"][0]["tool_use_id"] == "toolu_9" and nxt["content"][0]["is_error"] is True
+    assert nxt["content"][-1]["text"] == "lagi"
+    again = await conversations.history_for_api(conv["id"])  # tersimpan: riwayat sama persis di giliran berikutnya
+    assert again[2]["content"] == nxt["content"]
 
 
 async def test_refusal_message(login):
@@ -53,6 +81,18 @@ async def test_refusal_message(login):
     set_override(FakeClaude([{"content": [], "stop_reason": "refusal"}]))
     _, ev = await _run(ctx)
     assert ev[0] == {"type": "text_delta", "text": "Permintaan ini tidak bisa saya bantu."} and ev[-1]["type"] == "done"
+
+
+async def test_budget_stop_applies_to_any_persona(login, monkeypatch):
+    """Peran percakapan dari klien (mis. 'sales') tidak bisa melewati batas anggaran."""
+    async def stop(org_id=None):
+        return {"state": "stop", "spent_idr": 1, "limit_idr": 1, "pct": 100}
+    monkeypatch.setattr(budget, "budget_state", stop)
+    fake = FakeClaude([{"content": [{"type": "text", "text": "ok"}]}])
+    set_override(fake)
+    mgr = await ctx_for("manager@sipro.co.id", await login("manager@sipro.co.id"), role="sales")
+    _, ev = await _run(mgr)
+    assert [e["type"] for e in ev] == ["error"] and "anggaran" in ev[0]["message"].lower() and not fake.calls
 
 
 async def test_budget_stop_blocks_non_owner(login, monkeypatch):

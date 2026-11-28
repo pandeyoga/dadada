@@ -91,7 +91,13 @@ async def test_pii_query_incident_disables_research(login):
     sq = {"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {"query": "KTP 3174010101010077 Budi"}}
     fake = FakeClaude([{"content": [sq], "stop_reason": "pause_turn"}, {"content": [{"type": "text", "text": "ok"}]}])
     await _turn(ctx, fake, conv)
-    assert _web(fake.calls[0]) and not _web(fake.calls[1])  # dimatikan setelah insiden
+    # dalam satu giliran alat tetap sama persis (thinking terikat prefiks); dimatikan mulai giliran berikutnya
+    assert _web(fake.calls[0]) and fake.calls[1]["tools"] == fake.calls[0]["tools"]
+    nxt = FakeClaude([{"content": [{"type": "text", "text": "ok"}]}])
+    await _turn(ctx, nxt, conv)
+    assert not _web(nxt.calls[0])
+    old_turn = nxt.calls[0]["messages"][1]["content"]  # server_tool_use lama -> teks deterministik
+    assert old_turn[0]["type"] == "text" and old_turn[0]["text"].startswith("[Riset web sebelumnya:")
     q = await db.ai_web_queries.find_one({"conversation_id": conv["id"]})
     assert q["pii_blocked"] and "3174" not in q["query"]
     assert await db.ai_incidents.find_one({"conversation_id": conv["id"], "kind": "web_query_pii"})

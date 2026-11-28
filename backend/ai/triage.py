@@ -28,6 +28,7 @@ LOCKED = ("diskon_nego", "janji_komitmen", "pembatalan_refund", "lainnya_tidak_y
 CATEGORIES = tuple(k for k in CATEGORY_INFO if k not in LOCKED)  # bisa diatur modenya
 FALLBACK = "lainnya_tidak_yakin"
 MIN_CONFIDENCE = 0.6
+MAX_TOKENS = 2000  # ruang untuk thinking adaptif + JSON; 600 bisa memotong JSON
 SENTIMENTS = ("positif", "netral", "negatif")
 # Upaya menyuntikkan instruksi: apa pun hasil pemilah, pesan seperti ini selalu diserahkan ke sales.
 INJECTION = re.compile(r"(abaikan|lupakan|ignore|disregard)\s+(semua\s+|seluruh\s+)?(instruksi|aturan|perintah|instructions|rules|previous)"
@@ -88,8 +89,11 @@ async def classify(org_id: str, text: str, history: list = None) -> dict:
         resp = await claude.turn(
             model=s["model_triage"], system=[{"type": "text", "text": SYSTEM}],
             messages=[{"role": "user", "content": [{"type": "text", "text": body}]}], tools=[],
-            effort=s["effort_triage"], max_tokens=600, on_text=None, context={"purpose": "triage"},
+            effort=s["effort_triage"], max_tokens=MAX_TOKENS, on_text=None, context={"purpose": "triage"},
             output_format={"type": "json_schema", "schema": SCHEMA})
+        if resp.get("stop_reason") in ("refusal", "max_tokens"):  # JSON tak lengkap/ditolak -> serahkan ke sales
+            logger.warning("Pemilah berhenti (%s); diserahkan ke sales", resp.get("stop_reason"))
+            return _fallback()
         raw = "".join(b.get("text", "") for b in resp.get("content") or [] if b.get("type") == "text")
         return _normalize(json.loads(raw), text)
     except Exception:  # noqa: BLE001 — pemilah tak boleh menjatuhkan alur; serahkan ke sales

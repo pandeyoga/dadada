@@ -18,7 +18,7 @@ def action_view(a: dict) -> dict:
         return a
     prev = dict(a.get("preview") or {})
     prev.setdefault("on_behalf_of", a.get("on_behalf_of"))
-    return {**a, "preview": prev}
+    return {**a, "preview": prev, "editable": list(actions.EDITABLE.get(a.get("tool"), ()))}
 
 
 async def _result_data(content):
@@ -38,6 +38,10 @@ async def ui_messages(raw: list) -> list:
         blocks = blocks or []
         is_results = m["role"] == "user" and blocks and all(b.get("type") == "tool_result" for b in blocks)
         if m["role"] == "user" and not is_results:
+            for b in blocks:  # tool_result sintetis yang diperbaiki ke depan pesan pengguna (langkah dibatalkan)
+                st = steps.get(b.get("tool_use_id")) if b.get("type") == "tool_result" else None
+                if st and b.get("is_error"):
+                    st.update(ok=False, status="failed", summary=str(b.get("content"))[:200])
             cur = None
             text = "\n".join(b.get("text", "") for b in blocks if b.get("type") == "text")
             out.append({"id": m["id"], "role": "user", "text": text, "created_at": m.get("created_at")})
@@ -67,9 +71,10 @@ async def ui_messages(raw: list) -> list:
                     continue
                 d = await _result_data(b.get("content"))
                 if isinstance(d, dict) and d.get("action_id"):
-                    a = await actions.get(d["action_id"])
-                    if a:
-                        cur["actions"].append(action_view(a))
+                    try:
+                        cur["actions"].append(action_view(await actions.get(d["action_id"])))
+                    except actions.ActionError:  # aksi terhapus: lewati, jangan jatuhkan tampilan percakapan
+                        pass
                 if isinstance(d, dict) and d.get("artifact_id"):
                     art = await db.ai_artifacts.find_one({"id": d["artifact_id"]}, {"_id": 0})
                     if art:
