@@ -232,3 +232,17 @@ async def test_complaint_stats_exclude_chat_tickets(client, auth, login):
     only = (await client.get("/api/complaints", headers=auth(staff), params={"kind": "pertanyaan_chat", "limit": 200})).json()
     assert t["id"] in [x["id"] for x in only["data"]] and all(x["kind"] == "pertanyaan_chat" for x in only["data"])
     assert only["total"] == chat and only["counts"]["total"] == chat
+
+
+async def test_portal_cs_button_text_hands_off_deterministically(client, auth):
+    """Tombol "Bicara dengan CS" mengirim teks ini: harus jadi tiket tanpa memanggil model."""
+    await _enable()
+    pu, tok, _ = await _buyer("Tombol")
+    fake = FakeClaude([])
+    set_override(fake)
+    cid = await _new_conv(client, auth, tok)
+    r = await client.post(f"/api/portal/ai/conversations/{cid}/messages", headers=auth(tok),
+                          json={"text": "Bicara dengan CS"})
+    evs = _events(r)
+    assert [e["type"] for e in evs] == ["handoff", "text_delta", "done"], evs
+    assert evs[0]["ticket"]["number"] and not fake.calls

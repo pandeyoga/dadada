@@ -62,3 +62,26 @@ test("panel menampilkan pemberitahuan pada pembukaan pertama dan menutupnya deng
   expect(api.ackNotice).toHaveBeenCalledTimes(1);
   expect(screen.getByTestId("portal-ai-quota")).toHaveTextContent("Sisa 28/30");
 });
+
+test("kartu konfirmasi membaca bentuk backend (preview.title/changes, summary saat executed)", async () => {
+  api.confirmAction.mockResolvedValue({ action: { id: "ac2", status: "executed" } });
+  render(<PortalAiConfirmCard action={{
+    id: "ac2", status: "pending", summary: "Kirim komplain ini?",
+    preview: { title: "Kirim komplain ini?", changes: ["Subjek: Atap bocor", "Pesan: bocor di kamar"] },
+  }} />);
+  expect(screen.getByText("Kirim komplain ini?")).toBeInTheDocument();
+  expect(screen.getByText("Subjek: Atap bocor")).toBeInTheDocument();
+  fireEvent.click(screen.getByTestId("portal-ai-confirm-send"));
+  await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
+});
+
+test("tombol Bicara dengan CS mengirim teks pendek yang memicu serah deterministik", async () => {
+  api.getStatus.mockResolvedValue({ enabled: true, effective_mode: "live", noticed: true, stopped: false, quota: { used: 0, limit: 30 } });
+  api.listConversations.mockResolvedValue([]);
+  api.createConversation.mockResolvedValue({ id: "c1" });
+  const { streamPortalMessage } = require("../portalAiStream");
+  streamPortalMessage.mockResolvedValue(undefined);
+  render(<PortalAiPanel onClose={() => {}} />);
+  fireEvent.click(await screen.findByText("Bicara dengan CS"));
+  await waitFor(() => expect(streamPortalMessage).toHaveBeenCalledWith("c1", "Bicara dengan CS", expect.anything()));
+});

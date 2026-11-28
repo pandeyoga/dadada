@@ -38,10 +38,10 @@ export default function PortalAiConfirmCard({ action, onChanged }) {
   return (
     <section aria-label="Konfirmasi" data-testid="portal-ai-confirm"
       className="rounded-xl border border-indigo-200 bg-white p-3 text-sm">
-      <p className="m-0 font-semibold text-slate-800">{pending ? "Kirim komplain ini?" : "Komplain"}</p>
+      <p className="m-0 font-semibold text-slate-800">{pending ? (action.preview?.title || "Kirim komplain ini?") : "Komplain"}</p>
       <div className="mt-1.5 text-slate-600">
-        {action.summary || payload.subjek || payload.subject ? (
-          <p className="m-0"><b>{payload.subjek || payload.subject || action.summary}</b></p>
+        {payload.subjek || payload.subject ? (
+          <p className="m-0"><b>{payload.subjek || payload.subject}</b></p>
         ) : null}
         {payload.pesan || payload.message ? <p className="m-0 mt-1 whitespace-pre-wrap">{payload.pesan || payload.message}</p> : null}
         {changes.map((c, i) => <p key={i} className="m-0 mt-1">{c.title}{c.detail ? ` — ${c.detail}` : ""}</p>)}
@@ -56,7 +56,10 @@ export default function PortalAiConfirmCard({ action, onChanged }) {
             className="min-h-[40px] rounded-lg border px-4 text-slate-700 hover:bg-slate-100 disabled:opacity-60">Batal</button>
         </div>
       ) : (
-        <p role="status" className="m-0 mt-2 text-slate-600">{STATUS_TEXT[status] || status}{failure ? ` ${failure}` : ""}</p>
+        <p role="status" className="m-0 mt-2 text-slate-600">
+          {status === "executed" && action.summary && action.summary !== action.preview?.title ? action.summary : (STATUS_TEXT[status] || status)}
+          {failure ? ` ${failure}` : ""}
+        </p>
       )}
       {err ? <p role="alert" className="m-0 mt-2 text-rose-700">{err}</p> : null}
     </section>

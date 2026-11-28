@@ -14,7 +14,7 @@ export function TicketCard({ ticket }) {
   return (
     <div data-testid="portal-ai-ticket" className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
       <Ticket className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-      <span>Diteruskan ke CS · No. {ticket.subject || ticket.id}{due ? ` · dibalas paling lambat ${due}` : ""}</span>
+      <span>Diteruskan ke CS · No. {ticket.number || ticket.id}{due ? ` · dibalas paling lambat ${due}` : ""}</span>
     </div>
   );
 }

@@ -30,8 +30,9 @@ export default function PortalAgentCard({ settings, usage, onChanged }) {
   };
 
   const ch = usage?.by_channel?.portal;
-  const used = ch ? (typeof ch === "object" ? ch.messages ?? ch.count ?? ch.calls : ch) : null;
-  const spent = ch && typeof ch === "object" ? ch.spent_idr ?? ch.cost_idr : null;
+  // Backend: by_channel = {web, wa, portal} dalam rupiah (angka). Bentuk objek tetap dibaca bila ada.
+  const spent = ch == null ? null : (typeof ch === "object" ? ch.spent_idr ?? ch.cost_idr : ch);
+  const used = ch && typeof ch === "object" ? ch.messages ?? ch.count ?? ch.calls : null;
 
   return (
     <section id="portal" aria-labelledby="h-portal" data-testid="portal-agent-card"
@@ -61,8 +62,8 @@ export default function PortalAgentCard({ settings, usage, onChanged }) {
       <button type="button" onClick={saveDetails} disabled={busy}
         className="mt-3 min-h-[44px] rounded-[10px] bg-[#006284] px-4 text-sm font-semibold text-white hover:bg-[#00454D] disabled:opacity-60">Simpan</button>
       <p className="mt-3 text-[13px] text-[#3E5653]" data-testid="portal-agent-usage">
-        Pemakaian bulan ini lewat portal: {used != null ? <b>{Number(used).toLocaleString("id-ID")} pesan</b> : "belum ada data"}
-        {spent != null ? ` · Rp${Math.round(Number(spent) || 0).toLocaleString("id-ID")}` : ""}
+        Biaya AI bulan ini lewat portal: {spent != null ? <b>Rp{Math.round(Number(spent) || 0).toLocaleString("id-ID")}</b> : "belum ada data"}
+        {used != null ? ` · ${Number(used).toLocaleString("id-ID")} pesan` : ""}
       </p>
       {msg ? <p role={msg.ok ? "status" : "alert"} className={`text-[13px] ${msg.ok ? "text-[#14532D]" : "text-[#9B1C1C]"}`}>{msg.text}</p> : null}
     </section>

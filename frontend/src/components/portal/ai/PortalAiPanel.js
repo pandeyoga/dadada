@@ -165,7 +165,7 @@ export default function PortalAiPanel({ onClose }) {
             <div ref={endRef} />
           </div>
           <div className="border-t p-3">
-            <button type="button" disabled={busy} onClick={() => send("Saya ingin bicara dengan CS")}
+            <button type="button" disabled={busy} onClick={() => send("Bicara dengan CS")}
               className="mb-2 inline-flex min-h-[36px] items-center gap-1.5 rounded-full border px-3 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-60">
               <Headset className="h-3.5 w-3.5" aria-hidden="true" /> Bicara dengan CS
             </button>
