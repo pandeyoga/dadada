@@ -6,7 +6,8 @@ const fmtDue = (iso) => {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const s = d.toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jakarta" });
+  return `${s} WIB`; // sama dengan teks chat (WIB), apa pun zona waktu peramban pembeli
 };
 
 export function TicketCard({ ticket }) {
@@ -42,7 +43,7 @@ export default function PortalAiMessage({ message, onActionChanged }) {
       {message.text ? (
         <p className="m-0 max-w-[90%] whitespace-pre-wrap rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2 text-sm text-slate-800">{message.text}</p>
       ) : message.streaming && !(message.steps || []).length ? (
-        <p className="m-0 text-xs text-slate-400">Mengetik…</p>
+        <p className="m-0 text-xs text-slate-500">Mengetik…</p>
       ) : null}
       {(message.actions || []).map((a) => <PortalAiConfirmCard key={a.id} action={a} onChanged={onActionChanged} />)}
       {message.ticket ? <TicketCard ticket={message.ticket} /> : null}

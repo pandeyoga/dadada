@@ -8,7 +8,7 @@ import {
 } from "./portalAiApi";
 
 const toUi = (m) => ({
-  id: m.id, role: m.role === "user" ? "user" : "assistant",
+  id: m.id, messageId: m.id, role: m.role === "user" ? "user" : "assistant",
   text: m.text ?? m.content ?? "", steps: m.steps || [], actions: m.actions || [], ticket: m.ticket || null,
 });
 
@@ -84,6 +84,11 @@ export default function PortalAiPanel({ onClose }) {
     } finally { setBusy(false); }
   };
 
+  // Status kartu aksi diangkat ke pesan: render ulang (atau pemasangan ulang) membaca status terbaru, bukan "pending".
+  const actionChanged = (mid, a) => setMessages((ms) => ms.map((m) => (m.id !== mid ? m : {
+    ...m, actions: (m.actions || []).map((x) => (x.id === a.id ? { ...x, ...a } : x)),
+  })));
+
   const ack = async () => {
     try { await ackNotice(); } catch { /* tetap tutup pemberitahuan di layar */ }
     setStatus((s) => ({ ...s, noticed: true }));
@@ -142,7 +147,8 @@ export default function PortalAiPanel({ onClose }) {
       ) : unavailable ? (
         <div className="flex-1 p-4 text-sm text-slate-600">
           <p className="m-0 font-semibold">Asisten belum tersedia</p>
-          <p className="m-0 mt-1">{status.notice_text || loadErr || "Silakan hubungi CS kami lewat tab Komplain."}</p>
+          {/* bukan notice_text: pemberitahuan menyebut tombol & menu yang tidak ada di keadaan ini */}
+          <p className="m-0 mt-1">{loadErr || "Silakan hubungi CS kami lewat tab Komplain."}</p>
         </div>
       ) : showNotice ? (
         <div className="flex flex-1 flex-col gap-3 p-4 text-sm text-slate-700" data-testid="portal-ai-notice">
@@ -160,7 +166,7 @@ export default function PortalAiPanel({ onClose }) {
             {messages.length === 0 ? (
               <p className="m-0 text-sm text-slate-500">Halo! Tanyakan tagihan, progres rumah, dokumen, atau komplain Anda.</p>
             ) : null}
-            {messages.map((m) => <PortalAiMessage key={m.id} message={m} />)}
+            {messages.map((m) => <PortalAiMessage key={m.id} message={m} onActionChanged={(a) => actionChanged(m.id, a)} />)}
             {info ? <p role="status" className="m-0 text-xs text-slate-500">{info}</p> : null}
             <div ref={endRef} />
           </div>

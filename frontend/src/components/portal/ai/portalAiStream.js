@@ -79,7 +79,9 @@ export function applyPortalEvent(msg, ev) {
     case "text_delta": m.text = (m.text || "") + (ev.text || ""); break;
     case "action_proposed": if (ev.action) m.actions.push(ev.action); break;
     case "handoff": if (ev.ticket) m.ticket = ev.ticket; break;
-    case "done": m.id = ev.message_id || m.id; m.streaming = false; break;
+    // id pesan server disimpan terpisah: `id` tetap jadi kunci React, supaya kartu konfirmasi yang sudah tampil
+    // (mungkin sedang dikirim) tidak dipasang ulang saat giliran selesai.
+    case "done": m.messageId = ev.message_id || m.messageId; m.streaming = false; break;
     case "error": m.error = ev.message || "Terjadi kesalahan."; m.streaming = false; break;
     default: break;
   }

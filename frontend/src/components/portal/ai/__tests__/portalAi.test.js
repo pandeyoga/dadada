@@ -42,10 +42,15 @@ test("kartu konfirmasi memanggil confirm sekali walau diklik dua kali", async ()
   expect(api.confirmAction).toHaveBeenCalledTimes(1);
 });
 
-test("panel berkata Asisten belum tersedia saat enabled false", async () => {
-  api.getStatus.mockResolvedValue({ enabled: false });
+test("panel berkata Asisten belum tersedia saat enabled false, tanpa teks pemberitahuan privasi", async () => {
+  api.getStatus.mockResolvedValue({
+    enabled: false, noticed: false, stopped: false,
+    notice_text: "Anda sedang berbicara dengan Tanya Estora. Tekan Bicara dengan CS kapan saja.",
+  });
   render(<PortalAiPanel onClose={() => {}} />);
   expect(await screen.findByText("Asisten belum tersedia")).toBeInTheDocument();
+  expect(screen.getByText("Silakan hubungi CS kami lewat tab Komplain.")).toBeInTheDocument();
+  expect(screen.queryByText(/Anda sedang berbicara dengan Tanya Estora/)).not.toBeInTheDocument();
 });
 
 test("panel menampilkan pemberitahuan pada pembukaan pertama dan menutupnya dengan Mengerti", async () => {
@@ -64,7 +69,8 @@ test("panel menampilkan pemberitahuan pada pembukaan pertama dan menutupnya deng
 });
 
 test("kartu konfirmasi membaca bentuk backend (preview.title/changes, summary saat executed)", async () => {
-  api.confirmAction.mockResolvedValue({ action: { id: "ac2", status: "executed" } });
+  api.confirmAction.mockResolvedValue({ action: { id: "ac2", status: "executed",
+    summary: "Klaim KG-1 tercatat namun DITOLAK: masa garansi habis." } });
   render(<PortalAiConfirmCard action={{
     id: "ac2", status: "pending", summary: "Kirim komplain ini?",
     preview: { title: "Kirim komplain ini?", changes: ["Subjek: Atap bocor", "Pesan: bocor di kamar"] },
@@ -72,7 +78,33 @@ test("kartu konfirmasi membaca bentuk backend (preview.title/changes, summary sa
   expect(screen.getByText("Kirim komplain ini?")).toBeInTheDocument();
   expect(screen.getByText("Subjek: Atap bocor")).toBeInTheDocument();
   fireEvent.click(screen.getByTestId("portal-ai-confirm-send"));
-  await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("tercatat namun DITOLAK"));
+});
+
+test("event done tidak mengganti kunci pesan: kartu yang sudah dikirim tidak muncul lagi dengan Kirim/Batal", async () => {
+  const m = applyPortalEvent({ id: "a-1", role: "assistant", text: "" }, { type: "done", message_id: "srv-9" });
+  expect(m.id).toBe("a-1");
+  expect(m.messageId).toBe("srv-9");
+  api.getStatus.mockResolvedValue({ enabled: true, effective_mode: "live", noticed: true, stopped: false, quota: { used: 0, limit: 30 } });
+  api.listConversations.mockResolvedValue([]);
+  api.createConversation.mockResolvedValue({ id: "c2" });
+  api.confirmAction.mockResolvedValue({ action: { id: "ac3", status: "executed", summary: "Komplain terkirim: Atap bocor." } });
+  const { streamPortalMessage } = require("../portalAiStream");
+  let finish;
+  streamPortalMessage.mockImplementation((_id, _t, { onEvent }) => {
+    onEvent({ type: "action_proposed", action: { id: "ac3", status: "pending", preview: { title: "Kirim komplain ini?", changes: [] } } });
+    return new Promise((r) => { finish = () => { onEvent({ type: "done", message_id: "srv-1" }); r(); }; });
+  });
+  render(<PortalAiPanel onClose={() => {}} />);
+  fireEvent.change(await screen.findByTestId("portal-ai-input"), { target: { value: "Atap bocor" } });
+  fireEvent.click(screen.getByLabelText("Kirim pesan"));
+  fireEvent.click(await screen.findByTestId("portal-ai-confirm-send"));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Komplain terkirim"));
+  finish();
+  await waitFor(() => expect(screen.getByLabelText("Kirim pesan")).toBeInTheDocument());
+  expect(screen.queryByTestId("portal-ai-confirm-send")).not.toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("Komplain terkirim");
+  expect(api.confirmAction).toHaveBeenCalledTimes(1);
 });
 
 test("tombol Bicara dengan CS mengirim teks pendek yang memicu serah deterministik", async () => {

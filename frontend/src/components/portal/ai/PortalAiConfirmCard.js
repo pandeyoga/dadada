@@ -12,6 +12,7 @@ const STATUS_TEXT = {
 export default function PortalAiConfirmCard({ action, onChanged }) {
   const [status, setStatus] = useState(action.status || "pending");
   const [failure, setFailure] = useState(action.error || "");
+  const [summary, setSummary] = useState(action.summary || "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const inflight = useRef(false);
@@ -27,8 +28,8 @@ export default function PortalAiConfirmCard({ action, onChanged }) {
       const r = await fn(action.id);
       const a = r?.action || r || {};
       const st = a.status || fallbackStatus;
-      setStatus(st); setFailure(a.error || "");
-      onChanged?.({ ...action, status: st });
+      setStatus(st); setFailure(a.error || ""); setSummary(a.summary || "");
+      onChanged?.({ ...action, status: st, summary: a.summary || null, error: a.error || null });
     } catch (e) {
       setErr(portalAiError(e, "Tidak dapat diproses."));
       inflight.current = false;
@@ -57,7 +58,8 @@ export default function PortalAiConfirmCard({ action, onChanged }) {
         </div>
       ) : (
         <p role="status" className="m-0 mt-2 text-slate-600">
-          {status === "executed" && action.summary && action.summary !== action.preview?.title ? action.summary : (STATUS_TEXT[status] || status)}
+          {/* ringkasan dari respons konfirmasi, mis. klaim garansi yang tercatat namun DITOLAK */}
+          {status === "executed" && summary && summary !== action.preview?.title ? summary : (STATUS_TEXT[status] || status)}
           {failure ? ` ${failure}` : ""}
         </p>
       )}

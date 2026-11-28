@@ -40,7 +40,8 @@ export default function PortalAgentCard({ settings, usage, onChanged }) {
       <h2 id="h-portal" className="m-0 font-['Space_Grotesk',Inter,sans-serif] text-xl">Asisten portal pembeli</h2>
       <p className="mt-1 text-[13px] text-[#3E5653]">
         &ldquo;Tanya Estora&rdquo; menjawab pertanyaan pembeli di Portal Pembeli dan hanya membaca data pembeli itu sendiri.
-        Komplain baru selalu menunggu konfirmasi pembeli; topik harga, diskon, dan sengketa diserahkan ke CS.
+        Komplain baru selalu menunggu konfirmasi pembeli; topik diskon/nego, pembatalan/refund, dan janji diserahkan ke
+        Manajer Penjualan.
       </p>
       <label className="mt-3 flex min-h-[44px] items-center gap-2 text-sm">
         <input type="checkbox" role="switch" checked={enabled} disabled={busy}
