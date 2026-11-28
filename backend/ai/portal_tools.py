@@ -3,6 +3,7 @@ pembeli itu, sehingga data otomatis hanya miliknya. Tidak ada token staf / `ai_a
 
 Lapisan kedua (pertahanan berlapis): hasil disaring lagi ke `deal_id`/unit milik pembeli (dari `/portal/overview`),
 karena beberapa endpoint lama memfilter `customer_id` yang bisa kosong untuk pembeli pemegang reservasi (lead).
+BAST, garansi, dan klaim hanya untuk deal yang tidak `cancelled` (unit deal batal bisa sudah milik pembeli lain).
 Usulan (`buat_komplain`, `ajukan_klaim_garansi`) hanya membuat `ai_actions` pending; pembeli sendiri yang mengirim
 lewat kartu konfirmasi (`actions.confirm_by_buyer`). `serahkan_ke_cs` langsung membuat tiket (permintaan pembeli).
 """
@@ -50,6 +51,11 @@ async def _scope(ctx: ToolContext, inp: dict):
     if want and want not in ids:
         raise ToolError(NOT_MINE)
     return own, ids, want
+
+
+def _active(own: list) -> set:
+    """deal_id milik pembeli yang tidak `cancelled`: unit deal batal bisa sudah dijual ke pembeli lain (BAST, klaim)."""
+    return {r.get("deal_id") for r in own if r.get("deal_id") and r.get("status") != "cancelled"}
 
 
 def _by_deal(rows: list, want) -> list:
@@ -141,23 +147,24 @@ async def komplain_saya(ctx, inp):
 
 async def garansi_saya(ctx, inp):
     own, _ids, want = await _scope(ctx, inp)
-    code = next((r.get("unit_code") for r in own if r.get("deal_id") == want), None) if want else None
-    rows = [r for r in _rows(await _pget(ctx, "/portal/warranty")) if not want or (r.get("unit") or {}).get("code") == code]
+    act = _active(own)
+    rows = [r for r in _rows(await _pget(ctx, "/portal/warranty"))
+            if r.get("deal_id") in act and (not want or r.get("deal_id") == want)]
     unit_ids = {(r.get("unit") or {}).get("id") for r in rows}
-    cid = (ctx.user or {}).get("customer_id")
     claims = [flat(c) for c in _rows(await _pget(ctx, "/portal/warranty/claims"))
-              if c.get("unit_id") in unit_ids or (not want and cid and c.get("customer_id") == cid)]
-    out = [{"unit": r.get("unit"), "masa_garansi": [{k: w.get(k) for k in ("category", "expires_at", "days_left", "state_label")}
-                                                     for w in (r.get("warranty") or [])],
+              if c.get("unit_id") in unit_ids and (not c.get("deal_id") or c.get("deal_id") in act)]
+    out = [{"unit": r.get("unit"), "deal_id": r.get("deal_id"),
+            "masa_garansi": [{k: w.get(k) for k in ("category", "expires_at", "days_left", "state_label")}
+                             for w in (r.get("warranty") or [])],
             "belum_serah_terima": r.get("missing"), "keterangan": r.get("detail")} for r in rows]
     return {"garansi": out, "klaim": claims[:20], "summary": f"Garansi {len(out)} rumah, {len(claims)} klaim"}
 
 
 async def serah_terima_saya(ctx, inp):
     own, _ids, want = await _scope(ctx, inp)
-    code = next((r.get("unit_code") for r in own if r.get("deal_id") == want), None) if want else None
+    act = _active(own)  # hanya BAST untuk deal aktif pembeli sendiri; tanpa cocok kode unit (unit bisa dijual ulang)
     rows = [flat(r) for r in _rows(await _pget(ctx, "/portal/handovers"))
-            if not want or r.get("deal_id") == want or (code and r.get("unit_code") == code)]
+            if r.get("deal_id") in act and (not want or r.get("deal_id") == want)]
     return {"serah_terima": rows[:10], "jumlah": len(rows),
             "catatan": "Tanggal serah terima yang belum tercatat tidak boleh diperkirakan atau dijanjikan.",
             "summary": f"{len(rows)} berita acara serah terima"}
@@ -216,8 +223,8 @@ async def buat_komplain(ctx, inp):
 
 
 async def ajukan_klaim_garansi(ctx, inp):
-    rows = _rows(await _pget(ctx, "/portal/warranty"))
-    row = next((r for r in rows if (r.get("unit") or {}).get("id") == inp["unit_id"]), None)
+    rows, act = _rows(await _pget(ctx, "/portal/warranty")), _active(await _own(ctx))
+    row = next((r for r in rows if (r.get("unit") or {}).get("id") == inp["unit_id"] and r.get("deal_id") in act), None)
     if not row:
         raise ToolError("Rumah ini tidak terdaftar atas nama Anda. Lihat garansi_saya untuk unit_id yang benar.")
     if inp["category"] not in ref.values("warranty_category"):

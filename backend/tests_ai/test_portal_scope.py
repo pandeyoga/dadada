@@ -166,3 +166,51 @@ async def test_rows_written_by_reservation_portal_are_visible_only_to_it(client,
         tok = world[who][0]
         assert complaint_id not in await _ids(client, tok, "/complaints"), who
         assert intake_id not in await _ids(client, tok, "/payments/submissions"), who
+
+
+async def test_resold_unit_is_not_the_old_buyers_house(client):
+    """Deal batal bukan "rumah saya": A membatalkan unit U, U dijual ulang ke B dan diserahterimakan. A tetap punya akses
+    portal (refund), tetapi tidak melihat BAST (nama & nomor B) / klaim B dan tidak bisa mengajukan atau mengakui klaim
+    di rumah B — lewat endpoint maupun alat Tanya Estora."""
+    import reference as ref
+    from ai import conversations
+    from ai.tools import catalog, registry  # noqa: F401
+    from ai.tools.registry import ToolContext
+    tag = uuid.uuid4().hex[:6]
+    a_lead, a_cust, b_lead, b_cust, b_deal = new_id(), new_id(), new_id(), new_id(), new_id()
+    for lead, cust, name in ((a_lead, a_cust, "A"), (b_lead, b_cust, "B")):
+        await db.leads.insert_one({"id": lead, "org_id": ORG_ID, "name": name, "phone": _phone()})
+        await db.customers.insert_one({"id": cust, "org_id": ORG_ID, "name": name, "lead_id": lead})
+    a = await _deal(f"A{tag}", a_lead, a_cust, status="cancelled")
+    await db.deals.insert_one({"id": b_deal, "org_id": ORG_ID, "lead_id": b_lead, "customer_id": b_cust,
+                               "unit_id": a["unit_id"], "project_id": "proj-scope-uji", "status": "booked", "created_at": TS})
+    b_rows = await _rows(f"B{tag}", {"deal_id": b_deal, "unit_id": a["unit_id"]}, customer_id=b_cust)
+    pa = {"id": new_id(), "org_id": ORG_ID, "is_active": True, "customer_id": a_cust, "lead_id": None, "name": "Pembeli A",
+          "phone": _phone(), "email": None, "created_at": now_iso()}
+    await db.portal_users.insert_one(dict(pa))
+    ta, tb = create_portal_token(pa), await _portal_user(customer_id=b_cust, tag="B")
+    ha = {"Authorization": f"Bearer {ta}"}
+    assert await _ids(client, tb, "/handovers") == {b_rows["handover"]}  # kontrol: B (pemilik baru) melihatnya
+    assert b_rows["claim"] in await _ids(client, tb, "/warranty/claims")
+    assert await _ids(client, ta, "/handovers") == set()
+    assert b_rows["claim"] not in await _ids(client, ta, "/warranty/claims")
+    w = (await client.get("/api/portal/warranty", headers=ha)).json()
+    assert w["data"] == [] and f"B{tag}" not in str(w)
+    assert (await client.get(f"/api/portal/warranty/claims/{b_rows['claim']}", headers=ha)).status_code == 404
+    r = await client.post(f"/api/portal/warranty/claims/{b_rows['claim']}/ack", headers=ha, json={"satisfied": True})
+    assert r.status_code == 404
+    assert (await client.get(f"/api/portal/handovers/{b_rows['handover']}/pdf", headers=ha)).status_code == 404
+    cat = next(iter(ref.values("warranty_category")))
+    r = await client.post("/api/portal/warranty/claims", headers=ha,
+                          json={"unit_id": a["unit_id"], "category": cat, "title": "Atap bocor"})
+    assert r.status_code == 403 and await db.warranty_claims.count_documents({"unit_id": a["unit_id"]}) == 1
+    conv = await conversations.create(ORG_ID, pa["id"], role="buyer_cs", channel="portal")
+    ctx = ToolContext(org_id=ORG_ID, user=pa, token=ta, channel="portal", conversation_id=conv["id"], verified=True,
+                      role="buyer_cs")
+    for inp in ({}, {"deal_id": a["deal_id"]}):  # termasuk menanyakan deal batalnya sendiri (dulu dicocokkan lewat kode unit)
+        st = await registry.run(ctx, "serah_terima_saya", inp)
+        assert st["ok"] and st["data"]["jumlah"] == 0 and f"B{tag}" not in str(st), st
+        gr = await registry.run(ctx, "garansi_saya", inp)
+        assert gr["ok"] and gr["data"]["garansi"] == [] and gr["data"]["klaim"] == [], gr
+    bad = await registry.run(ctx, "ajukan_klaim_garansi", {"unit_id": a["unit_id"], "category": cat, "title": "Atap bocor"})
+    assert bad["ok"] is False and await db.ai_actions.count_documents({"entity_id": a["unit_id"]}) == 0

@@ -324,8 +324,7 @@ async def my_payment_submissions(pu: dict = Depends(get_portal_user)):
 @router.get("/progress")
 async def progress(pu: dict = Depends(get_portal_user)):
     org = pu.get("org_id", ORG_ID)
-    cust = await _customer(pu)
-    deals = await _deals(pu, cust)
+    deals = await scope.active_deals(pu)  # unit deal batal bisa sudah dibangun untuk pembeli lain
     result = []
     for d in deals:
         unit = await db.units.find_one({"id": d.get("unit_id")}, {"_id": 0}) or {}
@@ -374,7 +373,7 @@ async def portal_site_plan(pu: dict = Depends(get_portal_user)):
     pids = await _portal_projects(pu, deals)
     if not pids:
         return {"data": {"projects": []}}
-    own_units = {d.get("unit_id") for d in deals if d.get("unit_id")}
+    own_units = {d.get("unit_id") for d in deals if d.get("unit_id") and d.get("status") != "cancelled"}
     out = []
     for pid in pids:
         proj = await db.projects.find_one({"id": pid, "org_id": org},
@@ -537,22 +536,6 @@ async def create_complaint(payload: ComplaintCreate, pu: dict = Depends(get_port
     return {"data": serialize_doc(doc)}
 
 # ----------------------------- garansi & klaim (Fase 50A) -----------------------------
-async def _my_units(pu: dict) -> list:
-    """Rumah milik pembeli ini (dari deal-nya) — dipakai layar garansi portal."""
-    cust = await _customer(pu)
-    deals = await _deals(pu, cust)
-    out = []
-    for d in deals:
-        if not d.get("unit_id"):
-            continue
-        unit = await db.units.find_one({"id": d["unit_id"], "org_id": pu.get("org_id", ORG_ID)},
-                                       {"_id": 0, "id": 1, "code": 1, "type": 1,
-                                        "project_id": 1, "status": 1})
-        if unit:
-            out.append({**unit, "deal_id": d["id"]})
-    return out
-
-
 @router.get("/warranty")
 async def portal_warranty(pu: dict = Depends(get_portal_user)):
     """Masa garansi rumah saya + riwayat klaim.
@@ -562,14 +545,15 @@ async def portal_warranty(pu: dict = Depends(get_portal_user)):
     keluhan berubah menjadi perdebatan tanpa dasar.
     """
     org = pu.get("org_id", ORG_ID)
-    units = await _my_units(pu)
+    units = await scope.my_units(pu)  # deal batal tidak dihitung: unitnya bisa sudah milik pembeli lain
+    ids, uids = {u["deal_id"] for u in units}, {u["id"] for u in units}
     rows = []
     for u in units:
         st_ = await he.warranty_status(org, u["id"])
-        rows.append({"unit": {"id": u["id"], "code": u.get("code"), "type": u.get("type")},
+        rows.append({"unit": {"id": u["id"], "code": u.get("code"), "type": u.get("type")}, "deal_id": u["deal_id"],
                      "handover": st_.get("handover"), "warranty": st_.get("rows"),
-                     "claims": st_.get("claims"), "missing": st_.get("missing"),
-                     "detail": st_.get("detail")})
+                     "claims": [c for c in st_.get("claims") or [] if scope.owns(c, ids, uids)],
+                     "missing": st_.get("missing"), "detail": st_.get("detail")})
     return {"data": serialize_doc(rows), "total": len(rows),
             "detail": ("Belum ada rumah yang terdaftar atas nama Anda — belum ada data."
                        if not rows else
@@ -586,7 +570,7 @@ async def portal_create_claim(payload: PortalWarrantyClaim,
     tertulis yang bisa diperiksa ulang.
     """
     org = pu.get("org_id", ORG_ID)
-    units = {u["id"] for u in await _my_units(pu)}
+    units = {u["id"] for u in await scope.my_units(pu)}
     if payload.unit_id not in units:
         raise HTTPException(status_code=403,
                             detail="Rumah ini tidak terdaftar atas nama Anda.")
@@ -611,7 +595,7 @@ async def portal_create_claim(payload: PortalWarrantyClaim,
 @router.get("/warranty/claims")
 async def portal_claims(pu: dict = Depends(get_portal_user)):
     org = pu.get("org_id", ORG_ID)
-    out = await we.list_claims(org, **await scope.owner(pu))
+    out = await we.list_claims(org, deal_ids=[u["deal_id"] for u in await scope.my_units(pu)])
     return {"data": serialize_doc(out["rows"]), "total": out["total"],
             "detail": out["detail"]}
 
@@ -622,13 +606,7 @@ async def portal_claims(pu: dict = Depends(get_portal_user)):
 #   2. kwitansi pembayarannya (tidak bisa diunduh siapa pun),
 #   3. cara MENGAKUI bahwa perbaikan garansi selesai — padahal mesin MEWAJIBKAN pengakuan
 #      pembeli untuk menutup klaim, jadi selama ini stafnya yang mengetik atas nama pembeli.
-async def _my_handovers(pu: dict) -> list:
-    org = pu.get("org_id", ORG_ID)
-    unit_ids = [u["id"] for u in await _my_units(pu)]
-    own_cid = pu.get("customer_id")  # kosong (akun reservasi) cocok ke BAST orang lain: jangan disaring
-    q = {"org_id": org, "$or": [{"unit_id": {"$in": unit_ids}}]
-         + ([{"customer_id": own_cid}] if own_cid else [])}
-    return await db.unit_handovers.find(q, {"_id": 0}).sort("handed_over_at", -1).to_list(50)
+_my_handovers = scope.my_handovers  # BAST untuk deal aktif pembeli (bukan unit dari deal batal)
 
 
 @router.get("/handovers")
@@ -717,10 +695,8 @@ async def portal_receipt_pdf(rid: str, pu: dict = Depends(get_portal_user)):
 async def _my_claim(pu: dict, cid: str) -> dict:
     org = pu.get("org_id", ORG_ID)
     doc = await db.warranty_claims.find_one({"id": cid, "org_id": org}, {"_id": 0})
-    unit_ids = {u["id"] for u in await _my_units(pu)}
-    own_cid = pu.get("customer_id")  # null == null BUKAN bukti milik (akun reservasi tanpa customer)
-    if not doc or not ((own_cid and doc.get("customer_id") == own_cid)
-                       or doc.get("unit_id") in unit_ids):
+    units = await scope.my_units(pu)  # milik = deal aktif pembeli; null == null / unit dijual ulang BUKAN bukti
+    if not doc or not scope.owns(doc, {u["deal_id"] for u in units}, {u["id"] for u in units}):
         raise HTTPException(status_code=404,
                             detail="Klaim garansi tidak ditemukan atas nama Anda.")
     return doc
