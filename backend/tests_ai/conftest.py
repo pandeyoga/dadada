@@ -10,6 +10,7 @@ if not os.environ.get("MONGO_URL"):
 os.environ["DB_NAME"] = DB_NAME
 os.environ.setdefault("JWT_SECRET", "test-secret-estora-ai-0123456789abcdef")
 os.environ["SEED_DEMO_USERS"] = "true"
+os.environ.setdefault("STORAGE_PROVIDER", "mongo")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import httpx  # noqa: E402
