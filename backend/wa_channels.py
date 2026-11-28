@@ -215,9 +215,9 @@ async def unofficial_adapter(org_id: str = ORG_ID, transport=None):
 
 # ------------------------------------------------------------------ opt-in & kirim
 async def has_unofficial_optin(org_id: str, phone: str) -> bool:
-    """Titik tukar ke modul consent (`backend/ai/consent.py`) bila sudah ada."""
-    doc = await db.ai_consents.find_one({"org_id": org_id, "phone": phone}, {"_id": 0, "optins": 1})
-    return bool(((doc or {}).get("optins") or {}).get("unofficial"))
+    """Sumber kebenaran: `ai.consent.state`."""
+    from ai import consent
+    return bool((await consent.state(org_id, phone))["optins"]["unofficial"])
 
 
 async def sent_last_hour(org_id: str) -> int:

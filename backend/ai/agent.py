@@ -5,7 +5,7 @@ import logging
 import time
 from typing import AsyncIterator
 
-from ai import actions, budget, config, conversations, prompts
+from ai import actions, budget, config, conversations, prompts, web_research
 from ai.client import ClaudeError, get_claude
 from ai.tools import catalog, registry
 from ai.tools.registry import ToolContext, wrap_untrusted
@@ -79,7 +79,7 @@ async def run_turn(ctx: ToolContext, conv_id: str, user_content: list) -> AsyncI
             await q.put(t)
 
         task = asyncio.create_task(claude.turn(
-            model=model, system=system, messages=list(messages), tools=specs, effort=effort, max_tokens=MAX_TOKENS,
+            model=model, system=system, messages=list(messages), tools=specs + await web_research.extra_tools(ctx, conv_id), effort=effort, max_tokens=MAX_TOKENS,
             on_text=on_text, context={"conversation_id": conv_id, "role": ctx.role, "channel": ctx.channel}))
         while True:
             getter = asyncio.ensure_future(q.get())
@@ -114,6 +114,7 @@ async def run_turn(ctx: ToolContext, conv_id: str, user_content: list) -> AsyncI
             yield {"type": "text_delta", "text": msg}
             yield {"type": "done", "message_id": m["id"], "usage": usage_total}
             return
+        await web_research.record(ctx, conv_id, content)
         m = await conversations.append(conv_id, {"role": "assistant", "content": content, "model": resp.get("model"),
                                                  "usage": resp.get("usage")})
         last_id = m["id"]
