@@ -171,8 +171,32 @@ async def _handle_message(org_id: str, m: dict, profile_names: dict, adapter, mo
         res = await wa_contacts.capture(org_id, ids=[contact["id"]], actor="webhook")
         out["captured"] = res["created"] > 0
         out["lead_id"] = (res["lead_ids"] or [None])[0]
+    if desc["mtype"] != "reaction":
+        out["ai"] = await _ai_route(org_id, conv, phone, msg["id"], lead, desc["body"])
     await emit("message.received", "conversation", conv["id"], {"body": desc["body"]}, org_id=org_id)
     return out
+
+
+async def _ai_route(org_id: str, conv: dict, phone: str, message_id: str, lead: dict, body: str) -> str:
+    """Estora AI: kata kunci persetujuan dulu (STOP -> tanpa AI; manusia -> serahkan ke sales; YA -> opt-in), lain -> antrean."""
+    try:
+        from ai import consent, drafts, wa_agent
+        kw = await consent.handle_keyword(org_id, phone, body)
+        if kw == "human":
+            await drafts.set_label(conv["id"], "needs_sales", "Pelanggan minta dilayani staf")
+            if conv.get("owner"):
+                from engine import create_notification
+                await create_notification(user_email=conv["owner"], title="Pelanggan minta dilayani staf", body=f"{phone}: {body[:100]}",
+                                          type="info", related_entity_type="conversation", related_entity_id=conv["id"], org_id=org_id)
+        if kw:
+            return kw
+        if await settings_store.get("ai.mode", org_id=org_id) == "off":
+            return "off"
+        await wa_agent.enqueue(org_id, conv["id"], message_id, phone=phone, lead_id=(lead or {}).get("id") or conv.get("lead_id"))
+        return "queued"
+    except Exception:  # noqa: BLE001 — AI tak boleh menggagalkan penerimaan pesan
+        logger.exception("Jalur Estora AI gagal untuk pesan masuk")
+        return "error"
 
 
 async def _handle_status(org_id: str, s: dict) -> dict:

@@ -2,6 +2,7 @@
 + Activity/Notification helpers. In-process (no external broker) per Dok 13.
 """
 import logging
+import os
 
 import attribution as attr
 import reference as ref
@@ -710,6 +711,9 @@ def start_scheduler():
     # — bug laten yang membuat tugas hariannya tidak pernah lahir. Didaftarkan sekarang.
     sched_p59.register(_scheduler)
     sched_p68.register(_scheduler)
+    if os.environ.get("AI_WORKER", "on") != "off":  # Estora AI: antrean pesan WA tiap 5 detik
+        from ai import wa_agent
+        wa_agent.register(_scheduler)
     # Fase 79: pengingat harian tahap pencairan KPR yang syaratnya terpenuhi tapi belum cair.
     sched_p79.register(_scheduler)
     _scheduler.start()

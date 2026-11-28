@@ -5,7 +5,9 @@ PRIVACY_NOTICE = (
     "membantu menjawab pertanyaan Anda. Balas \"STOP\" atau \"HUBUNGI STAF\" kapan saja untuk "
     "berhenti dan dilayani oleh staf kami."
 )
-CATEGORIES = ("faq", "harga", "kpr", "jadwal", "komplain", "laporan")
+# Kategori pesan WhatsApp yang boleh diatur modenya (kategori terkunci-ke-sales ada di ai/triage.py).
+CATEGORIES = ("stok_harga", "simulasi_kpr", "lokasi_fasilitas", "jadwal_survei", "berkas_kpr",
+              "tagihan_pembayaran", "progres_serah_terima", "komplain", "sapaan_umum")
 
 
 def _d(key, value, type_, label, help_, *, minimum=None, maximum=None, sensitive=False, options=None):
