@@ -78,7 +78,7 @@ def _normalize(raw: dict, text: str) -> dict:
             "sentiment": sent, "confidence": conf}
 
 
-async def classify(org_id: str, text: str, history: list = None) -> dict:
+async def classify(org_id: str, text: str, history: list = None, *, channel: str = "wa") -> dict:
     """-> {category, intent, objections[], sentiment, confidence}. Gagal/tidak terbaca -> lainnya_tidak_yakin."""
     s = await config.get_ai_settings(org_id)
     ctx_txt = _history_text(history)
@@ -89,7 +89,7 @@ async def classify(org_id: str, text: str, history: list = None) -> dict:
         resp = await claude.turn(
             model=s["model_triage"], system=[{"type": "text", "text": SYSTEM}],
             messages=[{"role": "user", "content": [{"type": "text", "text": body}]}], tools=[],
-            effort=s["effort_triage"], max_tokens=MAX_TOKENS, on_text=None, context={"purpose": "triage"},
+            effort=s["effort_triage"], max_tokens=MAX_TOKENS, on_text=None, context={"purpose": "triage", "channel": channel},
             output_format={"type": "json_schema", "schema": SCHEMA})
         if resp.get("stop_reason") in ("refusal", "max_tokens"):  # JSON tak lengkap/ditolak -> serahkan ke sales
             logger.warning("Pemilah berhenti (%s); diserahkan ke sales", resp.get("stop_reason"))

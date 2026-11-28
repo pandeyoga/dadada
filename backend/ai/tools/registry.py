@@ -22,12 +22,12 @@ class ToolContext:
     org_id: str
     user: dict
     token: str
-    channel: str = "web"            # "web" | "wa"
+    channel: str = "web"            # "web" | "wa" | "portal"
     conversation_id: Optional[str] = None
     contact: Optional[dict] = None  # {"phone","lead_id","buyer_customer_id"}
     verified: bool = False
     web_research: bool = False
-    role: str = "copilot"           # "copilot" | "sales" | "cs"
+    role: str = "copilot"           # "copilot" | "sales" | "cs" | "buyer_cs"
 
 
 @dataclass
@@ -35,8 +35,8 @@ class Tool:
     name: str
     description: str
     input_schema: dict
-    kind: str                       # "read" | "propose" | "report"
-    scope: str                      # "staff" | "any" | "wa_self"
+    kind: str                       # "read" | "propose" | "report" | "handoff"
+    scope: str                      # "staff" | "any" | "wa_self" | "portal"
     handler: Callable[[ToolContext, dict], Awaitable[dict]]
     label: str = ""
     untrusted: bool = False         # hasil memuat teks pihak luar (mis. pesan WA)
@@ -65,7 +65,16 @@ def all_tools() -> list:
     return list(_TOOLS.values())
 
 
+PORTAL_SHARED = ("simulasi_kpr",)  # satu-satunya alat non-portal di kanal portal (hitungan murni, tanpa data)
+
+
 def _visible(ctx: ToolContext, t: Tool) -> bool:
+    # Kanal portal: HANYA alat portal (memanggil /api/portal/... dengan token pembeli) + simulasi KPR.
+    # Sebaliknya alat portal tidak pernah tampil di kanal staf/WA.
+    if ctx.channel == "portal":
+        return t.scope == "portal" or t.name in PORTAL_SHARED
+    if t.scope == "portal":
+        return False
     if ctx.channel == "wa":
         if t.scope == "staff" or t.name in ("api_get", "cari_endpoint"):
             return False
@@ -115,6 +124,8 @@ async def run(ctx: ToolContext, name: str, inp: dict) -> dict:
     t = _TOOLS.get(name)
     if not t:
         return _fail(f"Alat '{name}' tidak dikenal.")
+    if (ctx.channel == "portal" or t.scope == "portal") and not _visible(ctx, t):
+        return _fail("Alat ini tidak tersedia di kanal ini.")
     if ctx.channel == "wa" and (t.scope == "staff" or name in ("api_get", "cari_endpoint")):
         return _fail("Alat ini tidak tersedia di WhatsApp.")
     if t.scope == "wa_self" and ctx.channel == "wa" and not (ctx.verified and (ctx.contact or {}).get("buyer_customer_id")):

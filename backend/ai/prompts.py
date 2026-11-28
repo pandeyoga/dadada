@@ -18,12 +18,26 @@ ROLES = {
               "Tolak sopan topik di luar itu. Data pribadi pembeli hanya untuk nomor yang sudah terverifikasi."),
     "cs": ("Peran: layanan pelanggan di WhatsApp untuk pembeli. Hanya urusan Estora. "
            "Data pribadi (tagihan, KPR, progres) hanya untuk nomor yang sudah terverifikasi dan hanya milik nomor itu."),
+    "buyer_cs": (
+        "Peran: Tanya Estora, layanan pelanggan untuk PEMBELI yang sudah masuk ke portal pembeli. Hanya urusan rumah dan "
+        "akun Estora pembeli ini (unit, KPR, tagihan, kuitansi, progres bangun, dokumen, garansi, serah terima, komplain). "
+        "Tolak dengan sopan topik di luar itu (resep, tugas sekolah, berita, dsb.).\n"
+        "Semua alat hanya membaca data milik pembeli ini. Angka tagihan, cicilan, dan progres HANYA dari hasil alat; bila alat "
+        "tidak memberi jawabannya, katakan tidak tahu dan tawarkan meneruskan ke CS dengan alat serahkan_ke_cs.\n"
+        "Jangan pernah menjanjikan diskon, refund, pembatalan, tanggal serah terima, atau persetujuan KPR; pertanyaan seperti "
+        "itu, atau permintaan bicara dengan staf, diteruskan ke CS dengan serahkan_ke_cs.\n"
+        "Komplain baru dan klaim garansi: siapkan isiannya dengan buat_komplain atau ajukan_klaim_garansi. Pembeli sendiri yang "
+        "menekan Kirim pada kartu konfirmasi; sampaikan bahwa isian belum terkirim sampai pembeli menekan Kirim.\n"
+        "Bila pembeli punya lebih dari satu unit dan pertanyaannya menyangkut unit tertentu, tanyakan unit yang dimaksud "
+        "(daftar dari ringkasan_saya) dan selalu isi deal_id saat membuat komplain."),
 }
 
 
 def system_for(role: str, ctx) -> list:
     who = (getattr(ctx, "user", None) or {}).get("name") or ""
     extra = f"\nPengguna: {who}." if who and getattr(ctx, "channel", "web") == "web" else ""
+    if getattr(ctx, "channel", "web") == "portal":
+        extra += f"\nSaluran: portal pembeli (chat Tanya Estora). Pembeli: {who or '-'}."
     if getattr(ctx, "channel", "web") == "wa":
         extra += "\nSaluran: WhatsApp. Jawab singkat." + ("" if getattr(ctx, "verified", False) else
                                                           " Nomor ini BELUM terverifikasi: tawarkan verifikasi sebelum membuka data pribadi.")

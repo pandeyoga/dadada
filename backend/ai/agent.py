@@ -19,6 +19,7 @@ MAX_ROUNDS = 12
 MAX_TOKENS = 8192
 REFUSAL_MSG = "Permintaan ini tidak bisa saya bantu."
 EXEMPT_ROLES = ("owner", "super_admin")
+PORTAL_EFFORT = "medium"  # agen portal pembeli: Opus effort medium (keputusan pemilik, tahap 2a)
 ERR_MSG = {"rate_limit": "Layanan AI sedang sibuk (batas laju). Coba lagi sebentar lagi.",
            "overloaded": "Layanan AI sedang padat. Coba lagi sebentar lagi.",
            "auth": "Kunci API AI tidak valid. Hubungi admin.",
@@ -79,7 +80,7 @@ async def run_turn(ctx: ToolContext, conv_id: str, user_content: list) -> AsyncI
     turn_tools = registry.api_specs(registry.tools_for(ctx)) + await web_research.extra_tools(ctx, conv_id)
     system = prompts.system_for(ctx.role, ctx)
     model = s["model_main"]
-    effort = s["effort_wa"] if ctx.channel == "wa" else s["effort_copilot"]
+    effort = {"wa": s["effort_wa"], "portal": PORTAL_EFFORT}.get(ctx.channel, s["effort_copilot"])
     usage_total: dict = {}
     last_id = None
     continued = False

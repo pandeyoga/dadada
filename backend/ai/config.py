@@ -12,7 +12,8 @@ CATEGORY_MODES = ("auto", "draft", "off")
 _SIMPLE = ("mode", "model_main", "model_triage", "effort_copilot", "effort_wa", "effort_triage",
            "budget_idr_month", "usd_idr", "accuracy_threshold", "accuracy_min_samples",
            "accuracy_window_days", "auto_sample_rate", "kpr_max_installment_ratio",
-           "web_research_enabled", "privacy_notice", "verification_ttl_days", "category_modes")
+           "web_research_enabled", "privacy_notice", "verification_ttl_days", "category_modes",
+           "portal_enabled", "portal_daily_limit", "portal_notice")
 
 # Dihubungkan di Task 10: async (org_id, category) -> bool (ai.accuracy.can_enable_auto).
 _auto_validator = None

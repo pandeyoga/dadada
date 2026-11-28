@@ -20,10 +20,12 @@ import payment_intake as intake
 import reference as ref
 import storage
 from core_utils import new_id, now_iso, serialize_doc, due_in, normalize_phone_e164
-from engine import build_s_curve, auto_create_task, create_notification
+from engine import build_s_curve, create_notification
 from pdf_utils import build_document_pdf
 import booking_fee as bf
 from portal_security import create_portal_token, get_portal_user
+import complaint_intake as ci
+from complaint_intake import buyer_customer as _customer, buyer_deals as _deals
 from notifications import send_whatsapp, gen_otp
 import handover_engine as he
 import warranty_engine as we
@@ -66,22 +68,6 @@ async def _find_portal_user(ident: str):
     await db.portal_users.insert_one(dict(pu))
     pu.pop("_id", None)
     return pu
-
-
-async def _customer(pu: dict) -> dict:
-    cust = await db.customers.find_one({"id": pu.get("customer_id")}, {"_id": 0}) if pu.get("customer_id") else None
-    if cust: return cust  # noqa: E701
-    lead = await db.leads.find_one({"id": pu.get("lead_id")}, {"_id": 0}) if pu.get("lead_id") else None
-    return ({"id": lead["id"], "lead_id": lead["id"], "name": lead.get("name"), "is_lead": True,
-             "phone": lead.get("phone"), "email": lead.get("email")} if lead else {})
-
-
-async def _deals(pu: dict, customer: dict) -> list:
-    org = pu.get("org_id", ORG_ID)
-    lead_id = customer.get("lead_id") or pu.get("lead_id")
-    if not lead_id:
-        return []
-    return await db.deals.find({"org_id": org, "lead_id": lead_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
 
 
 def _payment_summary(inv: dict) -> dict:
@@ -543,46 +529,11 @@ async def list_complaints(pu: dict = Depends(get_portal_user)):
 
 @router.post("/complaints")
 async def create_complaint(payload: ComplaintCreate, pu: dict = Depends(get_portal_user)):
-    org = pu.get("org_id", ORG_ID)
-    cust = await _customer(pu)
-    deals = await _deals(pu, cust)
+    deals = await _deals(pu, await _customer(pu))
     deal = next((d for d in deals if d["id"] == payload.deal_id), deals[0] if deals else None)
-    unit_code, unit_id = None, None
-    if deal:
-        unit = await db.units.find_one({"id": deal.get("unit_id")}, {"_id": 0}) or {}
-        unit_code = unit.get("code")
-        # Fase 50A: komplain dulu hanya menyimpan KODE unit, bukan id-nya. Akibatnya tidak
-        # ada satu pun jalan otomatis dari keluhan pembeli ke rumahnya (dan ke masa
-        # garansinya) — CS harus mencari sendiri kavlingnya. Sekarang id-nya ikut disimpan.
-        unit_id = unit.get("id") or deal.get("unit_id")
-    ts = now_iso()
-    cid = new_id()
-    sla = due_in(hours=48)
-    doc = {
-        "id": cid, "org_id": org, "customer_id": pu.get("customer_id"),
-        "customer_name": pu.get("name"), "deal_id": deal["id"] if deal else None,
-        "unit_code": unit_code, "unit_id": unit_id,
-        "category": payload.category or "umum",
-        "subject": payload.subject, "message": payload.message,
-        "status": "open", "priority": payload.priority or "medium",
-        "assigned_to": (deal or {}).get("assigned_to"),
-        "sla_due_at": sla, "responses": [], "created_at": ts, "updated_at": ts,
-    }
-    await db.complaints.insert_one(dict(doc))
-    # SLA task for the responsible sales/CS + notification.
-    assignee = doc.get("assigned_to")
-    await auto_create_task(
-        source_event=f"complaint:{cid}", title=f"Komplain pembeli: {payload.subject}",
-        jobdesk_code="SM-09",
-        type="complaint", related_entity_type="complaint", related_entity_id=cid,
-        assigned_to=assignee, sla_due_at=sla, priority=doc["priority"],
-        description=f"{pu.get('name')} ({unit_code or '-'}): {payload.message}", org_id=org)
-    if assignee:
-        await create_notification(user_email=assignee, title="Komplain pembeli baru",
-                                  body=f"{pu.get('name')}: {payload.subject}", type="complaint", org_id=org)
-    await send_whatsapp(pu.get("phone"),
-                        f"Terima kasih. Komplain Anda '{payload.subject}' telah kami terima dan akan ditindaklanjuti (SLA 2x24 jam).")
-    doc.pop("_id", None)
+    doc = await ci.create_complaint(org_id=pu.get("org_id", ORG_ID), portal_user=pu, deal=deal,
+                                    category=payload.category, subject=payload.subject,
+                                    message=payload.message, priority=payload.priority)
     return {"data": serialize_doc(doc)}
 
 # ----------------------------- garansi & klaim (Fase 50A) -----------------------------

@@ -46,9 +46,11 @@ async def stage_clock_tick() -> int:
 
 async def sla_breach_check() -> int:
     from engine import create_notification
+    # Tugas tiket "Pertanyaan dari chat" (Tanya Estora) tidak ikut eskalasi/pelanggaran SLA komplain (keputusan pemilik).
     breached = await db.tasks.find({
         "status": {"$in": ["open", "in_progress"]},
         "sla_due_at": {"$ne": None, "$lt": now_iso()}, "sla_breached": {"$ne": True},
+        "complaint_kind": {"$ne": "pertanyaan_chat"},
     }).to_list(1000)
     for t in breached:
         await db.tasks.update_one({"id": t["id"]}, {"$set": {"sla_breached": True, "updated_at": now_iso()}})

@@ -16,6 +16,8 @@ def load() -> None:
         pass
     from ai import report_tool
     report_tool.register_all()
+    from ai import portal_tools  # alat agen portal pembeli (scope "portal"; hanya tampil di kanal portal)
+    portal_tools.register_all()
     _loaded = True
 
 

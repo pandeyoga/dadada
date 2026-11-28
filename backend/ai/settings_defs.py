@@ -5,6 +5,12 @@ PRIVACY_NOTICE = (
     "membantu menjawab pertanyaan Anda. Balas \"STOP\" atau \"HUBUNGI STAF\" kapan saja untuk "
     "berhenti dan dilayani oleh staf kami."
 )
+PORTAL_NOTICE = (
+    "Anda sedang berbicara dengan Tanya Estora, asisten AI. Asisten hanya membaca data milik akun Anda "
+    "(unit, tagihan, KPR, progres rumah, dokumen, garansi, dan komplain) untuk menjawab pertanyaan Anda; "
+    "jawabannya bisa keliru dan keputusan resmi tetap dari tim kami. Tekan \"Bicara dengan CS\" kapan saja "
+    "untuk diteruskan ke staf, atau pilih \"Berhenti pakai asisten\" di menu untuk berhenti."
+)
 # Kategori pesan WhatsApp yang boleh diatur modenya (kategori terkunci-ke-sales ada di ai/triage.py).
 CATEGORIES = ("stok_harga", "simulasi_kpr", "lokasi_fasilitas", "jadwal_survei", "berkas_kpr",
               "tagihan_pembayaran", "progres_serah_terima", "komplain", "sapaan_umum")
@@ -40,4 +46,9 @@ DEFAULTS_AI: dict = {d["key"]: d for d in [
     _d("ai.verification_ttl_days", 30, "int", "Masa berlaku verifikasi (hari)", "", minimum=1),
     _d("ai.category_modes", {c: "draft" for c in CATEGORIES}, "obj", "Mode per kategori",
        "kategori -> auto|draft|off."),
+    _d("ai.portal_enabled", False, "bool", "Agen portal (Tanya Estora)",
+       "Asisten AI untuk pembeli di portal. Mati sampai pemilik menyalakan.", sensitive=True),
+    _d("ai.portal_daily_limit", 30, "int", "Batas pesan per pembeli per hari", "Agen portal; dihitung per hari (WIB).",
+       minimum=1, maximum=500),
+    _d("ai.portal_notice", PORTAL_NOTICE, "str", "Pemberitahuan agen portal", "Ditampilkan saat pembeli pertama kali membuka chat."),
 ]}

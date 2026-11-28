@@ -29,9 +29,12 @@ INDEXES = [
     ("ai_lead_insights", [("org_id", 1), ("lead_id", 1)], {}),
     ("ai_artifacts", [("id", 1)], {}),
     ("ai_web_queries", [("conversation_id", 1), ("created_at", -1)], {}),
+    ("complaints", [("ai_conversation_id", 1), ("created_at", -1)],  # tiket chat portal per percakapan (Tanya Estora)
+     {"partialFilterExpression": {"kind": "pertanyaan_chat"}, "name": "ix_complaints_chat_conv"}),
 ]
 UNIQUE = [("ai_consents", [("org_id", 1), ("phone", 1)], "uq_ai_consents_phone"),
-          ("ai_identity", [("org_id", 1), ("phone", 1)], "uq_ai_identity_phone")]
+          ("ai_identity", [("org_id", 1), ("phone", 1)], "uq_ai_identity_phone"),
+          ("ai_portal_quota", [("org_id", 1), ("portal_user_id", 1), ("day", 1)], "uq_ai_portal_quota")]
 
 
 async def ensure_indexes() -> None:

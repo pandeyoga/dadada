@@ -17,11 +17,24 @@ from rbac import has_role, require_permission, audit_log, is_scoped_sales
 from engine import create_notification, auto_create_task
 from notifications import send_whatsapp
 from models import ComplaintRespond, ComplaintStatusUpdate, ComplaintAssign, ComplaintManualCreate
+from complaint_intake import CHAT_KIND  # tiket serah-ke-CS dari chat portal (Tanya Estora)
 
 router = APIRouter(prefix="/complaints", tags=["complaints"])
 
 STATUSES = ("open", "in_progress", "resolved")
 CHANNELS = ("whatsapp", "telepon", "walk_in", "email", "lainnya")
+NOT_CHAT = {"kind": {"$ne": CHAT_KIND}}  # statistik mutu komplain & eskalasi mengecualikan tiket chat
+
+
+def _kind_filter(kind: str) -> dict:
+    """?kind=pertanyaan_chat -> hanya tiket chat; ?kind=komplain -> hanya komplain biasa; kosong -> semua."""
+    if kind == CHAT_KIND:
+        return {"kind": CHAT_KIND}
+    if kind == "komplain":
+        return dict(NOT_CHAT)
+    if kind:
+        raise HTTPException(status_code=400, detail="Jenis tidak dikenal (pertanyaan_chat atau komplain).")
+    return {}
 
 
 @router.post("")
@@ -114,7 +127,7 @@ COMPLAINT_SORTS = {"subject": "subject", "customer_name": "customer_name",
 
 @router.get("")
 async def list_complaints(status: str = None, priority: str = None, category: str = None,
-                          q: str = None, sla: str = None, customer_id: str = None,
+                          q: str = None, sla: str = None, customer_id: str = None, kind: str = None,
                           sort: str = None, direction: str = None,
                           skip: int = 0, limit: int = 50,
                           user: dict = Depends(require_permission("complaints", "view"))):
@@ -130,6 +143,7 @@ async def list_complaints(status: str = None, priority: str = None, category: st
     lst.apply_in(query, "priority", priority)
     lst.apply_in(query, "category", category)
     lst.apply_in(query, "customer_id", customer_id)
+    query.update(_kind_filter(kind))
     lst.apply_search(query, q, ("subject", "customer_name", "unit_code", "message"))
     now = now_iso()
     if sla == "breached":
@@ -146,7 +160,8 @@ async def list_complaints(status: str = None, priority: str = None, category: st
     for r in rows:
         _mark_breach(r, now)
     await clock.attach(rows, "complaint", org_id=user.get("org_id", ORG_ID))
-    scope_base = await _scope(user)
+    # Ringkasan = mutu komplain: tiket "Pertanyaan dari chat" tidak ikut kecuali diminta lewat ?kind=.
+    scope_base = {**await _scope(user), **(_kind_filter(kind) or NOT_CHAT)}
     counts = {
         "total": await db.complaints.count_documents(scope_base),
         "open": await db.complaints.count_documents({**scope_base, "status": "open"}),
@@ -154,13 +169,15 @@ async def list_complaints(status: str = None, priority: str = None, category: st
         "resolved": await db.complaints.count_documents({**scope_base, "status": "resolved"}),
         "breached": await db.complaints.count_documents(
             {**scope_base, "status": {"$ne": "resolved"}, "sla_due_at": {"$lt": now}}),
+        "chat": await db.complaints.count_documents({**await _scope(user), "kind": CHAT_KIND,
+                                                     "status": {"$ne": "resolved"}}),
     }
     return {"data": serialize_doc(rows), "total": total, "counts": counts}
 
 
 @router.get("/stats")
 async def complaint_stats(user: dict = Depends(require_permission("complaints", "view"))):
-    rows = await db.complaints.find(await _scope(user), {"_id": 0}).to_list(2000)
+    rows = await db.complaints.find({**await _scope(user), **NOT_CHAT}, {"_id": 0}).to_list(2000)
     now = now_iso()
     by_cat, by_pri, res_hours, breached = {}, {}, [], 0
     for r in rows:

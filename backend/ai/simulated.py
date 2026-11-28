@@ -39,6 +39,7 @@ TRIAGE_KEYWORDS = (
     ("lokasi_fasilitas", ("lokasi", "alamat")),
     ("sapaan_umum", ("halo", "pagi", "siang")),
 )
+PORTAL_KEYWORDS = (("tagihan", "tagihan_saya"), ("progres", "progres_rumah_saya"))
 SIM_DRAFT = "[Draf simulasi, bukan AI sungguhan] Terima kasih sudah menghubungi kami. Tim kami akan membantu Anda segera."
 
 
@@ -57,6 +58,19 @@ class SimulatedClaude:
     def __init__(self, org_id: str = None):
         self.org_id = org_id
 
+    async def _portal(self, text, results, names, on_text):
+        """Agen portal tanpa kunci: 'tagihan' -> tagihan_saya, 'progres' -> progres_rumah_saya, selain itu teks jujur."""
+        if not results:
+            for kw, tool in PORTAL_KEYWORDS:
+                if kw in text and tool in names:
+                    return self._resp([_tool(tool, {})], "tool_use")
+            msg = f"{NOTICE} Coba tanyakan tagihan atau progres rumah Anda untuk melihat contoh alurnya."
+        else:
+            msg = f"{NOTICE} Data akun Anda sudah dibaca; ringkasan sebenarnya akan ditulis AI setelah kunci API dipasang."
+        if on_text:
+            await on_text(msg)
+        return self._resp([{"type": "text", "text": msg}], "end_turn")
+
     def _resp(self, content, stop):
         return {"content": content, "stop_reason": stop, "stop_details": None, "model": "simulated",
                 "usage": {"input_tokens": 0, "output_tokens": 0}}
@@ -69,6 +83,8 @@ class SimulatedClaude:
         names = {t.get("name") for t in tools or []}
         prior = [b.get("name") for m in messages if isinstance(m.get("content"), list)
                  for b in m["content"] if b.get("type") == "tool_use"]
+        if (context or {}).get("channel") == "portal":
+            return await self._portal(text, results, names, on_text)
         if results:
             if "funnel_penjualan" in prior and "buat_laporan" not in prior and "buat_laporan" in names:
                 return self._resp([_tool("buat_laporan", SAMPLE_REPORT)], "tool_use")

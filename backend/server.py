@@ -62,6 +62,7 @@ from routers.customer_hub_router import router as customer_hub_router
 from routers.financing_router import router as financing_router
 from routers.files_router import router as files_router
 from routers.portal_router import router as portal_router
+from routers.portal_ai_router import router as portal_ai_router
 from routers.complaints_router import router as complaints_router
 from routers.permits_router import router as permits_router
 from routers.field_router import router as field_router
@@ -476,6 +477,7 @@ api.include_router(customer_hub_router)
 api.include_router(financing_router)
 api.include_router(files_router)
 api.include_router(portal_router)
+api.include_router(portal_ai_router)
 api.include_router(complaints_router)
 api.include_router(permits_router)
 api.include_router(field_router)
