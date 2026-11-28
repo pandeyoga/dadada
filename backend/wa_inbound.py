@@ -146,10 +146,10 @@ async def _handle_message(org_id: str, m: dict, profile_names: dict, adapter, mo
            "status": "received",
            "context": (m.get("context") or {}).get("id"), "created_at": ts}
     await db.messages.insert_one(dict(msg))
-    await db.conversations.update_one({"id": conv["id"]}, {
-        "$set": {"last_message_at": ts, "last_direction": "in", "status": "active", "updated_at": ts,
-                 "window_expires_at": due_in(hours=24), "mode": mode},
-        "$inc": {"unread": 1}})
+    conv_set = {"last_message_at": ts, "last_direction": "in", "status": "active", "updated_at": ts, "mode": mode}
+    if channel != "unofficial":  # hanya pesan lewat kanal RESMI membuka jendela 24 jam Meta
+        conv_set["window_expires_at"] = due_in(hours=24)
+    await db.conversations.update_one({"id": conv["id"]}, {"$set": conv_set, "$inc": {"unread": 1}})
     opt_out = wcomp.detect_opt_out(desc["body"])
     contact = await wa_contacts.upsert_from_inbound(org_id, phone=phone, name=name, body=desc["body"],
                                                     conversation_id=conv["id"], lead=lead, at=ts,
@@ -164,7 +164,7 @@ async def _handle_message(org_id: str, m: dict, profile_names: dict, adapter, mo
         reg = await wcomp.register_opt_out(org_id, phone, source="inbound_keyword", conversation_id=conv["id"],
                                            note=desc["body"][:120])
         out["opt_out"] = True
-        if reg["created"]:  # konfirmasi SATU kali saja
+        if reg["created"] and channel != "unofficial":  # konfirmasi SATU kali, lewat kanal yang dipakai kontak (resmi)
             await gw.send(org_id, phone, kind="notification", body=OPT_OUT_CONFIRM, conversation_id=conv["id"],
                           actor="system", category="service")
     if not lead and not opt_out and await settings_store.get("wa.auto_capture_lead", org_id=org_id):
@@ -184,6 +184,7 @@ async def _ai_route(org_id: str, conv: dict, phone: str, message_id: str, lead: 
         kw = await consent.handle_keyword(org_id, phone, body)
         if kw == "human":
             await drafts.set_label(conv["id"], "needs_sales", "Pelanggan minta dilayani staf")
+            await wa_agent.demote_after_negative(org_id, conv["id"])  # minta manusia = sinyal negatif (spec §9.6)
             if conv.get("owner"):
                 from engine import create_notification
                 await create_notification(user_email=conv["owner"], title="Pelanggan minta dilayani staf", body=f"{phone}: {body[:100]}",

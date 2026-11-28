@@ -27,8 +27,11 @@ async def set_label(conv_id: str, status: str, detail: str = "") -> None:
     await db.conversations.update_one({"id": conv_id}, {"$set": {"ai_label": val}})
 
 
-async def labels_for(org_id: str, ids: list) -> dict:
-    rows = await db.conversations.find({"org_id": org_id, "id": {"$in": ids[:200]}}, {"_id": 0, "id": 1, "ai_label": 1}).to_list(200)
+async def labels_for(org_id: str, ids: list, owner: str = None) -> dict:
+    q = {"org_id": org_id, "id": {"$in": ids[:200]}}
+    if owner:
+        q["owner"] = owner
+    rows = await db.conversations.find(q, {"_id": 0, "id": 1, "ai_label": 1}).to_list(200)
     return {r["id"]: r["ai_label"] for r in rows if r.get("ai_label")}
 
 
@@ -40,14 +43,15 @@ async def last_inbound_channel(conv_id: str) -> str:
 
 # ---------------------------------------------------------------- buat & kirim
 async def create(org_id: str, conv: dict, *, category: str, mode: str, text: str, basis: list, flags: list = None,
-                 with_notice: bool = False, channel: str = "simulation", ai_conversation_id: str = None) -> dict:
+                 with_notice: bool = False, channel: str = "simulation", ai_conversation_id: str = None,
+                 source_message_id: str = None) -> dict:
     # draf lama yang belum diputuskan diganti draf baru (tidak dihitung dalam akurasi)
     await db.ai_drafts.update_many({"conversation_id": conv["id"], "status": "ready"}, {"$set": {"status": "superseded"}})
     d = {"id": new_id(), "org_id": org_id, "conversation_id": conv["id"], "lead_id": conv.get("lead_id"),
          "phone": conv.get("contact_phone"), "category": category, "mode": mode, "text": text, "original_text": text,
          "basis": basis, "flags": flags or [], "status": "ready", "final_text": None, "similarity": None,
          "sampled": False, "sample_review": None, "correct": None, "outcome_at": None, "with_notice": with_notice,
-         "channel": channel, "ai_conversation_id": ai_conversation_id, "at": now_iso()}
+         "channel": channel, "ai_conversation_id": ai_conversation_id, "source_message_id": source_message_id, "at": now_iso()}
     await db.ai_drafts.insert_one(dict(d))
     return d
 
@@ -92,7 +96,14 @@ async def send(draft_id: str, org_id: str, user: dict, text: str = None) -> dict
     final = (text if text is not None else d["text"]).strip()
     if not final:
         raise DraftError(400, "Teks balasan kosong.")
-    msg = await dispatch(org_id, d["conversation_id"], final, actor=user.get("email"), with_notice=d.get("with_notice", False))
+    # Klaim atomik (terbuka -> sending): dua sales/klik ganda tidak bisa mengirim draf yang sama dua kali.
+    if not await db.ai_drafts.find_one_and_update({"id": draft_id, "status": d["status"]}, {"$set": {"status": "sending"}}):
+        raise DraftError(409, "Draf ini sudah diproses.")
+    try:
+        msg = await dispatch(org_id, d["conversation_id"], final, actor=user.get("email"), with_notice=d.get("with_notice", False))
+    except Exception:
+        await db.ai_drafts.update_one({"id": draft_id, "status": "sending"}, {"$set": {"status": d["status"]}})
+        raise
     from routers.inbox_router import log_lead_activity  # jalur yang sama dengan balasan Inbox biasa
     conv = await db.conversations.find_one({"id": d["conversation_id"]}, {"_id": 0})
     await log_lead_activity(conv, msg, final, "out", user.get("email"), org_id)
@@ -161,12 +172,29 @@ async def inbox_view(org_id: str, conv: dict) -> dict:
     ins = None
     if conv.get("lead_id"):
         ins = await db.ai_lead_insights.find_one({"org_id": org_id, "lead_id": conv["lead_id"]}, {"_id": 0})
-        lead = await db.leads.find_one({"id": conv["lead_id"]}, {"_id": 0, "score": 1, "stage": 1}) or {}
+        lead = await db.leads.find_one({"id": conv["lead_id"], "org_id": org_id}, {"_id": 0, "score": 1, "stage": 1}) or {}
         if ins:
             ins = {**ins, "score": lead.get("score"), "stage": lead.get("stage"),
                    "next_step_prompt": f"Bantu saya menyiapkan langkah berikutnya untuk lead ini: {ins.get('next_step')}"}
     phone = conv.get("contact_phone")
     label = conv.get("ai_label")
+    cs = await consent.state(org_id, phone) if phone else None
     return {"draft": public(d) if d else None, "label": label, "insights": ins,
             "channel": await last_inbound_channel(conv["id"]), "window_open": gw.window_open(conv),
-            "verified": bool(phone) and await identity.is_verified(org_id, phone)}
+            "verified": bool(phone) and await identity.is_verified(org_id, phone),
+            "actions": await pending_actions(org_id, phone),
+            "optin_unofficial": (cs or {}).get("optins", {}).get("unofficial", False),
+            "optin_pending": (cs or {}).get("pending_optin") == "unofficial"}
+
+
+async def pending_actions(org_id: str, phone: str) -> list:
+    """Usulan aksi agen WA untuk kontak ini (percakapan AI milik akun layanan) — disetujui/ditolak dari Inbox."""
+    if not phone:
+        return []
+    from ai.api_views import action_view
+    ai_conv = await db.ai_conversations.find_one({"org_id": org_id, "channel": "wa", "contact.phone": phone}, {"_id": 0, "id": 1})
+    if not ai_conv:
+        return []
+    rows = await db.ai_actions.find({"org_id": org_id, "conversation_id": ai_conv["id"], "status": "pending"},
+                                    {"_id": 0}).sort("created_at", -1).to_list(20)
+    return [action_view(a) for a in rows]

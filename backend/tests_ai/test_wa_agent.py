@@ -4,7 +4,7 @@ import json
 import pytest
 
 import settings_store as ss
-from ai import accuracy, budget, consent, drafts, wa_agent
+from ai import accuracy, budget, config, consent, drafts, wa_agent
 from ai.client import set_override
 from ai.fake import FakeClaude
 from core_utils import due_in, new_id, now_iso
@@ -84,7 +84,17 @@ async def test_injection_message_no_action_no_discount():
     assert await db.messages.count_documents({"conversation_id": conv["id"], "direction": "out"}) == 0
 
 
-async def test_auto_mode_sends_on_official_only():
+@pytest.fixture
+def live(monkeypatch):
+    """Mode efektif `live` (FakeClaude tetap dipakai lewat override) — kirim otomatis hanya berlaku di live."""
+    real = config.get_ai_settings
+
+    async def _live(org_id=ORG):
+        return {**(await real(org_id)), "effective_mode": "live"}
+    monkeypatch.setattr(config, "get_ai_settings", _live)
+
+
+async def test_auto_mode_sends_on_official_only(live):
     await _seed("stok_harga", 50)
     await _modes(stok_harga="auto")
     # kanal resmi + jendela terbuka -> terkirim otomatis oleh ai-auto
@@ -152,3 +162,29 @@ async def test_unverified_billing_question_offers_verification():
     d = await db.ai_drafts.find_one({"id": res["draft_id"]})
     assert "4 digit terakhir NIK" in d["text"] and "Rp" not in d["text"]
     assert (await db.conversations.find_one({"id": conv["id"]}))["ai_pending_verify"]["category"] == "tagihan_pembayaran"
+
+
+async def test_auto_requires_live_mode():
+    """Mode simulasi (atau kunci tak terbaca): kategori yang lolos gerbang akurasi tetap hanya draf."""
+    await _seed("stok_harga", 50)
+    await _modes(stok_harga="auto")
+    conv, job = await _job(channel="cloud")
+    set_override(FakeClaude([_tri("stok_harga"), _txt("Tipe 36 tersedia.")]))
+    res = await wa_agent.process_job(job)
+    assert res["status"] == "draft" and "live" in res["auto_blocked"]
+    assert await db.messages.count_documents({"conversation_id": conv["id"], "direction": "out"}) == 0
+
+
+async def test_refusal_or_api_error_hands_off_to_sales(live):
+    """Penolakan model / galat API (429) tidak pernah menjadi draf atau balasan otomatis: serahkan ke sales."""
+    from ai.client import ClaudeError
+    await _seed("stok_harga", 50)
+    await _modes(stok_harga="auto")
+    for resp in ({"content": [], "stop_reason": "refusal"}, ClaudeError("rate_limit", "slow", 7.0, 429)):
+        conv, job = await _job(channel="cloud")
+        set_override(FakeClaude([_tri("stok_harga"), resp]))
+        res = await wa_agent.process_job(job)
+        assert res["status"] == "error", res
+        assert (await db.conversations.find_one({"id": conv["id"]}))["ai_label"]["status"] == "needs_sales"
+        assert await db.ai_drafts.count_documents({"conversation_id": conv["id"]}) == 0
+        assert await db.messages.count_documents({"conversation_id": conv["id"], "direction": "out"}) == 0

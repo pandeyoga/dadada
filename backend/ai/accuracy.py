@@ -16,6 +16,7 @@ from db import db, ORG_ID
 logger = logging.getLogger("estora.ai.accuracy")
 SIMILAR = 0.9
 LOCKED_REASON = "Kategori ini selalu diserahkan ke sales."
+TEMPLATE_BASIS = "Verifikasi identitas"  # draf templat tetap (pertanyaan verifikasi): tidak dihitung dalam akurasi
 
 
 def similarity(a: str, b: str) -> float:
@@ -47,7 +48,8 @@ async def stats(org_id: str, category: str) -> dict:
     days = int(await ss.get("ai.accuracy_window_days", org_id=org_id))
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     rows = await db.ai_drafts.aggregate([
-        {"$match": {"org_id": org_id, "category": category, "correct": {"$in": [True, False]}, "outcome_at": {"$gte": since}}},
+        {"$match": {"org_id": org_id, "category": category, "correct": {"$in": [True, False]}, "outcome_at": {"$gte": since},
+                    "basis": {"$ne": TEMPLATE_BASIS}}},
         {"$group": {"_id": "$correct", "n": {"$sum": 1}}}]).to_list(2)
     n = {bool(r["_id"]): r["n"] for r in rows}
     total = n.get(True, 0) + n.get(False, 0)

@@ -200,6 +200,8 @@ async def lifespan(app: FastAPI):
     await db.wa_outbox.create_index([("org_id", 1), ("status", 1), ("not_before", 1)])
     await db.wa_webhook_events.create_index([("received_at", -1)], expireAfterSeconds=30 * 86400)
     await db.wa_doc_shares.create_index([("org_id", 1), ("entity_type", 1), ("entity_id", 1)])
+    from ai import indexes as _ai_ix  # Estora AI: indeks koleksi ai_* (spec §8.5)
+    await _ai_ix.ensure_indexes()
     mig = await run_migrations()
     if mig["enums"] or mig["denorm"]:
         logger.info("Migrasi data: %s nilai enum dikanonikalisasi, %s field kopi disinkronkan.",
