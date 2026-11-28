@@ -81,7 +81,7 @@ async def get_config(org_id: str = ORG_ID) -> dict:
         creds[k], sources[k] = val, src
     mode = ch.get("mode") or "simulation"
     live_ready = bool(creds["token"] and creds["phone_id"])
-    return {"mode": mode, "effective_mode": "live" if mode == "live" and live_ready else "simulation",
+    return {"mode": mode, "channel_mode": ch.get("channel_mode") or "cloud", "effective_mode": "live" if mode == "live" and live_ready else "simulation",
             "live_ready": live_ready, "creds": creds, "sources": sources, "channel": ch,
             "is_active": ch.get("is_active", True)}
 
@@ -113,6 +113,7 @@ async def note_webhook(org_id: str, *, signature_ok, kind: str) -> None:
 # ------------------------------------------------------------------ adapter
 class SimulationAdapter:
     mode = "simulation"
+    channel = "simulation"
 
     async def send(self, payload: dict) -> dict:
         logger.info("[SIM WhatsApp] to=%s type=%s", payload.get("to"), payload.get("type"))
@@ -126,6 +127,7 @@ class SimulationAdapter:
 
 class MetaCloudAdapter:
     mode = "live"
+    channel = "cloud"
 
     def __init__(self, creds: dict, transport=None):
         self.token, self.phone_id, self.waba_id = creds["token"], creds["phone_id"], creds.get("waba_id")
@@ -219,10 +221,9 @@ class MetaCloudAdapter:
 
 
 async def adapter_for(org_id: str = ORG_ID):
-    cfg = await get_config(org_id)
-    if cfg["effective_mode"] == "live":
-        return MetaCloudAdapter(cfg["creds"]), cfg
-    return SimulationAdapter(), cfg
+    """Adapter kanal RESMI (cloud / coexistence / simulasi) — dipilih oleh `wa_channels`."""
+    import wa_channels
+    return await wa_channels.official_adapter(org_id)
 
 
 # ------------------------------------------------------------------ kirim
@@ -308,7 +309,8 @@ async def send(org_id: str, to: str, *, kind: str, body: str = None, template: d
         "id": new_id(), "org_id": org_id, "conversation_id": conversation_id, "direction": "out",
         "body": text, "sender": actor, "is_template": bool(template),
         "template_id": (template or {}).get("id"), "template_code": (template or {}).get("code"),
-        "kind": kind, "category": category, "to": dest or to, "mode": adapter.mode, "ref": ref or {},
+        "kind": kind, "category": category, "to": dest or to, "mode": adapter.mode,
+        "channel": getattr(adapter, "channel", "simulation"), "ref": ref or {},
         "document": document, "created_at": ts, "status_at": ts, "warning": None,
     }
     if not dest:

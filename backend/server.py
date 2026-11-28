@@ -42,6 +42,8 @@ from routers.inbox_router import router as inbox_router
 from routers.deals_router import router as deals_router
 from routers.documents_router import router as documents_router
 from routers.webhooks_router import router as webhooks_router
+from routers.wa_gateway_webhook_router import router as wa_gateway_webhook_router
+from routers.ai_channels_router import router as ai_channels_router
 from routers.capture_router import router as capture_router
 from routers.projects_router import router as projects_router
 from routers.construction_router import router as construction_router
@@ -450,6 +452,8 @@ api.include_router(inbox_router)
 api.include_router(deals_router)
 api.include_router(documents_router)
 api.include_router(webhooks_router)
+api.include_router(wa_gateway_webhook_router)
+api.include_router(ai_channels_router)
 api.include_router(capture_router)
 api.include_router(projects_router)
 api.include_router(construction_router)
